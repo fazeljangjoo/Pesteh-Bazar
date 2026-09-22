@@ -22,6 +22,23 @@ jobs:
       - name: Generate Android files
         run: flutter create --platforms=android --project-name pesteh_bazar .
 
+      - name: Add notification permissions
+        run: |
+          python3 - <<'PYEOF'
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          perms = (
+              '    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>\n'
+              '    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM"/>\n'
+              '    <uses-permission android:name="android.permission.USE_EXACT_ALARM"/>\n'
+              '    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED"/>\n'
+          )
+          content = content.replace('<application', perms + '    <application', 1)
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          PYEOF
+
       - run: flutter pub get
 
       - run: flutter build apk --release
