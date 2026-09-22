@@ -35,9 +35,6 @@ class SalesScreen extends StatelessWidget {
                 final net = (sale['net_weight'] as num).toDouble();
                 final price = (sale['price'] as num).toDouble();
                 final revenue = net * price;
-                final cost = items.fold<double>(0,
-                    (a, it) => a + (it['weight'] as num) * (it['cost_price'] as num));
-                final profit = revenue - cost;
                 final comp = items
                     .map((it) => '${it['type_name']} ${faNum(it['weight'] as num)}')
                     .join(' + ');
@@ -50,7 +47,7 @@ class SalesScreen extends StatelessWidget {
                         Row(children: [
                           Expanded(
                             child: Text(
-                              '${jalaliDate(sale['date'])}'
+                              '${jalaliDate(sale['date'] as String)}'
                               '${sale['buyer'] != null ? '  •  ${sale['buyer']}' : ''}',
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
@@ -69,9 +66,10 @@ class SalesScreen extends StatelessWidget {
                         const SizedBox(height: 8),
                         infoRow('وزن کل / خالص',
                             '${faNum(sale['total_weight'] as num)} / ${faNum(net)} کیلو'),
+                        infoRow('گونی کوچک / بزرگ',
+                            '${faNum(sale['small_sack_count'] as num)} / ${faNum(sale['large_sack_count'] as num)}'),
                         infoRow('فی فروش', '${faNum(price, dec: 0)} تومان'),
                         infoRow('مبلغ فروش', '${faNum(revenue, dec: 0)} تومان'),
-                        infoRow('سود / زیان', '${faNum(profit, dec: 0)} تومان'),
                       ],
                     ),
                   ),

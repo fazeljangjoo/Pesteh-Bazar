@@ -18,8 +18,8 @@ class _SaleFormState extends State<SaleForm> {
   bool _loading = true;
 
   final _price = TextEditingController();
-  final _sackCount = TextEditingController(text: '1');
-  final _sackWeight = TextEditingController(text: '0');
+  final _smallSack = TextEditingController(text: '0');
+  final _largeSack = TextEditingController(text: '0');
   final _buyer = TextEditingController();
   final _note = TextEditingController();
 
@@ -45,10 +45,8 @@ class _SaleFormState extends State<SaleForm> {
 
   double _w(int id) => (_sel[id] ?? false) ? (parseNum(_kg[id]!.text) ?? 0) : 0;
   double get _net => _lots.fold(0.0, (s, e) => s + _w(e['id'] as int));
-  double get _cost => _lots.fold(
-      0.0, (s, e) => s + _w(e['id'] as int) * (e['price'] as num).toDouble());
   double get _tare =>
-      (parseNum(_sackCount.text) ?? 0) * (parseNum(_sackWeight.text) ?? 0);
+      (parseNum(_smallSack.text) ?? 0) * 0.1 + (parseNum(_largeSack.text) ?? 0) * 0.2;
   double get _revenue => _net * (parseNum(_price.text) ?? 0);
 
   Future<void> _save() async {
@@ -69,8 +67,8 @@ class _SaleFormState extends State<SaleForm> {
         'date': DateTime.now().toIso8601String(),
         'price': parseNum(_price.text),
         'total_weight': _net + _tare,
-        'sack_count': parseNum(_sackCount.text) ?? 0,
-        'sack_weight': parseNum(_sackWeight.text) ?? 0,
+        'small_sack_count': parseNum(_smallSack.text) ?? 0,
+        'large_sack_count': parseNum(_largeSack.text) ?? 0,
         'net_weight': _net,
         'buyer': _buyer.text.trim().isEmpty ? null : _buyer.text.trim(),
         'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
@@ -100,14 +98,14 @@ class _SaleFormState extends State<SaleForm> {
                       const SizedBox(height: 8),
                       sectionTitle(context, 'قیمت و وزن فروش'),
                       numField(_price, 'فی فروش (تومان به ازای هر کیلو)',
-                          required: true, onChanged: () => setState(() {})),
+                          required: true, thousands: true, onChanged: () => setState(() {})),
                       Row(children: [
                         Expanded(
-                            child: numField(_sackCount, 'تعداد گونی',
+                            child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰گ)',
                                 onChanged: () => setState(() {}))),
                         const SizedBox(width: 8),
                         Expanded(
-                            child: numField(_sackWeight, 'وزن هر گونی (کیلو)',
+                            child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰گ)',
                                 onChanged: () => setState(() {}))),
                       ]),
                       _summary(context),
@@ -135,9 +133,9 @@ class _SaleFormState extends State<SaleForm> {
           controlAffinity: ListTileControlAffinity.leading,
           value: _sel[id],
           onChanged: (v) => setState(() => _sel[id] = v ?? false),
-          title: Text('${kCategories[e['category']]} - ${e['type_name']}'),
+          title: Text('${e['category_name']} - ${e['type_name']}'),
           subtitle: Text(
-              'خرید ${jalaliDate(e['date'])}  •  فی ${faNum(e['price'] as num, dec: 0)}\n'
+              'خرید ${jalaliDate(e['date'] as String)}  •  فی ${faNum(e['price'] as num, dec: 0)}\n'
               'موجودی ${faNum(rem)} کیلو'),
           isThreeLine: true,
         ),
@@ -173,14 +171,13 @@ class _SaleFormState extends State<SaleForm> {
   }
 
   Widget _summary(BuildContext context) {
-    final profit = _revenue - _cost;
     final parts = <Widget>[];
     if (_net > 0) {
       for (final e in _lots) {
         final id = e['id'] as int;
         final w = _w(id);
         if (w > 0) {
-          parts.add(infoRow('${e['type_name']} (${kCategories[e['category']]})',
+          parts.add(infoRow('${e['type_name']} (${e['category_name']})',
               '${faNum(w)} کیلو • ${faNum(w / _net * 100, dec: 1)}٪'));
         }
       }
@@ -196,8 +193,6 @@ class _SaleFormState extends State<SaleForm> {
           infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
           infoRow('وزن کل', '${faNum(_net + _tare)} کیلو'),
           infoRow('مبلغ فروش', '${faNum(_revenue, dec: 0)} تومان'),
-          infoRow('بهای خرید', '${faNum(_cost, dec: 0)} تومان'),
-          infoRow('سود / زیان', '${faNum(profit, dec: 0)} تومان'),
         ]),
       ),
     );

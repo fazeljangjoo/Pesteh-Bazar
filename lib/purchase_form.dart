@@ -15,70 +15,134 @@ class PurchaseForm extends StatefulWidget {
   State<PurchaseForm> createState() => _PurchaseFormState();
 }
 
+class _CustomSpecRow {
+  final TextEditingController label = TextEditingController();
+  final TextEditingController value = TextEditingController();
+}
+
 class _PurchaseFormState extends State<PurchaseForm> {
   final _form = GlobalKey<FormState>();
-  String _cat = 'dombest';
-  int? _typeId;
+
+  List<Map<String, dynamic>> _categories = [];
+  int? _categoryId;
+  bool _loadingCats = true;
+
   List<Map<String, dynamic>> _types = [];
+  int? _typeId;
+  final _customTypeCtrl = TextEditingController();
+
   String? _photo;
 
   final _ounce = TextEditingController();
   final _price = TextEditingController();
   final _total = TextEditingController();
-  final _sackCount = TextEditingController(text: '1');
-  final _sackWeight = TextEditingController(text: '0');
+  final _smallSack = TextEditingController(text: '0');
+  final _largeSack = TextEditingController(text: '0');
+
   final _gram = TextEditingController();
   final _pctKhandan = TextEditingController(); // درصد خندان در دنبست
   final _pctDombest = TextEditingController(); // درصد دنبست در خندان
   final _pctTuchin = TextEditingController();
   final _pctCrooked = TextEditingController();
+
+  final List<_CustomSpecRow> _customSpecs = [];
+
   final _seller = TextEditingController();
   final _note = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _loadTypes();
+    _loadCategories();
   }
 
-  List<Map<String, dynamic>> _typesOf(String c) =>
-      _types.where((t) => t['category'] == c).toList();
+  Map<String, dynamic>? get _selectedCategory {
+    if (_categoryId == null) return null;
+    try {
+      return _categories.firstWhere((c) => c['id'] == _categoryId);
+    } catch (_) {
+      return null;
+    }
+  }
 
-  Future<void> _loadTypes({int? select}) async {
-    final t = await AppDb.I.types();
+  String? get _presetKey => _selectedCategory?['preset_key'] as String?;
+  bool get _isPreset => _presetKey != null;
+
+  Future<void> _loadCategories({int? select}) async {
+    final list = await AppDb.I.categories();
     if (!mounted) return;
     setState(() {
-      _types = t;
-      final list = _typesOf(_cat);
+      _categories = list;
+      _categoryId = select ?? (list.isNotEmpty ? list.first['id'] as int : null);
+      _loadingCats = false;
+    });
+    if (_categoryId != null) await _loadTypes();
+  }
+
+  Future<void> _loadTypes({int? select}) async {
+    if (_categoryId == null || !_isPreset) {
+      setState(() {
+        _types = [];
+        _typeId = null;
+      });
+      return;
+    }
+    final list = await AppDb.I.typesOf(_categoryId!);
+    if (!mounted) return;
+    setState(() {
+      _types = list;
       _typeId = select ?? (list.isNotEmpty ? list.first['id'] as int : null);
     });
   }
 
   double get _tare =>
-      (parseNum(_sackCount.text) ?? 0) * (parseNum(_sackWeight.text) ?? 0);
+      (parseNum(_smallSack.text) ?? 0) * 0.1 + (parseNum(_largeSack.text) ?? 0) * 0.2;
   double get _net => (parseNum(_total.text) ?? 0) - _tare;
 
-  Future<void> _addType() async {
+  Future<void> _addCategory() async {
     final c = TextEditingController();
     final name = await showDialog<String>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: Text('افزودن نوع جدید به «${kCategories[_cat]}»'),
-        content: TextField(
-          controller: c,
-          autofocus: true,
-          decoration: const InputDecoration(labelText: 'نام نوع'),
-        ),
+        title: const Text('افزودن دسته جدید'),
+        content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(labelText: 'نام دسته')),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('انصراف')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('افزودن')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('افزودن')),
         ],
       ),
     );
     if (name == null || name.isEmpty) return;
-    final id = await AppDb.I.addType(_cat, name);
+    final id = await AppDb.I.addCategory(name);
+    await _loadCategories(select: id);
+  }
+
+  Future<void> _addType() async {
+    if (_categoryId == null) return;
+    final c = TextEditingController();
+    final name = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('افزودن نوع جدید به «${_selectedCategory?['name']}»'),
+        content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(labelText: 'نام نوع')),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('انصراف')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('افزودن')),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    final id = await AppDb.I.addType(_categoryId!, name);
     await _loadTypes(select: id);
+  }
+
+  void _addCustomSpec() {
+    if (_customSpecs.length >= kMaxCustomSpecs) return;
+    setState(() => _customSpecs.add(_CustomSpecRow()));
+  }
+
+  void _removeCustomSpec(int i) {
+    setState(() => _customSpecs.removeAt(i));
   }
 
   Future<void> _pick(ImageSource src) async {
@@ -127,31 +191,57 @@ class _PurchaseFormState extends State<PurchaseForm> {
 
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
-    if (_typeId == null) {
-      snack(context, 'نوع پسته را انتخاب کنید');
+    if (_categoryId == null) {
+      snack(context, 'دسته را انتخاب کنید');
       return;
+    }
+    String typeName;
+    if (_isPreset) {
+      if (_typeId == null) {
+        snack(context, 'نوع پسته را انتخاب کنید');
+        return;
+      }
+      typeName = (_types.firstWhere((t) => t['id'] == _typeId)['name']) as String;
+    } else {
+      typeName = _customTypeCtrl.text.trim();
+      if (typeName.isEmpty) {
+        snack(context, 'نوع پسته را وارد کنید');
+        return;
+      }
     }
     if (_net <= 0) {
       snack(context, 'وزن خالص باید بیشتر از صفر باشد');
       return;
     }
-    final isDom = _cat == 'dombest';
-    final isKha = _cat == 'khandan';
+
+    final preset = _presetKey;
+    List<Map<String, String>>? customSpecs;
+    if (preset != 'dombest' && preset != 'khandan') {
+      customSpecs = _customSpecs
+          .where((r) => r.label.text.trim().isNotEmpty)
+          .map((r) => {'label': r.label.text.trim(), 'value': r.value.text.trim()})
+          .toList();
+    }
+
     await AppDb.I.insertPurchase({
-      'type_id': _typeId,
+      'category_id': _categoryId,
+      'type_name': typeName,
       'date': DateTime.now().toIso8601String(),
       'photo': _photo,
       'ounce': parseNum(_ounce.text),
       'price': parseNum(_price.text),
       'total_weight': parseNum(_total.text),
-      'sack_count': parseNum(_sackCount.text) ?? 0,
-      'sack_weight': parseNum(_sackWeight.text) ?? 0,
+      'small_sack_count': parseNum(_smallSack.text) ?? 0,
+      'large_sack_count': parseNum(_largeSack.text) ?? 0,
       'net_weight': _net,
-      'gram': isDom ? parseNum(_gram.text) : null,
-      'pct_khandan': isDom ? parseNum(_pctKhandan.text) : null,
-      'pct_dombest': isKha ? parseNum(_pctDombest.text) : null,
-      'pct_tuchin': isKha ? parseNum(_pctTuchin.text) : null,
-      'pct_crooked': (isDom || isKha) ? parseNum(_pctCrooked.text) : null,
+      'gram': preset == 'dombest' ? parseNum(_gram.text) : null,
+      'pct_khandan': preset == 'dombest' ? parseNum(_pctKhandan.text) : null,
+      'pct_dombest': preset == 'khandan' ? parseNum(_pctDombest.text) : null,
+      'pct_tuchin': preset == 'khandan' ? parseNum(_pctTuchin.text) : null,
+      'pct_crooked': (preset == 'dombest' || preset == 'khandan') ? parseNum(_pctCrooked.text) : null,
+      'custom_specs': customSpecs != null && customSpecs.isNotEmpty
+          ? AppDb.encodeCustomSpecs(customSpecs)
+          : null,
       'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
       'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
     });
@@ -160,7 +250,10 @@ class _PurchaseFormState extends State<PurchaseForm> {
 
   @override
   Widget build(BuildContext context) {
-    final list = _typesOf(_cat);
+    if (_loadingCats) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+    final preset = _presetKey;
     return Scaffold(
       appBar: AppBar(title: const Text('خرید جدید')),
       body: Form(
@@ -168,54 +261,51 @@ class _PurchaseFormState extends State<PurchaseForm> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            sectionTitle(context, 'نوع پسته'),
-            DropdownButtonFormField<String>(
-              value: _cat,
-              decoration: const InputDecoration(labelText: 'دسته', border: OutlineInputBorder()),
-              items: kCategories.entries
-                  .map((e) => DropdownMenuItem(value: e.key, child: Text(e.value)))
-                  .toList(),
-              onChanged: (v) {
-                if (v == null) return;
-                setState(() {
-                  _cat = v;
-                  final l = _typesOf(v);
-                  _typeId = l.isNotEmpty ? l.first['id'] as int : null;
-                });
-              },
-            ),
-            const SizedBox(height: 12),
+            sectionTitle(context, 'دسته و نوع پسته'),
             Row(children: [
               Expanded(
                 child: DropdownButtonFormField<int>(
-                  key: ValueKey('$_cat-$_typeId'),
-                  value: _typeId,
-                  decoration:
-                      const InputDecoration(labelText: 'نوع', border: OutlineInputBorder()),
-                  items: list
-                      .map((t) =>
-                          DropdownMenuItem(value: t['id'] as int, child: Text(t['name'] as String)))
+                  value: _categoryId,
+                  decoration: const InputDecoration(labelText: 'دسته', border: OutlineInputBorder()),
+                  items: _categories
+                      .map((c) => DropdownMenuItem(value: c['id'] as int, child: Text(c['name'] as String)))
                       .toList(),
-                  onChanged: (v) => setState(() => _typeId = v),
+                  onChanged: (v) async {
+                    if (v == null) return;
+                    setState(() => _categoryId = v);
+                    await _loadTypes();
+                  },
                 ),
               ),
               const SizedBox(width: 8),
-              IconButton.filledTonal(
-                onPressed: _addType,
-                icon: const Icon(Icons.add),
-                tooltip: 'افزودن نوع جدید',
-              ),
+              IconButton.filledTonal(onPressed: _addCategory, icon: const Icon(Icons.add), tooltip: 'افزودن دسته'),
             ]),
+            const SizedBox(height: 12),
+            if (_isPreset)
+              Row(children: [
+                Expanded(
+                  child: DropdownButtonFormField<int>(
+                    key: ValueKey('$_categoryId-$_typeId'),
+                    value: _typeId,
+                    decoration: const InputDecoration(labelText: 'نوع', border: OutlineInputBorder()),
+                    items: _types
+                        .map((t) => DropdownMenuItem(value: t['id'] as int, child: Text(t['name'] as String)))
+                        .toList(),
+                    onChanged: (v) => setState(() => _typeId = v),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                IconButton.filledTonal(onPressed: _addType, icon: const Icon(Icons.add), tooltip: 'افزودن نوع'),
+              ])
+            else
+              textField(_customTypeCtrl, 'نوع پسته', required: true),
             const SizedBox(height: 16),
             sectionTitle(context, 'عکس نمونه (اختیاری)'),
             InkWell(
               onTap: _photoSheet,
               child: Container(
                 height: 140,
-                decoration: BoxDecoration(
-                  border: Border.all(color: Colors.black26),
-                  borderRadius: BorderRadius.circular(8),
-                ),
+                decoration: BoxDecoration(border: Border.all(color: Colors.black26), borderRadius: BorderRadius.circular(8)),
                 clipBehavior: Clip.antiAlias,
                 child: _photo == null
                     ? const Center(child: Icon(Icons.add_a_photo_outlined, size: 36))
@@ -224,17 +314,15 @@ class _PurchaseFormState extends State<PurchaseForm> {
             ),
             const SizedBox(height: 16),
             sectionTitle(context, 'قیمت و وزن'),
-            numField(_ounce, 'انس پسته'),
-            numField(_price, 'فی خرید (تومان به ازای هر کیلو)', required: true),
-            numField(_total, 'وزن کل (کیلو)',
-                required: true, onChanged: () => setState(() {})),
+            numField(_ounce, 'انس پسته (اختیاری)'),
+            numField(_price, 'فی خرید (تومان به ازای هر کیلو)', required: true, thousands: true),
+            numField(_total, 'وزن کل (کیلو)', required: true, onChanged: () => setState(() {})),
             Row(children: [
               Expanded(
-                  child: numField(_sackCount, 'تعداد گونی', onChanged: () => setState(() {}))),
+                  child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', onChanged: () => setState(() {}))),
               const SizedBox(width: 8),
               Expanded(
-                  child: numField(_sackWeight, 'وزن هر گونی (کیلو)',
-                      onChanged: () => setState(() {}))),
+                  child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰ گرم)', onChanged: () => setState(() {}))),
             ]),
             Card(
               color: Theme.of(context).colorScheme.primaryContainer,
@@ -248,27 +336,62 @@ class _PurchaseFormState extends State<PurchaseForm> {
               ),
             ),
             const SizedBox(height: 16),
-            if (_cat == 'dombest') ...[
+            if (preset == 'dombest') ...[
               sectionTitle(context, 'مشخصات پسته دنبست'),
               numField(_gram, 'گرم'),
               numField(_pctKhandan, 'درصد پسته خندان در دنبست', suffix: '٪', max: 100),
               numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
-            ],
-            if (_cat == 'khandan') ...[
+            ] else if (preset == 'khandan') ...[
               sectionTitle(context, 'مشخصات پسته خندان'),
               numField(_pctDombest, 'درصد دنبست در پسته خندان', suffix: '٪', max: 100),
               numField(_pctTuchin, 'درصد توچین', suffix: '٪', max: 100),
               numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
+            ] else ...[
+              Row(children: [
+                Expanded(child: sectionTitle(context, 'مشخصات (حداکثر ۴ مورد دلخواه)')),
+                if (_customSpecs.length < kMaxCustomSpecs)
+                  IconButton(onPressed: _addCustomSpec, icon: const Icon(Icons.add_circle_outline)),
+              ]),
+              for (var i = 0; i < _customSpecs.length; i++)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(children: [
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        controller: _customSpecs[i].label,
+                        decoration: const InputDecoration(labelText: 'عنوان', border: OutlineInputBorder()),
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      flex: 3,
+                      child: TextField(
+                        controller: _customSpecs[i].value,
+                        decoration: const InputDecoration(labelText: 'مقدار', border: OutlineInputBorder()),
+                      ),
+                    ),
+                    IconButton(
+                      onPressed: () => _removeCustomSpec(i),
+                      icon: const Icon(Icons.close, size: 20),
+                    ),
+                  ]),
+                ),
+              if (_customSpecs.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: _addCustomSpec,
+                    icon: const Icon(Icons.add),
+                    label: const Text('افزودن مشخصه'),
+                  ),
+                ),
             ],
             sectionTitle(context, 'سایر'),
             textField(_seller, 'فروشنده (اختیاری)'),
             textField(_note, 'توضیحات (اختیاری)', lines: 2),
             const SizedBox(height: 8),
-            FilledButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.check),
-              label: const Text('ثبت خرید'),
-            ),
+            FilledButton.icon(onPressed: _save, icon: const Icon(Icons.check), label: const Text('ثبت خرید')),
             const SizedBox(height: 24),
           ],
         ),

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'payment_screen.dart';
 import 'purchase_form.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -12,20 +13,25 @@ class PurchasesScreen extends StatelessWidget {
 
   void _details(BuildContext context, Map<String, dynamic> p) {
     String? pct(String k) => p[k] == null ? null : '${faNum(p[k] as num)}٪';
+    final preset = p['category_preset'] as String?;
+    final customSpecs = AppDb.decodeCustomSpecs(p['custom_specs'] as String?);
     final rows = <List<String>>[
-      ['تاریخ', jalaliDate(p['date'])],
+      ['تاریخ', jalaliDate(p['date'] as String)],
       if (p['seller'] != null) ['فروشنده', p['seller']],
       if (p['ounce'] != null) ['انس', faNum(p['ounce'] as num)],
       ['فی خرید', '${faNum(p['price'] as num, dec: 0)} تومان'],
       ['وزن کل', '${faNum(p['total_weight'] as num)} کیلو'],
-      ['گونی', '${faNum(p['sack_count'] as num)} عدد × ${faNum(p['sack_weight'] as num)} کیلو'],
+      ['گونی کوچک (۱۰۰گ) / بزرگ (۲۰۰گ)',
+          '${faNum(p['small_sack_count'] as num)} / ${faNum(p['large_sack_count'] as num)}'],
       ['وزن خالص', '${faNum(p['net_weight'] as num)} کیلو'],
       ['مانده در انبار', '${faNum(p['remaining'] as num)} کیلو'],
-      if (p['gram'] != null) ['گرم', faNum(p['gram'] as num)],
-      if (pct('pct_khandan') != null) ['درصد خندان در دنبست', pct('pct_khandan')!],
-      if (pct('pct_dombest') != null) ['درصد دنبست در خندان', pct('pct_dombest')!],
-      if (pct('pct_tuchin') != null) ['درصد توچین', pct('pct_tuchin')!],
-      if (pct('pct_crooked') != null) ['درصد کج / ناخالص', pct('pct_crooked')!],
+      if (preset == 'dombest' && p['gram'] != null) ['گرم', faNum(p['gram'] as num)],
+      if (preset == 'dombest' && pct('pct_khandan') != null) ['درصد خندان در دنبست', pct('pct_khandan')!],
+      if (preset == 'khandan' && pct('pct_dombest') != null) ['درصد دنبست در خندان', pct('pct_dombest')!],
+      if (preset == 'khandan' && pct('pct_tuchin') != null) ['درصد توچین', pct('pct_tuchin')!],
+      if ((preset == 'dombest' || preset == 'khandan') && pct('pct_crooked') != null)
+        ['درصد کج / ناخالص', pct('pct_crooked')!],
+      for (final s in customSpecs) [s['label'] ?? '', s['value'] ?? ''],
       if (p['note'] != null) ['توضیحات', p['note']],
     ];
     showModalBottomSheet(
@@ -38,7 +44,7 @@ class PurchasesScreen extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('${kCategories[p['category']]} - ${p['type_name']}',
+              Text('${p['category_name']} - ${p['type_name']}',
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
               if (p['photo'] != null && File(p['photo']).existsSync())
@@ -49,6 +55,23 @@ class PurchasesScreen extends StatelessWidget {
                 ),
               const SizedBox(height: 8),
               for (final r in rows) infoRow(r[0], r[1]),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => PaymentScreen(
+                        purchaseId: p['id'] as int,
+                        purchaseLabel: '${p['category_name']} - ${p['type_name']}',
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.payments_outlined),
+                label: const Text('مدیریت پرداخت'),
+              ),
             ],
           ),
         ),
@@ -91,9 +114,9 @@ class PurchasesScreen extends StatelessWidget {
                             child: Image.file(File(photo), width: 52, height: 52, fit: BoxFit.cover),
                           )
                         : const CircleAvatar(child: Icon(Icons.grass)),
-                    title: Text('${kCategories[p['category']]} - ${p['type_name']}'),
+                    title: Text('${p['category_name']} - ${p['type_name']}'),
                     subtitle: Text(
-                        '${jalaliDate(p['date'])}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
+                        '${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
                         'فی ${faNum(p['price'] as num, dec: 0)} تومان'),
                     isThreeLine: true,
                     trailing: PopupMenuButton<String>(

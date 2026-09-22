@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+
 /// تبدیل ارقام فارسی/عربی به انگلیسی و پاکسازی جداکننده‌ها
 String toEnDigits(String s) {
   const fa = '۰۱۲۳۴۵۶۷۸۹';
@@ -52,6 +54,35 @@ String plain(num v) {
   return s;
 }
 
+/// فرمت‌کننده زنده اعداد با جداکننده هزارگان هنگام تایپ (برای فیلد قیمت)
+class ThousandsInputFormatter extends TextInputFormatter {
+  @override
+  TextEditingValue formatEditUpdate(
+      TextEditingValue oldValue, TextEditingValue newValue) {
+    final digits =
+        toEnDigits(newValue.text).replaceAll(RegExp(r'[^0-9.]'), '');
+    if (digits.isEmpty) {
+      return newValue.copyWith(text: '');
+    }
+    final firstDot = digits.indexOf('.');
+    var intPart = firstDot == -1 ? digits : digits.substring(0, firstDot);
+    var decPart = firstDot == -1 ? '' : digits.substring(firstDot);
+    // فقط یک نقطه اعشار مجاز است
+    decPart = decPart.isEmpty ? '' : '.${decPart.substring(1).replaceAll('.', '')}';
+    intPart = intPart.replaceFirst(RegExp(r'^0+(?=\d)'), '');
+    final buf = StringBuffer();
+    for (var i = 0; i < intPart.length; i++) {
+      if (i > 0 && (intPart.length - i) % 3 == 0) buf.write(',');
+      buf.write(intPart[i]);
+    }
+    final formatted = '$buf$decPart';
+    return TextEditingValue(
+      text: formatted,
+      selection: TextSelection.collapsed(offset: formatted.length),
+    );
+  }
+}
+
 List<int> gregorianToJalali(int gy, int gm, int gd) {
   const gdm = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
   final gy2 = gm > 2 ? gy + 1 : gy;
@@ -75,9 +106,31 @@ List<int> gregorianToJalali(int gy, int gm, int gd) {
   return [jy, jm, jd];
 }
 
+/// (سال، ماه، روز) شمسی به میلادی تقریبی برای DateTime (ساعت 12 ظهر برای جلوگیری از خطای منطقه زمانی)
+DateTime jalaliToGregorian(int jy, int jm, int jd) {
+  final gy = jy + 621;
+  // الگوریتم ساده تبدیل با جستجوی تدریجی (دقیق کافی برای این کاربرد)
+  var gDate = DateTime(gy, 3, 21);
+  // تعداد روز از ابتدای سال شمسی
+  var dayOfYear = 0;
+  if (jm <= 6) {
+    dayOfYear = (jm - 1) * 31 + jd;
+  } else {
+    dayOfYear = 6 * 31 + (jm - 7) * 30 + jd;
+  }
+  return gDate.add(Duration(days: dayOfYear - 1));
+}
+
 /// تاریخ شمسی از رشته ISO
 String jalaliDate(String iso) {
   final d = DateTime.parse(iso);
+  final j = gregorianToJalali(d.year, d.month, d.day);
+  final m = j[1].toString().padLeft(2, '0');
+  final day = j[2].toString().padLeft(2, '0');
+  return toFaDigits('${j[0]}/$m/$day');
+}
+
+String jalaliDateFromDt(DateTime d) {
   final j = gregorianToJalali(d.year, d.month, d.day);
   final m = j[1].toString().padLeft(2, '0');
   final day = j[2].toString().padLeft(2, '0');

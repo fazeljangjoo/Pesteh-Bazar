@@ -22,13 +22,15 @@ class InventoryScreen extends StatelessWidget {
 
             // دسته -> نوع -> بارها
             final Map<String, Map<String, List<Map<String, dynamic>>>> g = {};
-            double totalKg = 0, totalValue = 0;
+            double totalKg = 0, totalValue = 0, totalSmall = 0, totalLarge = 0;
             for (final l in lots) {
               final rem = (l['remaining'] as num).toDouble();
               totalKg += rem;
               totalValue += rem * (l['price'] as num).toDouble();
+              totalSmall += (l['small_sack_count'] as num).toDouble();
+              totalLarge += (l['large_sack_count'] as num).toDouble();
               g
-                  .putIfAbsent(l['category'] as String, () => {})
+                  .putIfAbsent(l['category_name'] as String, () => {})
                   .putIfAbsent(l['type_name'] as String, () => [])
                   .add(l);
             }
@@ -41,30 +43,33 @@ class InventoryScreen extends StatelessWidget {
                   child: Column(children: [
                     infoRow('مجموع موجودی', '${faNum(totalKg)} کیلو'),
                     infoRow('ارزش خرید موجودی', '${faNum(totalValue, dec: 0)} تومان'),
+                    infoRow('تعداد گونی کل', '${faNum(totalSmall + totalLarge)} عدد'),
+                    infoRow('گونی کوچک / بزرگ', '${faNum(totalSmall)} / ${faNum(totalLarge)}'),
                   ]),
                 ),
               ),
             ];
 
-            for (final cat in kCategories.keys) {
-              final types = g[cat];
-              if (types == null) continue;
-              children.add(sectionTitle(context, kCategories[cat]!));
-              for (final e in types.entries) {
-                final sum = e.value
-                    .fold<double>(0, (a, l) => a + (l['remaining'] as num).toDouble());
+            for (final catEntry in g.entries) {
+              children.add(sectionTitle(context, catEntry.key));
+              for (final e in catEntry.value.entries) {
+                final sum = e.value.fold<double>(0, (a, l) => a + (l['remaining'] as num).toDouble());
+                final sackSum = e.value.fold<double>(
+                    0, (a, l) => a + (l['small_sack_count'] as num) + (l['large_sack_count'] as num));
                 children.add(Card(
                   child: ExpansionTile(
                     title: Text(e.key),
-                    subtitle: Text('${faNum(sum)} کیلو  •  ${faNum(e.value.length)} بار'),
+                    subtitle: Text('${faNum(sum)} کیلو  •  ${faNum(e.value.length)} بار  •  ${faNum(sackSum)} گونی'),
                     children: [
                       for (final l in e.value)
                         ListTile(
                           dense: true,
                           title: Text('${faNum(l['remaining'] as num)} کیلو مانده'),
                           subtitle: Text(
-                              'خرید ${jalaliDate(l['date'])}  •  فی ${faNum(l['price'] as num, dec: 0)}'
+                              'خرید ${jalaliDate(l['date'] as String)}  •  فی ${faNum(l['price'] as num, dec: 0)}\n'
+                              'گونی کوچک ${faNum(l['small_sack_count'] as num)} / بزرگ ${faNum(l['large_sack_count'] as num)}'
                               '${l['ounce'] != null ? '  •  انس ${faNum(l['ounce'] as num)}' : ''}'),
+                          isThreeLine: true,
                         ),
                     ],
                   ),

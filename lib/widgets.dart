@@ -8,6 +8,7 @@ Widget numField(
   bool required = false,
   String? suffix,
   double? max,
+  bool thousands = false,
   VoidCallback? onChanged,
 }) {
   return Padding(
@@ -15,6 +16,7 @@ Widget numField(
     child: TextFormField(
       controller: c,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      inputFormatters: thousands ? [ThousandsInputFormatter()] : null,
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
@@ -32,13 +34,17 @@ Widget numField(
   );
 }
 
-Widget textField(TextEditingController c, String label, {int lines = 1}) {
+Widget textField(TextEditingController c, String label,
+    {int lines = 1, bool required = false}) {
   return Padding(
     padding: const EdgeInsets.only(bottom: 12),
     child: TextFormField(
       controller: c,
       maxLines: lines,
       decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+      validator: required
+          ? (v) => (v ?? '').trim().isEmpty ? 'الزامی است' : null
+          : null,
     ),
   );
 }
@@ -77,4 +83,31 @@ Future<bool> confirm(BuildContext context, String msg) async {
     ),
   );
   return r ?? false;
+}
+
+/// انتخاب تاریخ با نمایش شمسی (خود انتخابگر میلادی است، فقط نمایش شمسی می‌شود)
+Future<DateTime?> pickDate(BuildContext context, {DateTime? initial}) async {
+  return showDatePicker(
+    context: context,
+    initialDate: initial ?? DateTime.now(),
+    firstDate: DateTime(2015),
+    lastDate: DateTime(2035),
+    builder: (ctx, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+  );
+}
+
+Widget dateField(BuildContext context, String label, DateTime? value, ValueChanged<DateTime> onPick) {
+  return Padding(
+    padding: const EdgeInsets.only(bottom: 12),
+    child: InkWell(
+      onTap: () async {
+        final d = await pickDate(context, initial: value);
+        if (d != null) onPick(d);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        child: Text(value == null ? 'انتخاب تاریخ' : jalaliDateFromDt(value)),
+      ),
+    ),
+  );
 }
