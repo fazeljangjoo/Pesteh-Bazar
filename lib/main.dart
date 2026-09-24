@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'inventory_screen.dart';
+import 'license_gate_screen.dart';
 import 'notify_service.dart';
 import 'purchases_screen.dart';
 import 'reports_screen.dart';
 import 'sales_screen.dart';
+import 'subscription_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -26,7 +28,7 @@ class PestehApp extends StatelessWidget {
       theme: ThemeData(colorSchemeSeed: const Color(0xFF5B7F2A), useMaterial3: true),
       builder: (context, child) =>
           Directionality(textDirection: TextDirection.rtl, child: child!),
-      home: const HomeShell(),
+      home: const LicenseGate(child: HomeShell()),
     );
   }
 }
@@ -50,6 +52,7 @@ class _HomeShellState extends State<HomeShell> {
           InventoryScreen(),
           SalesScreen(),
           ReportsScreen(),
+          SubscriptionScreen(),
         ],
       ),
       bottomNavigationBar: NavigationBar(
@@ -60,6 +63,7 @@ class _HomeShellState extends State<HomeShell> {
           NavigationDestination(icon: Icon(Icons.warehouse_outlined), label: 'موجودی'),
           NavigationDestination(icon: Icon(Icons.sell_outlined), label: 'فروش'),
           NavigationDestination(icon: Icon(Icons.assessment_outlined), label: 'گزارش'),
+          NavigationDestination(icon: Icon(Icons.verified_user_outlined), label: 'اشتراک'),
         ],
       ),
     );

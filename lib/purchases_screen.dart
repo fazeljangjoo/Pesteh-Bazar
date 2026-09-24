@@ -121,7 +121,10 @@ class PurchasesScreen extends StatelessWidget {
                     isThreeLine: true,
                     trailing: PopupMenuButton<String>(
                       onSelected: (v) async {
-                        if (v == 'del' && await confirm(context, 'این خرید حذف شود؟')) {
+                        if (v == 'edit') {
+                          Navigator.push(context,
+                              MaterialPageRoute(builder: (_) => PurchaseForm(existing: p)));
+                        } else if (v == 'del' && await confirm(context, 'این خرید حذف شود؟')) {
                           final ok = await AppDb.I.deletePurchase(p['id'] as int);
                           if (!ok && context.mounted) {
                             snack(context, 'از این خرید فروش انجام شده؛ ابتدا فروش را حذف کنید');
@@ -129,6 +132,7 @@ class PurchasesScreen extends StatelessWidget {
                         }
                       },
                       itemBuilder: (_) => const [
+                        PopupMenuItem(value: 'edit', child: Text('ویرایش')),
                         PopupMenuItem(value: 'del', child: Text('حذف')),
                       ],
                     ),

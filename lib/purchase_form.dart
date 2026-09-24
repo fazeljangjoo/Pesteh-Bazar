@@ -10,7 +10,8 @@ import 'utils.dart';
 import 'widgets.dart';
 
 class PurchaseForm extends StatefulWidget {
-  const PurchaseForm({super.key});
+  final Map<String, dynamic>? existing;
+  const PurchaseForm({super.key, this.existing});
   @override
   State<PurchaseForm> createState() => _PurchaseFormState();
 }
@@ -36,8 +37,8 @@ class _PurchaseFormState extends State<PurchaseForm> {
   final _ounce = TextEditingController();
   final _price = TextEditingController();
   final _total = TextEditingController();
-  final _smallSack = TextEditingController(text: '0');
-  final _largeSack = TextEditingController(text: '0');
+  final _smallSack = TextEditingController();
+  final _largeSack = TextEditingController();
 
   final _gram = TextEditingController();
   final _pctKhandan = TextEditingController(); // درصد خندان در دنبست
@@ -50,10 +51,47 @@ class _PurchaseFormState extends State<PurchaseForm> {
   final _seller = TextEditingController();
   final _note = TextEditingController();
 
+  bool get _isEdit => widget.existing != null;
+
+  /// اگر بخشی از این خرید قبلاً فروخته شده باشد، دسته/نوع/وزن قابل ویرایش نیست
+  bool get _locked {
+    final e = widget.existing;
+    if (e == null) return false;
+    final rem = (e['remaining'] as num).toDouble();
+    final net = (e['net_weight'] as num).toDouble();
+    return rem < net - 1e-6;
+  }
+
   @override
   void initState() {
     super.initState();
-    _loadCategories();
+    final e = widget.existing;
+    if (e != null) {
+      _photo = e['photo'] as String?;
+      _ounce.text = e['ounce'] == null ? '' : plain(e['ounce'] as num);
+      _price.text = plain(e['price'] as num);
+      _total.text = plain(e['total_weight'] as num);
+      final smallVal = (e['small_sack_count'] as num).toDouble();
+      final largeVal = (e['large_sack_count'] as num).toDouble();
+      _smallSack.text = smallVal == 0 ? '' : plain(smallVal);
+      _largeSack.text = largeVal == 0 ? '' : plain(largeVal);
+      _gram.text = e['gram'] == null ? '' : plain(e['gram'] as num);
+      _pctKhandan.text = e['pct_khandan'] == null ? '' : plain(e['pct_khandan'] as num);
+      _pctDombest.text = e['pct_dombest'] == null ? '' : plain(e['pct_dombest'] as num);
+      _pctTuchin.text = e['pct_tuchin'] == null ? '' : plain(e['pct_tuchin'] as num);
+      _pctCrooked.text = e['pct_crooked'] == null ? '' : plain(e['pct_crooked'] as num);
+      _seller.text = (e['seller'] as String?) ?? '';
+      _note.text = (e['note'] as String?) ?? '';
+      final specs = AppDb.decodeCustomSpecs(e['custom_specs'] as String?);
+      for (final s in specs) {
+        final row = _CustomSpecRow();
+        row.label.text = s['label'] ?? '';
+        row.value.text = s['value'] ?? '';
+        _customSpecs.add(row);
+      }
+      _customTypeCtrl.text = e['type_name'] as String? ?? '';
+    }
+    _loadCategories(select: e?['category_id'] as int?);
   }
 
   Map<String, dynamic>? get _selectedCategory {
@@ -89,9 +127,19 @@ class _PurchaseFormState extends State<PurchaseForm> {
     }
     final list = await AppDb.I.typesOf(_categoryId!);
     if (!mounted) return;
+    int? resolved = select;
+    if (resolved == null && widget.existing != null) {
+      final wantName = widget.existing!['type_name'] as String?;
+      for (final t in list) {
+        if (t['name'] == wantName) {
+          resolved = t['id'] as int;
+          break;
+        }
+      }
+    }
     setState(() {
       _types = list;
-      _typeId = select ?? (list.isNotEmpty ? list.first['id'] as int : null);
+      _typeId = resolved ?? (list.isNotEmpty ? list.first['id'] as int : null);
     });
   }
 
@@ -191,6 +239,19 @@ class _PurchaseFormState extends State<PurchaseForm> {
 
   Future<void> _save() async {
     if (!_form.currentState!.validate()) return;
+
+    if (_locked) {
+      // فقط فی، فروشنده، عکس و توضیحات قابل ویرایش است (چون بخشی از این خرید فروخته شده)
+      await AppDb.I.updatePurchase(widget.existing!['id'] as int, {
+        'photo': _photo,
+        'price': parseNum(_price.text),
+        'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
+        'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
+      });
+      if (mounted) Navigator.pop(context);
+      return;
+    }
+
     if (_categoryId == null) {
       snack(context, 'دسته را انتخاب کنید');
       return;
@@ -223,10 +284,9 @@ class _PurchaseFormState extends State<PurchaseForm> {
           .toList();
     }
 
-    await AppDb.I.insertPurchase({
+    final data = {
       'category_id': _categoryId,
       'type_name': typeName,
-      'date': DateTime.now().toIso8601String(),
       'photo': _photo,
       'ounce': parseNum(_ounce.text),
       'price': parseNum(_price.text),
@@ -244,7 +304,14 @@ class _PurchaseFormState extends State<PurchaseForm> {
           : null,
       'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
       'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
-    });
+    };
+
+    if (_isEdit) {
+      await AppDb.I.updatePurchase(widget.existing!['id'] as int, data);
+    } else {
+      data['date'] = DateTime.now().toIso8601String();
+      await AppDb.I.insertPurchase(data);
+    }
     if (mounted) Navigator.pop(context);
   }
 
@@ -255,50 +322,70 @@ class _PurchaseFormState extends State<PurchaseForm> {
     }
     final preset = _presetKey;
     return Scaffold(
-      appBar: AppBar(title: const Text('خرید جدید')),
+      appBar: AppBar(title: Text(_isEdit ? 'ویرایش خرید' : 'خرید جدید')),
       body: Form(
         key: _form,
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            sectionTitle(context, 'دسته و نوع پسته'),
-            Row(children: [
-              Expanded(
-                child: DropdownButtonFormField<int>(
-                  value: _categoryId,
-                  decoration: const InputDecoration(labelText: 'دسته', border: OutlineInputBorder()),
-                  items: _categories
-                      .map((c) => DropdownMenuItem(value: c['id'] as int, child: Text(c['name'] as String)))
-                      .toList(),
-                  onChanged: (v) async {
-                    if (v == null) return;
-                    setState(() => _categoryId = v);
-                    await _loadTypes();
-                  },
-                ),
-              ),
-              const SizedBox(width: 8),
-              IconButton.filledTonal(onPressed: _addCategory, icon: const Icon(Icons.add), tooltip: 'افزودن دسته'),
-            ]),
-            const SizedBox(height: 12),
-            if (_isPreset)
-              Row(children: [
-                Expanded(
-                  child: DropdownButtonFormField<int>(
-                    key: ValueKey('$_categoryId-$_typeId'),
-                    value: _typeId,
-                    decoration: const InputDecoration(labelText: 'نوع', border: OutlineInputBorder()),
-                    items: _types
-                        .map((t) => DropdownMenuItem(value: t['id'] as int, child: Text(t['name'] as String)))
-                        .toList(),
-                    onChanged: (v) => setState(() => _typeId = v),
+            if (_locked)
+              Card(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: Text(
+                    'چون بخشی از این خرید فروخته شده، دسته/نوع/وزن و مشخصات کیفی قابل ویرایش نیست. '
+                    'فقط فی خرید، فروشنده، عکس و توضیحات قابل تغییرند.',
                   ),
                 ),
-                const SizedBox(width: 8),
-                IconButton.filledTonal(onPressed: _addType, icon: const Icon(Icons.add), tooltip: 'افزودن نوع'),
-              ])
-            else
-              textField(_customTypeCtrl, 'نوع پسته', required: true),
+              ),
+            if (_locked) const SizedBox(height: 12),
+            IgnorePointer(
+              ignoring: _locked,
+              child: Opacity(
+                opacity: _locked ? 0.5 : 1,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  sectionTitle(context, 'دسته و نوع پسته'),
+                  Row(children: [
+                    Expanded(
+                      child: DropdownButtonFormField<int>(
+                        value: _categoryId,
+                        decoration: const InputDecoration(labelText: 'دسته', border: OutlineInputBorder()),
+                        items: _categories
+                            .map((c) => DropdownMenuItem(value: c['id'] as int, child: Text(c['name'] as String)))
+                            .toList(),
+                        onChanged: (v) async {
+                          if (v == null) return;
+                          setState(() => _categoryId = v);
+                          await _loadTypes();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    IconButton.filledTonal(onPressed: _addCategory, icon: const Icon(Icons.add), tooltip: 'افزودن دسته'),
+                  ]),
+                  const SizedBox(height: 12),
+                  if (_isPreset)
+                    Row(children: [
+                      Expanded(
+                        child: DropdownButtonFormField<int>(
+                          key: ValueKey('$_categoryId-$_typeId'),
+                          value: _typeId,
+                          decoration: const InputDecoration(labelText: 'نوع', border: OutlineInputBorder()),
+                          items: _types
+                              .map((t) => DropdownMenuItem(value: t['id'] as int, child: Text(t['name'] as String)))
+                              .toList(),
+                          onChanged: (v) => setState(() => _typeId = v),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton.filledTonal(onPressed: _addType, icon: const Icon(Icons.add), tooltip: 'افزودن نوع'),
+                    ])
+                  else
+                    textField(_customTypeCtrl, 'نوع پسته', required: true),
+                ]),
+              ),
+            ),
             const SizedBox(height: 16),
             sectionTitle(context, 'عکس نمونه (اختیاری)'),
             InkWell(
@@ -313,85 +400,97 @@ class _PurchaseFormState extends State<PurchaseForm> {
               ),
             ),
             const SizedBox(height: 16),
-            sectionTitle(context, 'قیمت و وزن'),
-            numField(_ounce, 'انس پسته (اختیاری)'),
-            numField(_price, 'فی خرید (تومان به ازای هر کیلو)', required: true, thousands: true),
-            numField(_total, 'وزن کل (کیلو)', required: true, onChanged: () => setState(() {})),
-            Row(children: [
-              Expanded(
-                  child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', onChanged: () => setState(() {}))),
-              const SizedBox(width: 8),
-              Expanded(
-                  child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰ گرم)', onChanged: () => setState(() {}))),
-            ]),
-            Card(
-              color: Theme.of(context).colorScheme.primaryContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Column(children: [
-                  infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
-                  infoRow('وزن خالص', '${faNum(_net)} کیلو'),
-                  infoRow('ارزش کل', '${faNum(_net * (parseNum(_price.text) ?? 0), dec: 0)} تومان'),
+            IgnorePointer(
+              ignoring: _locked,
+              child: Opacity(
+                opacity: _locked ? 0.5 : 1,
+                child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                  sectionTitle(context, 'قیمت و وزن'),
+                  numField(_ounce, 'انس پسته (اختیاری)'),
+                  numField(_price, 'فی خرید (تومان به ازای هر کیلو)', required: true, thousands: true),
+                  numField(_total, 'وزن کل (کیلو)', required: true, onChanged: () => setState(() {})),
+                  Row(children: [
+                    Expanded(
+                        child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
+                    const SizedBox(width: 8),
+                    Expanded(
+                        child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
+                  ]),
+                  Card(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Column(children: [
+                        infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
+                        infoRow('وزن خالص', '${faNum(_net)} کیلو'),
+                        infoRow('ارزش کل', '${faNum(_net * (parseNum(_price.text) ?? 0), dec: 0)} تومان'),
+                      ]),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  if (preset == 'dombest') ...[
+                    sectionTitle(context, 'مشخصات پسته دنبست'),
+                    numField(_gram, 'گرم'),
+                    numField(_pctKhandan, 'درصد پسته خندان در دنبست', suffix: '٪', max: 100),
+                    numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
+                  ] else if (preset == 'khandan') ...[
+                    sectionTitle(context, 'مشخصات پسته خندان'),
+                    numField(_pctDombest, 'درصد دنبست در پسته خندان', suffix: '٪', max: 100),
+                    numField(_pctTuchin, 'درصد توچین', suffix: '٪', max: 100),
+                    numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
+                  ] else ...[
+                    Row(children: [
+                      Expanded(child: sectionTitle(context, 'مشخصات (حداکثر ۴ مورد دلخواه)')),
+                      if (_customSpecs.length < kMaxCustomSpecs)
+                        IconButton(onPressed: _addCustomSpec, icon: const Icon(Icons.add_circle_outline)),
+                    ]),
+                    for (var i = 0; i < _customSpecs.length; i++)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Row(children: [
+                          Expanded(
+                            flex: 2,
+                            child: TextField(
+                              controller: _customSpecs[i].label,
+                              decoration: const InputDecoration(labelText: 'عنوان', border: OutlineInputBorder()),
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Expanded(
+                            flex: 3,
+                            child: TextField(
+                              controller: _customSpecs[i].value,
+                              decoration: const InputDecoration(labelText: 'مقدار', border: OutlineInputBorder()),
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () => _removeCustomSpec(i),
+                            icon: const Icon(Icons.close, size: 20),
+                          ),
+                        ]),
+                      ),
+                    if (_customSpecs.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: OutlinedButton.icon(
+                          onPressed: _addCustomSpec,
+                          icon: const Icon(Icons.add),
+                          label: const Text('افزودن مشخصه'),
+                        ),
+                      ),
+                  ],
                 ]),
               ),
             ),
-            const SizedBox(height: 16),
-            if (preset == 'dombest') ...[
-              sectionTitle(context, 'مشخصات پسته دنبست'),
-              numField(_gram, 'گرم'),
-              numField(_pctKhandan, 'درصد پسته خندان در دنبست', suffix: '٪', max: 100),
-              numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
-            ] else if (preset == 'khandan') ...[
-              sectionTitle(context, 'مشخصات پسته خندان'),
-              numField(_pctDombest, 'درصد دنبست در پسته خندان', suffix: '٪', max: 100),
-              numField(_pctTuchin, 'درصد توچین', suffix: '٪', max: 100),
-              numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
-            ] else ...[
-              Row(children: [
-                Expanded(child: sectionTitle(context, 'مشخصات (حداکثر ۴ مورد دلخواه)')),
-                if (_customSpecs.length < kMaxCustomSpecs)
-                  IconButton(onPressed: _addCustomSpec, icon: const Icon(Icons.add_circle_outline)),
-              ]),
-              for (var i = 0; i < _customSpecs.length; i++)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Row(children: [
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: _customSpecs[i].label,
-                        decoration: const InputDecoration(labelText: 'عنوان', border: OutlineInputBorder()),
-                      ),
-                    ),
-                    const SizedBox(width: 6),
-                    Expanded(
-                      flex: 3,
-                      child: TextField(
-                        controller: _customSpecs[i].value,
-                        decoration: const InputDecoration(labelText: 'مقدار', border: OutlineInputBorder()),
-                      ),
-                    ),
-                    IconButton(
-                      onPressed: () => _removeCustomSpec(i),
-                      icon: const Icon(Icons.close, size: 20),
-                    ),
-                  ]),
-                ),
-              if (_customSpecs.isEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: OutlinedButton.icon(
-                    onPressed: _addCustomSpec,
-                    icon: const Icon(Icons.add),
-                    label: const Text('افزودن مشخصه'),
-                  ),
-                ),
-            ],
             sectionTitle(context, 'سایر'),
             textField(_seller, 'فروشنده (اختیاری)'),
             textField(_note, 'توضیحات (اختیاری)', lines: 2),
             const SizedBox(height: 8),
-            FilledButton.icon(onPressed: _save, icon: const Icon(Icons.check), label: const Text('ثبت خرید')),
+            FilledButton.icon(
+              onPressed: _save,
+              icon: const Icon(Icons.check),
+              label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت خرید'),
+            ),
             const SizedBox(height: 24),
           ],
         ),

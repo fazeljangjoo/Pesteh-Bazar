@@ -1,11 +1,56 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
-class ReportsScreen extends StatelessWidget {
+class ReportsScreen extends StatefulWidget {
   const ReportsScreen({super.key});
+
+  @override
+  State<ReportsScreen> createState() => _ReportsScreenState();
+}
+
+class _ReportsScreenState extends State<ReportsScreen> {
+  DateTime? _from;
+  DateTime? _to;
+
+  String _periodLabel() {
+    if (_from == null && _to == null) return 'همه‌ی بازه‌ها';
+    final f = _from == null ? '...' : jalaliDateFromDt(_from!);
+    final t = _to == null ? '...' : jalaliDateFromDt(_to!);
+    return 'از $f تا $t';
+  }
+
+  Future<void> _exportGlobal({required bool isPayments}) async {
+    try {
+      final rows = isPayments
+          ? await AppDb.I.allPaymentTransactions(from: _from, to: _to)
+          : await AppDb.I.allReceiptTransactions(from: _from, to: _to);
+      final total = rows.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+      final table = <List<String>>[
+        ['وضعیت', 'نوع', isPayments ? 'خرید' : 'خریدار', 'تاریخ', 'مبلغ (تومان)'],
+        for (final r in rows)
+          [
+            (r['paid'] as int) == 1 ? 'تسویه‌شده' : 'باقیمانده',
+            r['kind'] as String,
+            r['label'] as String,
+            jalaliDate(r['date'] as String),
+            faNum(r['amount'] as num, dec: 0),
+          ],
+      ];
+      final file = await PdfService.buildGlobalReport(
+        title: isPayments ? 'گزارش کلی تراکنش‌های پرداخت' : 'گزارش کلی تراکنش‌های دریافت وجه',
+        periodLabel: _periodLabel(),
+        grandTotal: total,
+        tableRows: table,
+      );
+      await PdfService.share(file);
+    } catch (e) {
+      if (mounted) snack(context, 'خطا در ساخت PDF: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -69,6 +114,57 @@ class ReportsScreen extends StatelessWidget {
                       infoRow('مجموع فروش', '${faNum(totalRevenue, dec: 0)} تومان'),
                       infoRow('مجموع بهای خرید', '${faNum(totalCost, dec: 0)} تومان'),
                       infoRow('مجموع سود / زیان', '${faNum(totalProfit, dec: 0)} تومان'),
+                    ]),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Card(
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      sectionTitle(context, 'خروجی PDF تراکنش‌ها'),
+                      Row(children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () async {
+                              final d = await pickDate(context, initial: _from ?? DateTime.now());
+                              if (d != null) setState(() => _from = d);
+                            },
+                            child: Text('از: ${_from == null ? '—' : jalaliDateFromDt(_from!)}'),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () async {
+                              final d = await pickDate(context, initial: _to ?? DateTime.now());
+                              if (d != null) setState(() => _to = d);
+                            },
+                            child: Text('تا: ${_to == null ? '—' : jalaliDateFromDt(_to!)}'),
+                          ),
+                        ),
+                        if (_from != null || _to != null)
+                          IconButton(
+                            onPressed: () => setState(() {
+                              _from = null;
+                              _to = null;
+                            }),
+                            icon: const Icon(Icons.close),
+                            tooltip: 'حذف فیلتر بازه',
+                          ),
+                      ]),
+                      const SizedBox(height: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: () => _exportGlobal(isPayments: true),
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('گزارش کلی تراکنش‌های پرداخت (خرید)'),
+                      ),
+                      const SizedBox(height: 8),
+                      FilledButton.tonalIcon(
+                        onPressed: () => _exportGlobal(isPayments: false),
+                        icon: const Icon(Icons.picture_as_pdf_outlined),
+                        label: const Text('گزارش کلی تراکنش‌های دریافت (فروش)'),
+                      ),
                     ]),
                   ),
                 ),

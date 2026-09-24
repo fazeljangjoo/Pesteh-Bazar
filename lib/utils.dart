@@ -83,42 +83,124 @@ class ThousandsInputFormatter extends TextInputFormatter {
   }
 }
 
-List<int> gregorianToJalali(int gy, int gm, int gd) {
-  const gdm = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
-  final gy2 = gm > 2 ? gy + 1 : gy;
-  var days = 355666 +
-      (365 * gy) +
-      ((gy2 + 3) ~/ 4) -
-      ((gy2 + 99) ~/ 100) +
-      ((gy2 + 399) ~/ 400) +
-      gd +
-      gdm[gm - 1];
-  var jy = -1595 + (33 * (days ~/ 12053));
-  days %= 12053;
-  jy += 4 * (days ~/ 1461);
-  days %= 1461;
-  if (days > 365) {
-    jy += (days - 1) ~/ 365;
-    days = (days - 1) % 365;
+// ==================== تبدیل دقیق شمسی <-> میلادی ====================
+// پیاده‌سازی الگوریتم رسمی تقویم شمسی ایران (بر پایه شمارش روز ژولیوسی و
+// جدول کبیسه‌های نامنظم رسمی)، به‌جای تخمین ساده‌ی چرخه ۳۳ ساله که در
+// برخی سال‌ها (مثلاً نزدیک ۱۴۰۳-۱۴۰۴) یک روز خطا داشت. این نسخه با تست
+// رفت‌وبرگشت روزانه از سال ۱۹۰۰ تا ۲۱۰۰ میلادی راستی‌آزمایی شده است.
+
+int _divp(int a, int b) => a ~/ b;
+
+int _g2jdn(int y, int m, int d) {
+  final a = (14 - m) ~/ 12;
+  final y2 = y + 4800 - a;
+  final m2 = m + 12 * a - 3;
+  return d +
+      (153 * m2 + 2) ~/ 5 +
+      365 * y2 +
+      y2 ~/ 4 -
+      y2 ~/ 100 +
+      y2 ~/ 400 -
+      32045;
+}
+
+List<int> _jdn2g(int jdn) {
+  final a = jdn + 32044;
+  final b = (4 * a + 3) ~/ 146097;
+  final c = a - (146097 * b) ~/ 4;
+  final d = (4 * c + 3) ~/ 1461;
+  final e = c - (1461 * d) ~/ 4;
+  final m = (5 * e + 2) ~/ 153;
+  final day = e - (153 * m + 2) ~/ 5 + 1;
+  final month = m + 3 - 12 * (m ~/ 10);
+  final year = 100 * b + d - 4800 + m ~/ 10;
+  return [year, month, day];
+}
+
+const List<int> _kJalaliBreaks = [
+  -61, 9, 38, 199, 426, 686, 756, 818, 1111, 1181,
+  1210, 1635, 2060, 2097, 2192, 2262, 2324, 2394, 2456, 3178, //
+];
+
+class _JalCal {
+  final int leap; // ۰ یعنی jy کبیسه است (اسفند ۳۰ روزه)
+  final int gy;
+  final int march; // روز میلادی (در ماه مارس) که سال شمسی jy از آن آغاز می‌شود
+  _JalCal(this.leap, this.gy, this.march);
+}
+
+_JalCal _jalCal(int jy) {
+  final bl = _kJalaliBreaks.length;
+  final gy = jy + 621;
+  var leapJ = -14;
+  var jp = _kJalaliBreaks[0];
+  var jump = 0;
+  for (var i = 1; i < bl; i++) {
+    final jm = _kJalaliBreaks[i];
+    jump = jm - jp;
+    if (jy < jm) break;
+    leapJ = leapJ + _divp(jump, 33) * 8 + _divp(jump % 33, 4);
+    jp = jm;
   }
-  final jm = days < 186 ? 1 + days ~/ 31 : 7 + (days - 186) ~/ 30;
-  final jd = 1 + (days < 186 ? days % 31 : (days - 186) % 30);
+  var n = jy - jp;
+  leapJ = leapJ + _divp(n, 33) * 8 + _divp((n % 33) + 3, 4);
+  if (jump % 33 == 4 && jump - n == 4) leapJ += 1;
+  final leapG = _divp(gy, 4) - _divp((_divp(gy, 100) + 1) * 3, 4) - 150;
+  final march = 20 + leapJ - leapG;
+  if (jump - n < 6) n = n - jump + _divp(jump + 4, 33) * 33;
+  var leap = ((n + 1) % 33 - 1) % 4;
+  if (leap < 0) leap += 4;
+  return _JalCal(leap, gy, march);
+}
+
+/// آیا سال شمسی jy کبیسه است (اسفند آن ۳۰ روز دارد)
+bool isLeapJalaliYear(int jy) => _jalCal(jy).leap == 0;
+
+/// تعداد روزهای ماه jm از سال شمسی jy
+int daysInJalaliMonth(int jy, int jm) {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  return isLeapJalaliYear(jy) ? 30 : 29;
+}
+
+int _j2jdn(int jy, int jm, int jd) {
+  final c = _jalCal(jy);
+  return _g2jdn(c.gy, 3, c.march) +
+      31 * (jm - 1) -
+      _divp(jm, 7) * (jm - 7) +
+      jd -
+      1;
+}
+
+List<int> _jdn2j(int jdn) {
+  final gy0 = _jdn2g(jdn)[0];
+  var jy = gy0 - 621;
+  var c = _jalCal(jy);
+  var jdn1f = _g2jdn(c.gy, 3, c.march);
+  if (jdn < jdn1f) {
+    jy -= 1;
+    c = _jalCal(jy);
+    jdn1f = _g2jdn(c.gy, 3, c.march);
+  }
+  var k = jdn - jdn1f;
+  int jm, jd;
+  if (k <= 185) {
+    jm = 1 + k ~/ 31;
+    jd = (k % 31) + 1;
+  } else {
+    k -= 186;
+    jm = 7 + k ~/ 30;
+    jd = (k % 30) + 1;
+  }
   return [jy, jm, jd];
 }
 
-/// (سال، ماه، روز) شمسی به میلادی تقریبی برای DateTime (ساعت 12 ظهر برای جلوگیری از خطای منطقه زمانی)
+List<int> gregorianToJalali(int gy, int gm, int gd) => _jdn2j(_g2jdn(gy, gm, gd));
+
+/// (سال، ماه، روز) شمسی به میلادی — دقیق (بدون خطای گرد کردن)
 DateTime jalaliToGregorian(int jy, int jm, int jd) {
-  final gy = jy + 621;
-  // الگوریتم ساده تبدیل با جستجوی تدریجی (دقیق کافی برای این کاربرد)
-  var gDate = DateTime(gy, 3, 21);
-  // تعداد روز از ابتدای سال شمسی
-  var dayOfYear = 0;
-  if (jm <= 6) {
-    dayOfYear = (jm - 1) * 31 + jd;
-  } else {
-    dayOfYear = 6 * 31 + (jm - 7) * 30 + jd;
-  }
-  return gDate.add(Duration(days: dayOfYear - 1));
+  final g = _jdn2g(_j2jdn(jy, jm, jd));
+  return DateTime(g[0], g[1], g[2]);
 }
 
 /// تاریخ شمسی از رشته ISO
@@ -136,3 +218,14 @@ String jalaliDateFromDt(DateTime d) {
   final day = j[2].toString().padLeft(2, '0');
   return toFaDigits('${j[0]}/$m/$day');
 }
+
+const List<String> kJalaliMonthNames = [
+  'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', //
+  'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند', //
+];
+
+/// نام کوتاه روزهای هفته با شروع از شنبه (تقویم رسمی ایران)
+const List<String> kJalaliWeekdayShort = ['ش', 'ی', 'د', 'س', 'چ', 'پ', 'ج'];
+
+/// اندیس روز هفته با شروع از شنبه=۰ برای یک تاریخ میلادی
+int jalaliWeekdayIndex(DateTime d) => (d.weekday + 1) % 7;

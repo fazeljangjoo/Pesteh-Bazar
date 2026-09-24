@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'receipt_screen.dart';
 import 'sale_form.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -31,6 +32,7 @@ class SalesScreen extends StatelessWidget {
               itemCount: list.length,
               itemBuilder: (context, i) {
                 final sale = list[i];
+                final id = sale['id'] as int;
                 final items = sale['items'] as List;
                 final net = (sale['net_weight'] as num).toDouble();
                 final price = (sale['price'] as num).toDouble();
@@ -52,14 +54,22 @@ class SalesScreen extends StatelessWidget {
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.delete_outline),
-                            onPressed: () async {
-                              if (await confirm(context,
-                                  'این فروش حذف شود؟ وزن‌ها به انبار برمی‌گردند.')) {
-                                await AppDb.I.deleteSale(sale['id'] as int);
+                          PopupMenuButton<String>(
+                            onSelected: (v) async {
+                              if (v == 'edit') {
+                                Navigator.push(context,
+                                    MaterialPageRoute(builder: (_) => SaleForm(editSaleId: id)));
+                              } else if (v == 'del') {
+                                if (await confirm(context,
+                                    'این فروش حذف شود؟ وزن‌ها به انبار برمی‌گردند.')) {
+                                  await AppDb.I.deleteSale(id);
+                                }
                               }
                             },
+                            itemBuilder: (_) => const [
+                              PopupMenuItem(value: 'edit', child: Text('ویرایش')),
+                              PopupMenuItem(value: 'del', child: Text('حذف')),
+                            ],
                           ),
                         ]),
                         Text(comp),
@@ -70,6 +80,25 @@ class SalesScreen extends StatelessWidget {
                             '${faNum(sale['small_sack_count'] as num)} / ${faNum(sale['large_sack_count'] as num)}'),
                         infoRow('فی فروش', '${faNum(price, dec: 0)} تومان'),
                         infoRow('مبلغ فروش', '${faNum(revenue, dec: 0)} تومان'),
+                        const SizedBox(height: 8),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.tonalIcon(
+                            onPressed: () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => ReceiptScreen(
+                                  saleId: id,
+                                  saleLabel: sale['buyer'] != null
+                                      ? '${sale['buyer']}'
+                                      : jalaliDate(sale['date'] as String),
+                                ),
+                              ),
+                            ),
+                            icon: const Icon(Icons.request_quote_outlined),
+                            label: const Text('وصول مطالبات'),
+                          ),
+                        ),
                       ],
                     ),
                   ),

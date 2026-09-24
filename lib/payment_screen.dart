@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'db.dart';
 import 'notify_service.dart';
+import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -20,9 +21,32 @@ class _PaymentScreenState extends State<PaymentScreen> {
   String? _payType; // lump | staged
   String? _stagedType; // credit | cheque
 
+  Map<String, dynamic>? _purchase;
   List<Map<String, dynamic>> _lump = [];
   List<Map<String, dynamic>> _credit = [];
   List<Map<String, dynamic>> _cheque = [];
+
+  double get _total {
+    final p = _purchase;
+    if (p == null) return 0;
+    return (p['net_weight'] as num).toDouble() * (p['price'] as num).toDouble();
+  }
+
+  double get _settled {
+    if (_payType == 'lump') {
+      return _lump.where((r) => (r['paid'] as int? ?? 1) == 1).fold<double>(
+          0, (s, r) => s + (r['amount'] as num).toDouble());
+    } else if (_payType == 'staged' && _stagedType == 'credit') {
+      return _credit.where((r) => (r['paid'] as int) == 1).fold<double>(
+          0, (s, r) => s + (r['amount'] as num).toDouble());
+    } else if (_payType == 'staged' && _stagedType == 'cheque') {
+      return _cheque.where((r) => (r['paid'] as int) == 1).fold<double>(
+          0, (s, r) => s + (r['amount'] as num).toDouble());
+    }
+    return 0;
+  }
+
+  double get _remaining => _total - _settled;
 
   @override
   void initState() {
@@ -31,6 +55,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _load() async {
+    _purchase = await AppDb.I.purchaseById(widget.purchaseId);
     final pay = await AppDb.I.paymentOf(widget.purchaseId);
     _paymentId = pay?['id'] as int?;
     _payType = pay?['pay_type'] as String?;
@@ -50,6 +75,32 @@ class _PaymentScreenState extends State<PaymentScreen> {
       _stagedType = stagedType;
     });
     await _load();
+  }
+
+  Future<void> _exportPdf() async {
+    try {
+      final file = await PdfService.buildPaymentLedger(
+        title: 'رسید پرداخت — ${widget.purchaseLabel}',
+        totalLabel: 'مبلغ کل خرید',
+        total: _total,
+        settled: _settled,
+        remaining: _remaining,
+        payType: _payType,
+        stagedType: _stagedType,
+        lump: _lump,
+        credit: _credit,
+        cheque: _cheque,
+        directionLabels: const (
+          from: 'از حساب',
+          fromName: 'واریزکننده',
+          to: 'به حساب',
+          toName: 'فروشنده'
+        ),
+      );
+      await PdfService.share(file);
+    } catch (e) {
+      if (mounted) snack(context, 'خطا در ساخت PDF: $e');
+    }
   }
 
   Future<void> _addLump() async {
@@ -75,6 +126,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
     if (row == null) return;
     await AppDb.I.updateLumpTx(existing['id'] as int, row);
+    await _load();
+  }
+
+  Future<void> _toggleLumpPaid(Map<String, dynamic> row, bool paid) async {
+    final updated = Map<String, dynamic>.from(row)..remove('id')..remove('payment_id');
+    updated['paid'] = paid ? 1 : 0;
+    await AppDb.I.updateLumpTx(row['id'] as int, updated);
     await _load();
   }
 
@@ -173,12 +231,24 @@ class _PaymentScreenState extends State<PaymentScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('پرداخت — ${widget.purchaseLabel}')),
+      appBar: AppBar(
+        title: Text('پرداخت — ${widget.purchaseLabel}'),
+        actions: [
+          if (!_loading)
+            IconButton(
+              onPressed: _exportPdf,
+              icon: const Icon(Icons.picture_as_pdf_outlined),
+              tooltip: 'خروجی PDF',
+            ),
+        ],
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: [
+                _summaryCard(context),
+                const SizedBox(height: 16),
                 sectionTitle(context, 'نوع پرداخت'),
                 Card(
                   child: Column(children: [
@@ -225,6 +295,21 @@ class _PaymentScreenState extends State<PaymentScreen> {
     );
   }
 
+  Widget _summaryCard(BuildContext context) {
+    return Card(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(children: [
+          infoRow('مبلغ کل خرید', '${faNum(_total, dec: 0)} تومان'),
+          infoRow('تسویه شده', '${faNum(_settled, dec: 0)} تومان'),
+          infoRow(_remaining >= 0 ? 'باقیمانده' : 'پرداخت اضافی',
+              '${faNum(_remaining.abs(), dec: 0)} تومان'),
+        ]),
+      ),
+    );
+  }
+
   Widget _lumpSection() {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       Row(children: [
@@ -236,8 +321,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
         Card(
           child: ListTile(
             onTap: () => _editLump(r),
+            leading: Checkbox(
+              value: (r['paid'] as int? ?? 1) == 1,
+              onChanged: (v) => _toggleLumpPaid(r, v ?? false),
+            ),
             title: Text('${faNum(r['amount'] as num, dec: 0)} تومان — ${jalaliDate(r['date'] as String)}'),
-            subtitle: Text('از ${r['from_account'] ?? '-'} (${r['payer_name'] ?? '-'})\nبه ${r['to_account'] ?? '-'} (${r['seller_name'] ?? '-'})'),
+            subtitle: Text('از ${r['from_account'] ?? '-'} (${r['payer_name'] ?? '-'})\nبه ${r['to_account'] ?? '-'} (${r['seller_name'] ?? '-'})'
+                '${(r['paid'] as int? ?? 1) == 1 ? '\nتسویه شده' : ''}'),
             isThreeLine: true,
             trailing: IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -339,6 +429,7 @@ class _LumpFormState extends State<_LumpForm> {
   late final TextEditingController _toAccount;
   late final TextEditingController _sellerName;
   DateTime? _date;
+  bool _paid = true;
 
   @override
   void initState() {
@@ -350,6 +441,7 @@ class _LumpFormState extends State<_LumpForm> {
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _sellerName = TextEditingController(text: e?['seller_name'] as String? ?? '');
     _date = e == null ? DateTime.now() : DateTime.parse(e['date'] as String);
+    _paid = e == null ? true : (e['paid'] as int? ?? 1) == 1;
   }
 
   void _save() {
@@ -361,6 +453,7 @@ class _LumpFormState extends State<_LumpForm> {
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'seller_name': _sellerName.text.trim(),
+      'paid': _paid ? 1 : 0,
     });
   }
 
@@ -382,6 +475,12 @@ class _LumpFormState extends State<_LumpForm> {
               textField(_payerName, 'به نام چه کسی (واریزکننده)'),
               textField(_toAccount, 'به کدام حساب فروشنده'),
               textField(_sellerName, 'به نام چه کسی (فروشنده)'),
+              SwitchListTile(
+                value: _paid,
+                onChanged: (v) => setState(() => _paid = v),
+                title: const Text('تسویه شده'),
+                contentPadding: EdgeInsets.zero,
+              ),
               const SizedBox(height: 8),
               FilledButton(onPressed: _save, child: const Text('ذخیره')),
               const SizedBox(height: 16),

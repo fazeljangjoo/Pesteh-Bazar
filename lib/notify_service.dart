@@ -8,6 +8,8 @@ import 'utils.dart';
 /// شناسه پایه برای اقساط اعتباری و چک‌ها را از هم جدا نگه می‌دارد تا تداخل نداشته باشند
 const int _creditBase = 1000000;
 const int _chequeBase = 2000000;
+const int _receiptCreditBase = 3000000;
+const int _receiptChequeBase = 4000000;
 
 class NotifyService {
   NotifyService._();
@@ -97,6 +99,27 @@ class NotifyService {
 
   Future<void> cancelChequeRow(int id) => cancelDueByBase(_chequeBase + id);
 
+  Future<void> scheduleReceiptCreditRow(Map<String, dynamic> row) async {
+    final id = row['id'] as int;
+    final dueDate = DateTime.parse(row['due_date'] as String);
+    final amount = (row['amount'] as num).toDouble();
+    await _scheduleDue(
+        _receiptCreditBase + id, 'سررسید وصول مطالبه', '${faNum(amount, dec: 0)} تومان', dueDate);
+  }
+
+  Future<void> cancelReceiptCreditRow(int id) => cancelDueByBase(_receiptCreditBase + id);
+
+  Future<void> scheduleReceiptChequeRow(Map<String, dynamic> row) async {
+    final id = row['id'] as int;
+    final dueDate = DateTime.parse(row['due_date'] as String);
+    final amount = (row['amount'] as num).toDouble();
+    final bank = (row['bank_name'] as String?) ?? '';
+    await _scheduleDue(
+        _receiptChequeBase + id, 'سررسید چک دریافتی', '${faNum(amount, dec: 0)} تومان $bank', dueDate);
+  }
+
+  Future<void> cancelReceiptChequeRow(int id) => cancelDueByBase(_receiptChequeBase + id);
+
   /// هنگام باز شدن برنامه همه یادآوری‌های پرداخت‌نشده را دوباره زمان‌بندی می‌کند
   Future<void> rescheduleAll() async {
     if (!_ready) return;
@@ -106,6 +129,12 @@ class NotifyService {
       }
       for (final row in await AppDb.I.unpaidChequeInst()) {
         await scheduleChequeRow(row);
+      }
+      for (final row in await AppDb.I.unpaidReceiptCreditInst()) {
+        await scheduleReceiptCreditRow(row);
+      }
+      for (final row in await AppDb.I.unpaidReceiptChequeInst()) {
+        await scheduleReceiptChequeRow(row);
       }
     } catch (_) {}
   }

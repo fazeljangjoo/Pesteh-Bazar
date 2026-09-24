@@ -9,6 +9,7 @@ Widget numField(
   String? suffix,
   double? max,
   bool thousands = false,
+  String? hint,
   VoidCallback? onChanged,
 }) {
   return Padding(
@@ -20,6 +21,7 @@ Widget numField(
       decoration: InputDecoration(
         labelText: label,
         suffixText: suffix,
+        hintText: hint,
         border: const OutlineInputBorder(),
       ),
       onChanged: (_) => onChanged?.call(),
@@ -58,12 +60,12 @@ Widget sectionTitle(BuildContext context, String t) => Padding(
               ?.copyWith(color: Theme.of(context).colorScheme.primary)),
     );
 
-Widget infoRow(String k, String v) => Padding(
+Widget infoRow(String k, String v, {Color? valueColor}) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
         children: [
           Expanded(child: Text(k, style: const TextStyle(color: Colors.black54))),
-          Text(v, style: const TextStyle(fontWeight: FontWeight.w600)),
+          Text(v, style: TextStyle(fontWeight: FontWeight.w600, color: valueColor)),
         ],
       ),
     );
@@ -85,15 +87,197 @@ Future<bool> confirm(BuildContext context, String msg) async {
   return r ?? false;
 }
 
-/// انتخاب تاریخ با نمایش شمسی (خود انتخابگر میلادی است، فقط نمایش شمسی می‌شود)
-Future<DateTime?> pickDate(BuildContext context, {DateTime? initial}) async {
-  return showDatePicker(
+/// انتخاب تاریخ با تقویم شمسی رسمی ایران (ماه/سال قابل‌جابه‌جایی، بدون وابستگی به تقویم میلادی)
+Future<DateTime?> pickDate(BuildContext context, {DateTime? initial, DateTime? firstDate, DateTime? lastDate}) async {
+  return showDialog<DateTime>(
     context: context,
-    initialDate: initial ?? DateTime.now(),
-    firstDate: DateTime(2015),
-    lastDate: DateTime(2035),
-    builder: (ctx, child) => Directionality(textDirection: TextDirection.rtl, child: child!),
+    builder: (ctx) => _JalaliDatePickerDialog(
+      initial: initial ?? DateTime.now(),
+      firstDate: firstDate ?? DateTime(2015),
+      lastDate: lastDate ?? DateTime(2035),
+    ),
   );
+}
+
+class _JalaliDatePickerDialog extends StatefulWidget {
+  final DateTime initial;
+  final DateTime firstDate;
+  final DateTime lastDate;
+  const _JalaliDatePickerDialog({
+    required this.initial,
+    required this.firstDate,
+    required this.lastDate,
+  });
+
+  @override
+  State<_JalaliDatePickerDialog> createState() => _JalaliDatePickerDialogState();
+}
+
+class _JalaliDatePickerDialogState extends State<_JalaliDatePickerDialog> {
+  late int _jy;
+  late int _jm;
+  late int _jd;
+
+  @override
+  void initState() {
+    super.initState();
+    final j = gregorianToJalali(widget.initial.year, widget.initial.month, widget.initial.day);
+    _jy = j[0];
+    _jm = j[1];
+    _jd = j[2];
+  }
+
+  void _clampDay() {
+    final dim = daysInJalaliMonth(_jy, _jm);
+    if (_jd > dim) _jd = dim;
+  }
+
+  void _changeMonth(int delta) {
+    setState(() {
+      var m = _jm + delta;
+      var y = _jy;
+      if (m < 1) {
+        m = 12;
+        y -= 1;
+      } else if (m > 12) {
+        m = 1;
+        y += 1;
+      }
+      _jy = y;
+      _jm = m;
+      _clampDay();
+    });
+  }
+
+  void _changeYear(int delta) {
+    setState(() {
+      _jy += delta;
+      _clampDay();
+    });
+  }
+
+  Future<void> _editYear() async {
+    final c = TextEditingController(text: toFaDigits('$_jy'));
+    final v = await showDialog<String>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('انتخاب سال'),
+        content: TextField(
+          controller: c,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'سال شمسی'),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('انصراف')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text), child: const Text('تایید')),
+        ],
+      ),
+    );
+    if (v == null) return;
+    final n = int.tryParse(toEnDigits(v).trim());
+    if (n == null) return;
+    setState(() {
+      _jy = n;
+      _clampDay();
+    });
+  }
+
+  bool _isDisabled(int day) {
+    final g = jalaliToGregorian(_jy, _jm, day);
+    final gDay = DateTime(g.year, g.month, g.day);
+    final first = DateTime(widget.firstDate.year, widget.firstDate.month, widget.firstDate.day);
+    final last = DateTime(widget.lastDate.year, widget.lastDate.month, widget.lastDate.day);
+    return gDay.isBefore(first) || gDay.isAfter(last);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final dim = daysInJalaliMonth(_jy, _jm);
+    final firstOfMonthG = jalaliToGregorian(_jy, _jm, 1);
+    final startIdx = jalaliWeekdayIndex(firstOfMonthG);
+    final scheme = Theme.of(context).colorScheme;
+
+    final cells = <Widget>[];
+    for (var i = 0; i < startIdx; i++) {
+      cells.add(const SizedBox.shrink());
+    }
+    for (var day = 1; day <= dim; day++) {
+      final isSelected = day == _jd;
+      final disabled = _isDisabled(day);
+      cells.add(
+        InkWell(
+          onTap: disabled ? null : () => setState(() => _jd = day),
+          borderRadius: BorderRadius.circular(20),
+          child: Container(
+            margin: const EdgeInsets.all(2),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: isSelected ? scheme.primary : null,
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              toFaDigits('$day'),
+              style: TextStyle(
+                color: disabled ? Colors.black26 : (isSelected ? scheme.onPrimary : null),
+                fontWeight: isSelected ? FontWeight.bold : null,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return AlertDialog(
+      contentPadding: const EdgeInsets.fromLTRB(12, 16, 12, 0),
+      content: SizedBox(
+        width: 320,
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            IconButton(onPressed: () => _changeYear(-1), icon: const Icon(Icons.arrow_back)),
+            InkWell(
+              onTap: _editYear,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(toFaDigits('$_jy'), style: Theme.of(context).textTheme.titleMedium),
+              ),
+            ),
+            IconButton(onPressed: () => _changeYear(1), icon: const Icon(Icons.arrow_forward)),
+          ]),
+          Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+            IconButton(onPressed: () => _changeMonth(-1), icon: const Icon(Icons.arrow_back)),
+            Text(kJalaliMonthNames[_jm - 1], style: Theme.of(context).textTheme.titleMedium),
+            IconButton(onPressed: () => _changeMonth(1), icon: const Icon(Icons.arrow_forward)),
+          ]),
+          const SizedBox(height: 4),
+          GridView.count(
+            crossAxisCount: 7,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              for (final w in kJalaliWeekdayShort)
+                Center(
+                  child: Text(w,
+                      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.black54)),
+                ),
+              ...cells,
+            ],
+          ),
+          const SizedBox(height: 8),
+        ]),
+      ),
+      actionsPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('انصراف')),
+        FilledButton(
+          onPressed: _isDisabled(_jd)
+              ? null
+              : () => Navigator.pop(context, jalaliToGregorian(_jy, _jm, _jd)),
+          child: const Text('تایید'),
+        ),
+      ],
+    );
+  }
 }
 
 Widget dateField(BuildContext context, String label, DateTime? value, ValueChanged<DateTime> onPick) {
