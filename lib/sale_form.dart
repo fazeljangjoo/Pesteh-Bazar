@@ -4,6 +4,43 @@ import 'db.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
+/// وزن هر گونی (کیلو) — همان مقادیر فرم خرید
+const double _kSmallSackKg = 0.1;
+const double _kLargeSackKg = 0.2;
+
+/// گرد کردن به ۳ رقم اعشار (جلوگیری از خطای اعشاری مثل 999.3000000000001)
+double _r3(double v) => (v * 1000).round() / 1000;
+
+/// یکسان‌سازی «ي/ك» عربی و «ی/ک» فارسی برای جستجو
+String _norm(String s) => s.replaceAll('ي', 'ی').replaceAll('ك', 'ک').trim();
+
+/// یک «وزن‌کشی»: وزن کل + گونی (به تعداد یا به کیلو) => وزن خالص.
+/// هم برای کل بار استفاده می‌شود و هم برای هر جنس جداگانه.
+class _Weigh {
+  final gross = TextEditingController();
+  final small = TextEditingController();
+  final large = TextEditingController();
+  final tareKg = TextEditingController();
+  bool byCount = true;
+
+  double get grossKg => parseNum(gross.text) ?? 0;
+  double get smallN => byCount ? (parseNum(small.text) ?? 0) : 0;
+  double get largeN => byCount ? (parseNum(large.text) ?? 0) : 0;
+  double get tare => byCount
+      ? smallN * _kSmallSackKg + largeN * _kLargeSackKg
+      : (parseNum(tareKg.text) ?? 0);
+  double get net => _r3(grossKg - tare);
+
+  void dispose() {
+    gross.dispose();
+    small.dispose();
+    large.dispose();
+    tareKg.dispose();
+  }
+}
+
+enum _Mode { whole, perLot }
+
 class SaleForm extends StatefulWidget {
   final int? editSaleId;
   const SaleForm({super.key, this.editSaleId});
@@ -15,13 +52,17 @@ class _SaleFormState extends State<SaleForm> {
   final _form = GlobalKey<FormState>();
   List<Map<String, dynamic>> _lots = [];
   final Map<int, bool> _sel = {};
-  final Map<int, TextEditingController> _kg = {};
+  final Map<int, TextEditingController> _kg = {}; // سهم هر جنس (حالت کل بار)
+  final Map<int, FocusNode> _focus = {};
+  final Map<int, _Weigh> _lotWeigh = {}; // وزن‌کشی هر جنس (حالت جدا)
+  final Set<int> _typed = {}; // اجناسی که کاربر خودش وزنشان را نوشته
+  final _whole = _Weigh();
+  _Mode _mode = _Mode.whole;
   bool _loading = true;
+  bool _saving = false;
+  String _query = '';
 
   final _price = TextEditingController();
-  final _total = TextEditingController(); // وزن کل با گونی (مثل خرید)
-  final _smallSack = TextEditingController();
-  final _largeSack = TextEditingController();
   final _buyer = TextEditingController();
   final _note = TextEditingController();
 
@@ -33,6 +74,24 @@ class _SaleFormState extends State<SaleForm> {
     _load();
   }
 
+  @override
+  void dispose() {
+    _price.dispose();
+    _buyer.dispose();
+    _note.dispose();
+    _whole.dispose();
+    for (final c in _kg.values) {
+      c.dispose();
+    }
+    for (final f in _focus.values) {
+      f.dispose();
+    }
+    for (final w in _lotWeigh.values) {
+      w.dispose();
+    }
+    super.dispose();
+  }
+
   Future<void> _load() async {
     List<Map<String, dynamic>> l;
     if (_isEdit) {
@@ -40,11 +99,18 @@ class _SaleFormState extends State<SaleForm> {
       final sale = await AppDb.I.saleById(widget.editSaleId!);
       if (sale != null) {
         _price.text = plain(sale['price'] as num);
-        _total.text = plain(sale['total_weight'] as num);
+        final total = (sale['total_weight'] as num).toDouble();
+        final net = (sale['net_weight'] as num).toDouble();
         final small = (sale['small_sack_count'] as num).toDouble();
         final large = (sale['large_sack_count'] as num).toDouble();
-        _smallSack.text = small == 0 ? '' : plain(small);
-        _largeSack.text = large == 0 ? '' : plain(large);
+        _whole.gross.text = plain(total);
+        if (small + large > 0) {
+          _whole.small.text = small == 0 ? '' : plain(small);
+          _whole.large.text = large == 0 ? '' : plain(large);
+        } else if (total - net > 0.0005) {
+          _whole.byCount = false;
+          _whole.tareKg.text = plain(total - net);
+        }
         _buyer.text = (sale['buyer'] as String?) ?? '';
         _note.text = (sale['note'] as String?) ?? '';
       }
@@ -56,6 +122,12 @@ class _SaleFormState extends State<SaleForm> {
       final saleWeight = (e['sale_weight'] as num?)?.toDouble() ?? 0;
       _sel[id] = saleWeight > 0;
       _kg[id] = TextEditingController(text: saleWeight > 0 ? plain(saleWeight) : '');
+      if (saleWeight > 0) _typed.add(id);
+      final f = FocusNode();
+      f.addListener(() {
+        if (!f.hasFocus && mounted) _changed();
+      });
+      _focus[id] = f;
     }
     if (!mounted) return;
     setState(() {
@@ -64,50 +136,155 @@ class _SaleFormState extends State<SaleForm> {
     });
   }
 
-  // ---- وزن‌ها: دقیقاً مثل خرید یک‌بار محاسبه می‌شود، نه به‌ازای هر جنس ----
-  double get _tare =>
-      (parseNum(_smallSack.text) ?? 0) * 0.1 + (parseNum(_largeSack.text) ?? 0) * 0.2;
-  double get _netTarget => (parseNum(_total.text) ?? 0) - _tare; // وزن خالصی که باید بین اجناس تقسیم شود
+  // ------------------------- محاسبات -------------------------
+  List<Map<String, dynamic>> get _selected =>
+      _lots.where((e) => _sel[e['id'] as int] ?? false).toList();
 
-  double _alloc(int id) => (_sel[id] ?? false) ? (parseNum(_kg[id]!.text) ?? 0) : 0;
-  double get _allocatedSum => _lots.fold(0.0, (s, e) => s + _alloc(e['id'] as int));
-  double get _leftToAllocate => _netTarget - _allocatedSum;
-  double get _revenue => _netTarget * (parseNum(_price.text) ?? 0);
+  /// «هر جنس جدا وزن شد» فقط وقتی معنی دارد که حداقل دو جنس انتخاب شده باشد
+  bool get _perLot => _mode == _Mode.perLot && _selected.length >= 2;
 
-  Future<void> _save() async {
-    if (!_form.currentState!.validate()) return;
-    if (_netTarget <= 0) {
-      snack(context, 'وزن خالص باید بیشتر از صفر باشد');
-      return;
-    }
-    if (_leftToAllocate.abs() > 0.005) {
-      snack(
-          context,
-          _leftToAllocate > 0
-              ? '${faNum(_leftToAllocate)} کیلو از وزن خالص هنوز بین اجناس تقسیم نشده'
-              : '${faNum(-_leftToAllocate)} کیلو بیشتر از وزن خالص کل تقسیم شده');
-      return;
-    }
-    final items = <Map<String, dynamic>>[];
-    for (final e in _lots) {
-      final id = e['id'] as int;
-      if (_sel[id] == true && _alloc(id) > 0) {
-        items.add({'purchase_id': id, 'weight': _alloc(id)});
+  /// چند جنس، یک وزن‌کشی برای کل بار => باید وزن خالص بین اجناس تقسیم شود
+  bool get _wholeMulti => !_perLot && _selected.length >= 2;
+
+  double get _gross => _perLot
+      ? _selected.fold<double>(0, (s, e) => s + (_lotWeigh[e['id'] as int]?.grossKg ?? 0))
+      : _whole.grossKg;
+
+  double get _tare => _perLot
+      ? _selected.fold<double>(0, (s, e) => s + (_lotWeigh[e['id'] as int]?.tare ?? 0))
+      : _whole.tare;
+
+  double get _smallCount => _perLot
+      ? _selected.fold<double>(0, (s, e) => s + (_lotWeigh[e['id'] as int]?.smallN ?? 0))
+      : _whole.smallN;
+
+  double get _largeCount => _perLot
+      ? _selected.fold<double>(0, (s, e) => s + (_lotWeigh[e['id'] as int]?.largeN ?? 0))
+      : _whole.largeN;
+
+  double get _net => _perLot
+      ? _r3(_selected.fold<double>(0, (s, e) => s + (_lotWeigh[e['id'] as int]?.net ?? 0)))
+      : _whole.net;
+
+  double get _revenue => _net * (parseNum(_price.text) ?? 0);
+
+  /// وزن خالصی که به این جنس تعلق می‌گیرد
+  double _alloc(int id) {
+    if (_perLot) return _lotWeigh[id]?.net ?? 0;
+    if (_selected.length == 1) return _net;
+    return parseNum(_kg[id]!.text) ?? 0;
+  }
+
+  double get _allocatedSum =>
+      _selected.fold<double>(0, (s, e) => s + _alloc(e['id'] as int));
+  double get _left => _net - _allocatedSum;
+
+  String? _overStock() {
+    for (final e in _selected) {
+      final rem = (e['remaining'] as num).toDouble();
+      if (_alloc(e['id'] as int) > rem + 1e-6) {
+        return 'وزن «${e['type_name']}» از موجودی آن (${faNum(rem)} کیلو) بیشتر است';
       }
     }
-    if (items.isEmpty) {
+    return null;
+  }
+
+  /// بعد از هر تغییر: اگر فقط یک جنس بدون وزن مانده، باقی‌مانده خودکار به آن داده می‌شود
+  void _changed() {
+    if (_wholeMulti) {
+      final sel = _selected;
+      final untouched = sel.where((e) => !_typed.contains(e['id'] as int)).toList();
+      if (untouched.length == 1) {
+        final id = untouched.first['id'] as int;
+        if (!(_focus[id]?.hasFocus ?? false)) {
+          var others = 0.0;
+          for (final e in sel) {
+            final oid = e['id'] as int;
+            if (oid != id) others += parseNum(_kg[oid]!.text) ?? 0;
+          }
+          final v = _r3(_net - others);
+          _kg[id]!.text = v > 0 ? plain(v) : '';
+        }
+      }
+    }
+    if (mounted) setState(() {});
+  }
+
+  void _toggle(int id, bool v) {
+    _sel[id] = v;
+    _typed.remove(id);
+    _kg[id]!.text = '';
+    if (v) _lotWeigh.putIfAbsent(id, () => _Weigh());
+    _changed();
+  }
+
+  // ------------------------- ذخیره -------------------------
+  Future<void> _save() async {
+    if (_saving) return;
+    if (!_form.currentState!.validate()) return;
+    final sel = _selected;
+    if (sel.isEmpty) {
       snack(context, 'حداقل یک پسته از انبار انتخاب کنید');
       return;
     }
-    final saleData = {
+    if ((parseNum(_price.text) ?? 0) <= 0) {
+      snack(context, 'فی فروش را وارد کنید');
+      return;
+    }
+    final net = _net;
+    if (net <= 0) {
+      snack(context, 'وزن خالص باید بیشتر از صفر باشد (وزن گونی‌ها از وزن کل بیشتر است؟)');
+      return;
+    }
+    if (_wholeMulti && _left.abs() > 0.005) {
+      snack(
+          context,
+          _left > 0
+              ? '${faNum(_left)} کیلو از وزن خالص هنوز بین اجناس تقسیم نشده'
+              : '${faNum(-_left)} کیلو بیشتر از وزن خالص کل تقسیم شده');
+      return;
+    }
+
+    final items = <Map<String, dynamic>>[];
+    for (final e in sel) {
+      final id = e['id'] as int;
+      items.add({'purchase_id': id, 'weight': _r3(_alloc(id))});
+    }
+    if (_wholeMulti) {
+      // اختلاف بسیار ناچیز گرد کردن را روی آخرین جنس می‌گذاریم تا جمع دقیقاً برابر شود
+      var others = 0.0;
+      for (var i = 0; i < items.length - 1; i++) {
+        others += items[i]['weight'] as double;
+      }
+      items.last['weight'] = _r3(net - others);
+    }
+    for (var i = 0; i < items.length; i++) {
+      final e = sel[i];
+      final w = items[i]['weight'] as double;
+      final rem = (e['remaining'] as num).toDouble();
+      if (w <= 0) {
+        snack(context, 'وزن خالص «${e['type_name']}» باید بیشتر از صفر باشد');
+        return;
+      }
+      if (w > rem + 1e-6) {
+        snack(context, 'وزن «${e['type_name']}» از موجودی آن (${faNum(rem)} کیلو) بیشتر است');
+        return;
+      }
+    }
+    final netFinal =
+        _r3(items.fold<double>(0, (s, it) => s + (it['weight'] as double)));
+
+    final saleData = <String, dynamic>{
       'price': parseNum(_price.text),
-      'total_weight': parseNum(_total.text) ?? 0,
-      'small_sack_count': parseNum(_smallSack.text) ?? 0,
-      'large_sack_count': parseNum(_largeSack.text) ?? 0,
-      'net_weight': _netTarget,
+      'total_weight': _gross,
+      'small_sack_count': _smallCount,
+      'large_sack_count': _largeCount,
+      'net_weight': netFinal,
       'buyer': _buyer.text.trim().isEmpty ? null : _buyer.text.trim(),
       'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
     };
+
+    setState(() => _saving = true);
     try {
       if (_isEdit) {
         await AppDb.I.updateSale(widget.editSaleId!, saleData, items);
@@ -117,10 +294,14 @@ class _SaleFormState extends State<SaleForm> {
       }
       if (mounted) Navigator.pop(context);
     } catch (e) {
-      if (mounted) snack(context, '$e');
+      if (mounted) {
+        setState(() => _saving = false);
+        snack(context, '$e'.replaceFirst('Exception: ', ''));
+      }
     }
   }
 
+  // ------------------------- رابط کاربری -------------------------
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -133,54 +314,224 @@ class _SaleFormState extends State<SaleForm> {
                   key: _form,
                   child: ListView(
                     padding: const EdgeInsets.all(16),
-                    children: [
-                      sectionTitle(context, 'قیمت و وزن کل فروش'),
-                      numField(_price, 'فی فروش (تومان به ازای هر کیلو)',
-                          required: true, thousands: true, onChanged: () => setState(() {})),
-                      numField(_total, 'وزن کل (با گونی) — مثل ترازوی بارگیری',
-                          required: true, onChanged: () => setState(() {})),
-                      Row(children: [
-                        Expanded(
-                            child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰گ)',
-                                hint: '0', onChanged: () => setState(() {}))),
-                        const SizedBox(width: 8),
-                        Expanded(
-                            child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰گ)',
-                                hint: '0', onChanged: () => setState(() {}))),
-                      ]),
-                      Card(
-                        color: Theme.of(context).colorScheme.primaryContainer,
-                        child: Padding(
-                          padding: const EdgeInsets.all(12),
-                          child: Column(children: [
-                            infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
-                            infoRow('وزن خالص کل فروش', '${faNum(_netTarget)} کیلو'),
-                            infoRow('مبلغ فروش', '${faNum(_revenue, dec: 0)} تومان'),
-                          ]),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      sectionTitle(context,
-                          'تخصیص وزن خالص از انبار (اگر مخلوط بود چند جنس را انتخاب کنید)'),
-                      _allocationBanner(context),
-                      for (final e in _lots) _lotCard(e),
-                      const SizedBox(height: 12),
-                      textField(_buyer, 'خریدار (اختیاری)'),
-                      textField(_note, 'توضیحات (اختیاری)', lines: 2),
-                      FilledButton.icon(
-                        onPressed: _save,
-                        icon: const Icon(Icons.check),
-                        label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت فروش'),
-                      ),
-                      const SizedBox(height: 24),
-                    ],
+                    children: _children(context),
                   ),
                 ),
     );
   }
 
+  List<Widget> _children(BuildContext context) {
+    final sel = _selected;
+    final w = <Widget>[];
+
+    w.add(sectionTitle(context, 'قیمت فروش'));
+    w.add(KeyedSubtree(
+      key: const ValueKey('price'),
+      child: numField(_price, 'فی فروش (تومان به ازای هر کیلو)',
+          required: true, thousands: true, onChanged: _changed),
+    ));
+
+    w.add(sectionTitle(context, '۱) پستهٔ فروخته‌شده را از انبار انتخاب کنید'));
+    if (_lots.length > 6) {
+      w.add(Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: TextField(
+          decoration: const InputDecoration(
+            labelText: 'جستجو (نام دسته یا نوع)',
+            prefixIcon: Icon(Icons.search),
+            border: OutlineInputBorder(),
+          ),
+          onChanged: (v) => setState(() => _query = v),
+        ),
+      ));
+    }
+    w.add(Column(children: [for (final e in _visibleLots) _lotTile(e)]));
+
+    if (sel.isEmpty) {
+      w.add(const Padding(
+        padding: EdgeInsets.symmetric(vertical: 12),
+        child: Text('بعد از انتخاب پسته، وزن فروش را وارد کنید.',
+            style: TextStyle(color: Colors.black54)),
+      ));
+    } else {
+      if (sel.length >= 2) {
+        w.add(sectionTitle(context, '۲) این فروش مخلوط است؛ وزن چطور کشیده شد؟'));
+        w.add(SegmentedButton<_Mode>(
+          segments: const <ButtonSegment<_Mode>>[
+            ButtonSegment<_Mode>(value: _Mode.whole, label: Text('کل بار یک‌جا')),
+            ButtonSegment<_Mode>(value: _Mode.perLot, label: Text('هر جنس جدا')),
+          ],
+          selected: <_Mode>{_mode},
+          showSelectedIcon: false,
+          onSelectionChanged: (s) {
+            _mode = s.first;
+            _changed();
+          },
+        ));
+        w.add(Padding(
+          padding: const EdgeInsets.only(top: 6, bottom: 8),
+          child: Text(
+            _perLot
+                ? 'برای هر جنس، وزن کل و گونی‌های همان جنس را وارد کنید؛ وزن خالص هر جنس خودکار محاسبه می‌شود.'
+                : 'وزن کل بار را یک‌بار وارد کنید، بعد وزن خالص را بین اجناس تقسیم کنید.',
+            style: const TextStyle(color: Colors.black54, fontSize: 12),
+          ),
+        ));
+      } else {
+        w.add(sectionTitle(context, '۲) وزن فروش'));
+      }
+
+      if (_perLot) {
+        for (final e in sel) {
+          w.add(_perLotCard(e));
+        }
+      } else {
+        w.add(KeyedSubtree(
+          key: const ValueKey('whole'),
+          child: _weighFields(_whole, grossLabel: 'وزن کل (با گونی) — مثل ترازوی بارگیری'),
+        ));
+      }
+
+      w.add(_summaryCard(context));
+
+      if (_wholeMulti) {
+        w.add(sectionTitle(context, '۳) وزن خالص هر جنس (جمع باید برابر وزن خالص کل باشد)'));
+        w.add(_allocationBanner(context));
+        for (final e in sel) {
+          w.add(_allocCard(e));
+        }
+      }
+    }
+
+    w.add(const SizedBox(height: 12));
+    w.add(KeyedSubtree(key: const ValueKey('buyer'), child: textField(_buyer, 'خریدار (اختیاری)')));
+    w.add(KeyedSubtree(
+        key: const ValueKey('note'), child: textField(_note, 'توضیحات (اختیاری)', lines: 2)));
+    w.add(FilledButton.icon(
+      onPressed: _saving ? null : _save,
+      icon: _saving
+          ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+          : const Icon(Icons.check),
+      label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت فروش'),
+    ));
+    w.add(const SizedBox(height: 24));
+    return w;
+  }
+
+  List<Map<String, dynamic>> get _visibleLots {
+    final q = _norm(_query);
+    if (q.isEmpty) return _lots;
+    return _lots.where((e) {
+      if (_sel[e['id'] as int] ?? false) return true; // انتخاب‌شده‌ها همیشه دیده می‌شوند
+      return _norm('${e['category_name']} ${e['type_name']}').contains(q);
+    }).toList();
+  }
+
+  Widget _lotTile(Map<String, dynamic> e) {
+    final id = e['id'] as int;
+    final rem = (e['remaining'] as num).toDouble();
+    return Card(
+      key: ValueKey('lot$id'),
+      child: CheckboxListTile(
+        controlAffinity: ListTileControlAffinity.leading,
+        value: _sel[id] ?? false,
+        onChanged: (v) => _toggle(id, v ?? false),
+        title: Text('${e['category_name']} - ${e['type_name']}'),
+        subtitle: Text(
+            'خرید ${jalaliDate(e['date'] as String)}  •  فی ${faNum(e['price'] as num, dec: 0)}\n'
+            'موجودی ${faNum(rem)} کیلو'),
+        isThreeLine: true,
+      ),
+    );
+  }
+
+  /// فیلدهای وزن کل + گونی (تعدادی یا به کیلو)
+  Widget _weighFields(_Weigh w, {required String grossLabel}) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      numField(w.gross, grossLabel, required: true, onChanged: _changed),
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: SegmentedButton<bool>(
+          segments: const <ButtonSegment<bool>>[
+            ButtonSegment<bool>(value: true, label: Text('تعداد گونی')),
+            ButtonSegment<bool>(value: false, label: Text('وزن گونی (کیلو)')),
+          ],
+          selected: <bool>{w.byCount},
+          showSelectedIcon: false,
+          onSelectionChanged: (s) {
+            w.byCount = s.first;
+            _changed();
+          },
+        ),
+      ),
+      if (w.byCount)
+        Row(children: [
+          Expanded(
+              child: numField(w.small, 'گونی کوچک (${faNum(_kSmallSackKg * 1000, dec: 0)} گرم)',
+                  hint: '0', onChanged: _changed)),
+          const SizedBox(width: 8),
+          Expanded(
+              child: numField(w.large, 'گونی بزرگ (${faNum(_kLargeSackKg * 1000, dec: 0)} گرم)',
+                  hint: '0', onChanged: _changed)),
+        ])
+      else
+        numField(w.tareKg, 'وزن کل گونی‌ها (کیلو)', hint: '0', onChanged: _changed),
+    ]);
+  }
+
+  Widget _perLotCard(Map<String, dynamic> e) {
+    final id = e['id'] as int;
+    final w = _lotWeigh.putIfAbsent(id, () => _Weigh());
+    final rem = (e['remaining'] as num).toDouble();
+    final scheme = Theme.of(context).colorScheme;
+    return Card(
+      key: ValueKey('pl$id'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Text('${e['category_name']} - ${e['type_name']}',
+              style: Theme.of(context).textTheme.titleSmall),
+          Text('موجودی ${faNum(rem)} کیلو', style: const TextStyle(color: Colors.black54)),
+          const SizedBox(height: 10),
+          _weighFields(w, grossLabel: 'وزن کل این جنس (با گونی)'),
+          infoRow('وزن خالص این جنس', '${faNum(w.net)} کیلو',
+              valueColor: w.net > rem + 1e-6 ? scheme.error : null),
+        ]),
+      ),
+    );
+  }
+
+  Widget _summaryCard(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final over = _overStock();
+    final tooHeavy = _gross > 0 && _net <= 0;
+    return Card(
+      color: scheme.primaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(children: [
+          infoRow('وزن کل (با گونی)', '${faNum(_gross)} کیلو'),
+          infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
+          infoRow('وزن خالص پسته', '${faNum(_net)} کیلو'),
+          infoRow('مبلغ فروش', '${faNum(_revenue, dec: 0)} تومان'),
+          if (tooHeavy)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text('وزن گونی‌ها از وزن کل بیشتر یا مساوی آن است',
+                  style: TextStyle(color: scheme.error)),
+            ),
+          if (over != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(over, style: TextStyle(color: scheme.error)),
+            ),
+        ]),
+      ),
+    );
+  }
+
   Widget _allocationBanner(BuildContext context) {
-    final ok = _leftToAllocate.abs() <= 0.005 && _netTarget > 0;
+    final ok = _left.abs() <= 0.005 && _net > 0;
     final scheme = Theme.of(context).colorScheme;
     return Card(
       color: ok ? scheme.secondaryContainer : scheme.errorContainer,
@@ -190,66 +541,70 @@ class _SaleFormState extends State<SaleForm> {
           Icon(ok ? Icons.check_circle_outline : Icons.error_outline),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(_netTarget <= 0
-                ? 'ابتدا وزن کل فروش را وارد کنید'
+            child: Text(_net <= 0
+                ? 'ابتدا وزن کل و گونی‌ها را وارد کنید'
                 : ok
-                    ? 'کل وزن خالص تخصیص داده شد'
-                    : _leftToAllocate > 0
-                        ? '${faNum(_leftToAllocate)} کیلو هنوز باقی مانده تا تخصیص داده شود'
-                        : '${faNum(-_leftToAllocate)} کیلو بیشتر از وزن خالص تخصیص داده شده'),
+                    ? 'کل وزن خالص تقسیم شد'
+                    : _left > 0
+                        ? '${faNum(_left)} کیلو هنوز باقی مانده تا تقسیم شود'
+                        : '${faNum(-_left)} کیلو بیشتر از وزن خالص تقسیم شده'),
           ),
         ]),
       ),
     );
   }
 
-  Widget _lotCard(Map<String, dynamic> e) {
+  Widget _allocCard(Map<String, dynamic> e) {
     final id = e['id'] as int;
     final rem = (e['remaining'] as num).toDouble();
     return Card(
-      child: Column(children: [
-        CheckboxListTile(
-          controlAffinity: ListTileControlAffinity.leading,
-          value: _sel[id],
-          onChanged: (v) => setState(() => _sel[id] = v ?? false),
-          title: Text('${e['category_name']} - ${e['type_name']}'),
-          subtitle: Text(
-              'خرید ${jalaliDate(e['date'] as String)}  •  فی ${faNum(e['price'] as num, dec: 0)}\n'
-              'موجودی ${faNum(rem)} کیلو'),
-          isThreeLine: true,
-        ),
-        if (_sel[id] == true)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-            child: Row(children: [
-              Expanded(
-                child: TextFormField(
-                  controller: _kg[id],
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                  decoration: const InputDecoration(
-                    labelText: 'سهم این جنس از وزن خالص (کیلو)',
-                    border: OutlineInputBorder(),
-                  ),
-                  onChanged: (_) => setState(() {}),
-                  validator: (v) {
-                    final n = parseNum(v);
-                    if (n == null || n <= 0) return 'وزن را وارد کنید';
-                    if (n > rem + 1e-6) return 'بیشتر از موجودی';
-                    return null;
-                  },
+      key: ValueKey('al$id'),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('${e['category_name']} - ${e['type_name']}',
+              style: Theme.of(context).textTheme.titleSmall),
+          Text('موجودی ${faNum(rem)} کیلو', style: const TextStyle(color: Colors.black54)),
+          const SizedBox(height: 10),
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(
+              child: TextFormField(
+                controller: _kg[id],
+                focusNode: _focus[id],
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(
+                  labelText: 'وزن خالص این جنس (کیلو)',
+                  border: OutlineInputBorder(),
                 ),
-              ),
-              TextButton(
-                onPressed: () {
-                  final fill = _leftToAllocate + _alloc(id);
-                  final v = fill < 0 ? 0.0 : (fill > rem ? rem : fill);
-                  setState(() => _kg[id]!.text = plain(v));
+                onChanged: (v) {
+                  if (v.trim().isEmpty) {
+                    _typed.remove(id);
+                  } else {
+                    _typed.add(id);
+                  }
+                  _changed();
                 },
-                child: const Text('پر کن'),
+                validator: (v) {
+                  final n = parseNum(v);
+                  if (n == null || n <= 0) return 'وزن را وارد کنید';
+                  if (n > rem + 1e-6) return 'بیشتر از موجودی';
+                  return null;
+                },
               ),
-            ]),
-          ),
-      ]),
+            ),
+            TextButton(
+              onPressed: () {
+                final fill = _left + _alloc(id);
+                final v = fill < 0 ? 0.0 : (fill > rem ? rem : fill);
+                _kg[id]!.text = v > 0 ? plain(_r3(v)) : '';
+                _typed.add(id);
+                _changed();
+              },
+              child: const Text('پر کن'),
+            ),
+          ]),
+        ]),
+      ),
     );
   }
 }

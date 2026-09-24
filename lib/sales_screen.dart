@@ -37,6 +37,13 @@ class SalesScreen extends StatelessWidget {
                 final net = (sale['net_weight'] as num).toDouble();
                 final price = (sale['price'] as num).toDouble();
                 final revenue = net * price;
+                final total = (sale['total_weight'] as num).toDouble();
+                final tare = total - net < 0 ? 0.0 : total - net;
+                final small = (sale['small_sack_count'] as num).toDouble();
+                final large = (sale['large_sack_count'] as num).toDouble();
+                final sackCounts = (small + large) > 0
+                    ? '  (${faNum(small)} کوچک / ${faNum(large)} بزرگ)'
+                    : '';
                 final comp = items
                     .map((it) => '${it['type_name']} ${faNum(it['weight'] as num)}')
                     .join(' + ');
@@ -74,10 +81,9 @@ class SalesScreen extends StatelessWidget {
                         ]),
                         Text(comp),
                         const SizedBox(height: 8),
-                        infoRow('وزن کل / خالص',
-                            '${faNum(sale['total_weight'] as num)} / ${faNum(net)} کیلو'),
-                        infoRow('گونی کوچک / بزرگ',
-                            '${faNum(sale['small_sack_count'] as num)} / ${faNum(sale['large_sack_count'] as num)}'),
+                        infoRow('وزن کل (با گونی)', '${faNum(total)} کیلو'),
+                        infoRow('وزن گونی‌ها', '${faNum(tare)} کیلو$sackCounts'),
+                        infoRow('وزن خالص پسته', '${faNum(net)} کیلو'),
                         infoRow('فی فروش', '${faNum(price, dec: 0)} تومان'),
                         infoRow('مبلغ فروش', '${faNum(revenue, dec: 0)} تومان'),
                         const SizedBox(height: 8),
