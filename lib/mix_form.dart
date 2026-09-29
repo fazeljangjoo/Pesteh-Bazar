@@ -56,7 +56,7 @@ class _MixFormState extends State<MixForm> {
 
   Future<void> _load() async {
     final lots = _isEdit
-        ? await AppDb.I.lotsForSaleEdit(widget.existing!['id'] as int)
+        ? await AppDb.I.lotsForMixEdit(widget.existing!['id'] as int)
         : await AppDb.I.lots();
     final cats = await AppDb.I.categories();
     if (!mounted) return;

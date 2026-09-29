@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'db.dart';
 import 'receipt_screen.dart';
 import 'sale_form.dart';
+import 'notify_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -69,7 +70,24 @@ class SalesScreen extends StatelessWidget {
                               } else if (v == 'del') {
                                 if (await confirm(context,
                                     'این فروش حذف شود؟ وزن‌ها به انبار برمی‌گردند.')) {
+                                  final rec = await AppDb.I.receiptOf(id);
+                                  var creditIds = <int>[], chequeIds = <int>[];
+                                  if (rec != null) {
+                                    final recId = rec['id'] as int;
+                                    creditIds = (await AppDb.I.receiptCreditInstList(recId))
+                                        .map((r) => r['id'] as int)
+                                        .toList();
+                                    chequeIds = (await AppDb.I.receiptChequeInstList(recId))
+                                        .map((r) => r['id'] as int)
+                                        .toList();
+                                  }
                                   await AppDb.I.deleteSale(id);
+                                  for (final cid in creditIds) {
+                                    await NotifyService.I.cancelReceiptCreditRow(cid);
+                                  }
+                                  for (final cid in chequeIds) {
+                                    await NotifyService.I.cancelReceiptChequeRow(cid);
+                                  }
                                 }
                               }
                             },

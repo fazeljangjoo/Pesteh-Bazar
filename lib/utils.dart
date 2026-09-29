@@ -1,3 +1,6 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/services.dart';
 
 /// تبدیل ارقام فارسی/عربی به انگلیسی و پاکسازی جداکننده‌ها
@@ -229,3 +232,9 @@ const List<String> kJalaliWeekdayShort = ['ش', 'ی', 'د', 'س', 'چ', 'پ', '�
 
 /// اندیس روز هفته با شروع از شنبه=۰ برای یک تاریخ میلادی
 int jalaliWeekdayIndex(DateTime d) => (d.weekday + 1) % 7;
+
+/// عکس رسید در دیتابیس (مثل سرور/وب) به‌صورت data-URL ذخیره می‌شود؛ این تابع بایت‌های تصویر را برمی‌گرداند
+Uint8List photoBytes(String dataUrl) {
+  final i = dataUrl.indexOf(',');
+  return base64Decode(i >= 0 ? dataUrl.substring(i + 1) : dataUrl);
+}

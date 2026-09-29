@@ -1,11 +1,10 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 
 import 'db.dart';
 import 'payment_screen.dart';
 import 'pdf_service.dart';
 import 'purchase_form.dart';
+import 'notify_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -55,11 +54,18 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
                     infoRow('کد پسته', p['code'] as String? ?? '-'),
-              if (p['photo'] != null && File(p['photo']).existsSync())
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(8),
-                  child: Image.file(File(p['photo']),
-                      height: 180, width: double.infinity, fit: BoxFit.cover),
+              if (((p['has_photo'] as num?) ?? 0) == 1)
+                FutureBuilder<String?>(
+                  future: AppDb.I.localPhoto(p['id'] as int),
+                  builder: (c, snap) {
+                    final ph = snap.data;
+                    if (ph == null) return const SizedBox.shrink();
+                    return ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.memory(photoBytes(ph),
+                          height: 180, width: double.infinity, fit: BoxFit.cover),
+                    );
+                  },
                 ),
               const SizedBox(height: 8),
               for (final r in rows) infoRow(r[0], r[1]),
@@ -145,16 +151,12 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                   );
                 }
                 final p = list[i - 1];
-                final photo = p['photo'] as String?;
+                final hasPhoto = ((p['has_photo'] as num?) ?? 0) == 1;
                 return Card(
                   child: ListTile(
                     onTap: () => _details(context, p),
-                    leading: (photo != null && File(photo).existsSync())
-                        ? ClipRRect(
-                            borderRadius: BorderRadius.circular(6),
-                            child: Image.file(File(photo), width: 52, height: 52, fit: BoxFit.cover),
-                          )
-                        : const CircleAvatar(child: Icon(Icons.grass)),
+                    leading: CircleAvatar(
+                        child: Icon(hasPhoto ? Icons.photo_camera_outlined : Icons.grass)),
                     title: Text('${p['category_name']} - ${p['type_name']}'),
                     subtitle: Text(
                       'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
@@ -166,8 +168,26 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                           Navigator.push(context,
                               MaterialPageRoute(builder: (_) => PurchaseForm(existing: p)));
                         } else if (v == 'del' && await confirm(context, 'این خرید حذف شود؟')) {
+                          final pay = await AppDb.I.paymentOf(p['id'] as int);
+                          var creditIds = <int>[], chequeIds = <int>[];
+                          if (pay != null) {
+                            final payId = pay['id'] as int;
+                            creditIds = (await AppDb.I.creditInstList(payId))
+                                .map((r) => r['id'] as int)
+                                .toList();
+                            chequeIds = (await AppDb.I.chequeInstList(payId))
+                                .map((r) => r['id'] as int)
+                                .toList();
+                          }
                           final ok = await AppDb.I.deletePurchase(p['id'] as int);
-                          if (!ok && context.mounted) {
+                          if (ok) {
+                            for (final id in creditIds) {
+                              await NotifyService.I.cancelCreditRow(id);
+                            }
+                            for (final id in chequeIds) {
+                              await NotifyService.I.cancelChequeRow(id);
+                            }
+                          } else if (context.mounted) {
                             snack(context, 'از این خرید فروش انجام شده؛ ابتدا فروش را حذف کنید');
                           }
                         }

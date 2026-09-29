@@ -1,9 +1,7 @@
-import 'dart:io';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 import 'db.dart';
 import 'party_field.dart';
@@ -28,12 +26,14 @@ class _PurchaseFormState extends State<PurchaseForm> {
   List<Map<String, dynamic>> _categories = [];
   int? _categoryId;
   bool _loadingCats = true;
+  bool _saving = false;
 
   List<Map<String, dynamic>> _types = [];
   int? _typeId;
   final _customTypeCtrl = TextEditingController();
 
-  String? _photo;
+  String? _photo; // data-URL (base64) مثل سرور/وب
+  bool _photoChanged = false;
 
   final _ounce = TextEditingController();
   final _price = TextEditingController();
@@ -68,7 +68,7 @@ class _PurchaseFormState extends State<PurchaseForm> {
     super.initState();
     final e = widget.existing;
     if (e != null) {
-      _photo = e['photo'] as String?;
+      _loadExistingPhoto(e['id'] as int?);
       _ounce.text = e['ounce'] == null ? '' : plain(e['ounce'] as num);
       _price.text = plain(e['price'] as num);
       _total.text = plain(e['total_weight'] as num);
@@ -194,13 +194,29 @@ class _PurchaseFormState extends State<PurchaseForm> {
     setState(() => _customSpecs.removeAt(i));
   }
 
+  /// عکس در لیست‌ها بارگذاری نمی‌شود (سنگین است)؛ فقط هنگام ویرایش از دیتابیس خوانده می‌شود
+  Future<void> _loadExistingPhoto(int? id) async {
+    if (id == null) return;
+    final ph = await AppDb.I.localPhoto(id);
+    if (mounted && !_photoChanged && ph != null) setState(() => _photo = ph);
+  }
+
   Future<void> _pick(ImageSource src) async {
-    final x = await ImagePicker().pickImage(source: src, maxWidth: 1280, imageQuality: 80);
+    // مثل وب: حداکثر ~۱۱۰۰ پیکسل و کیفیت ۷۲٪ تا حجم دیتابیس/سرور زیاد نشود
+    final x = await ImagePicker().pickImage(source: src, maxWidth: 1100, imageQuality: 72);
     if (x == null) return;
-    final dir = await getApplicationDocumentsDirectory();
-    final dest = p.join(dir.path, 'photo_${DateTime.now().millisecondsSinceEpoch}.jpg');
-    await File(x.path).copy(dest);
-    if (mounted) setState(() => _photo = dest);
+    final bytes = await x.readAsBytes();
+    if (bytes.length > 6 * 1024 * 1024) {
+      if (mounted) snack(context, 'حجم عکس زیاد است');
+      return;
+    }
+    final dataUrl = 'data:image/jpeg;base64,${base64Encode(bytes)}';
+    if (mounted) {
+      setState(() {
+        _photo = dataUrl;
+        _photoChanged = true;
+      });
+    }
   }
 
   void _photoSheet() {
@@ -230,7 +246,10 @@ class _PurchaseFormState extends State<PurchaseForm> {
               title: const Text('حذف عکس'),
               onTap: () {
                 Navigator.pop(ctx);
-                setState(() => _photo = null);
+                setState(() {
+                  _photo = null;
+                  _photoChanged = true;
+                });
               },
             ),
         ]),
@@ -239,17 +258,27 @@ class _PurchaseFormState extends State<PurchaseForm> {
   }
 
   Future<void> _save() async {
+    if (_saving) return;
     if (!_form.currentState!.validate()) return;
 
     if (_locked) {
       // فقط فی، فروشنده، عکس و توضیحات قابل ویرایش است (چون بخشی از این خرید فروخته شده)
-      await AppDb.I.updatePurchase(widget.existing!['id'] as int, {
-        'photo': _photo,
-        'price': parseNum(_price.text),
-        'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
-        'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
-      });
-      if (mounted) Navigator.pop(context);
+      setState(() => _saving = true);
+      try {
+        await AppDb.I.updatePurchase(widget.existing!['id'] as int, {
+          if (_photoChanged) 'photo': _photo,
+          'price': parseNum(_price.text),
+          'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
+          'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
+        });
+        if (mounted) Navigator.pop(context);
+      } catch (e) {
+        if (mounted) {
+          snack(context, 'ذخیره نشد: ${e.toString().replaceFirst('Exception: ', '')}');
+        }
+      } finally {
+        if (mounted) setState(() => _saving = false);
+      }
       return;
     }
 
@@ -273,6 +302,10 @@ class _PurchaseFormState extends State<PurchaseForm> {
     }
     if (_net <= 0) {
       snack(context, 'وزن خالص باید بیشتر از صفر باشد');
+      return;
+    }
+    if ((parseNum(_price.text) ?? 0) <= 0) {
+      snack(context, 'فی خرید را وارد کنید');
       return;
     }
 
@@ -307,13 +340,23 @@ class _PurchaseFormState extends State<PurchaseForm> {
       'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
     };
 
-    if (_isEdit) {
-      await AppDb.I.updatePurchase(widget.existing!['id'] as int, data);
-    } else {
-      data['date'] = DateTime.now().toIso8601String();
-      await AppDb.I.insertPurchase(data);
+    setState(() => _saving = true);
+    try {
+      if (_isEdit) {
+        if (!_photoChanged) data.remove('photo');
+        await AppDb.I.updatePurchase(widget.existing!['id'] as int, data);
+      } else {
+        data['date'] = DateTime.now().toIso8601String();
+        await AppDb.I.insertPurchase(data);
+      }
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      if (mounted) {
+        snack(context, 'ذخیره نشد: ${e.toString().replaceFirst('Exception: ', '')}');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
-    if (mounted) Navigator.pop(context);
   }
 
   @override
@@ -397,7 +440,7 @@ class _PurchaseFormState extends State<PurchaseForm> {
                 clipBehavior: Clip.antiAlias,
                 child: _photo == null
                     ? const Center(child: Icon(Icons.add_a_photo_outlined, size: 36))
-                    : Image.file(File(_photo!), fit: BoxFit.cover, width: double.infinity),
+                    : Image.memory(photoBytes(_photo!), fit: BoxFit.cover, width: double.infinity),
               ),
             ),
             const SizedBox(height: 16),
@@ -488,8 +531,14 @@ class _PurchaseFormState extends State<PurchaseForm> {
             textField(_note, 'توضیحات (اختیاری)', lines: 2),
             const SizedBox(height: 8),
             FilledButton.icon(
-              onPressed: _save,
-              icon: const Icon(Icons.check),
+              onPressed: _saving ? null : _save,
+              icon: _saving
+                  ? const SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Icon(Icons.check),
               label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت خرید'),
             ),
             const SizedBox(height: 24),

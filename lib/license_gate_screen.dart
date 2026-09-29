@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import 'backup_service.dart';
+import 'db.dart';
+import 'notify_service.dart';
+import 'sync_service.dart';
 import 'license_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -18,6 +20,7 @@ class LicenseGate extends StatefulWidget {
 class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   bool _loading = true;
   LicenseResult? _result;
+  String? _dataError;
 
   @override
   void initState() {
@@ -37,12 +40,37 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) refresh();
   }
 
+  /// دیتابیس حساب را باز می‌کند؛ اگر این دستگاه هنوز داده‌های حساب را نگرفته (ورود اول /
+  /// نصب مجدد)، همه را از سرور می‌آورد. بعد از آن برنامه بدون اینترنت هم کار می‌کند.
+  Future<String?> _prepareData(String phone) async {
+    try {
+      await AppDb.I.useAccount(phone);
+      if (await AppDb.I.metaGet('initial_done') == null) {
+        final err = await SyncService.I.initialSync();
+        if (err != null) return err;
+      }
+      // ignore: unawaited_futures
+      NotifyService.I.rescheduleAll();
+      // ignore: unawaited_futures
+      SyncService.I.syncNow();
+    } catch (e) {
+      return 'خطا در باز کردن اطلاعات حساب: $e';
+    }
+    return null;
+  }
+
   Future<void> refresh() async {
-    setState(() => _loading = true);
+    // در بازگشت به برنامه، اگر قبلاً وارد شده بود، صفحهٔ فعلی با اسپینر عوض نشود
+    if (_result == null || _result!.state != LicenseState.valid) setState(() => _loading = true);
     final r = await LicenseService.I.check();
+    String? dataErr;
+    if (r.state == LicenseState.valid && r.phone != null) {
+      dataErr = await _prepareData(r.phone!);
+    }
     if (!mounted) return;
     setState(() {
       _result = r;
+      _dataError = dataErr;
       _loading = false;
     });
   }
@@ -66,6 +94,14 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
       case LicenseState.blocked:
         return BlockedScreen(phone: r.phone, onRetry: refresh);
       case LicenseState.valid:
+        if (_dataError != null) {
+          return MessageScreen(
+            icon: Icons.cloud_download_outlined,
+            title: 'دریافت اطلاعات حساب',
+            message: _dataError!,
+            onRetry: refresh,
+          );
+        }
         return widget.child;
     }
   }
@@ -132,20 +168,6 @@ class _LoginScreenState extends State<LoginScreen> {
     if (err != null) {
       setState(() => _error = err);
       return;
-    }
-    try {
-      final remote = await BackupService.I.listRemote();
-      if (remote.isNotEmpty && mounted) {
-        final latest = remote.first;
-        final restore = await confirm(context,
-            'آخرین پشتیبان شما پیدا شد. اطلاعات فعلی این گوشی با آخرین نسخه جایگزین شود؟');
-        if (restore) {
-          setState(() => _loading = true);
-          await BackupService.I.restoreFromServer(latest);
-        }
-      }
-    } catch (_) {
-      // ورود حتی در صورت در دسترس نبودن پشتیبان باید امکان‌پذیر بماند.
     }
     if (!mounted) return;
     setState(() => _loading = false);

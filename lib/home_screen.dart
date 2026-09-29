@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'backup_service.dart';
-import 'backup_screen.dart';
+import 'sync_screen.dart';
+import 'sync_service.dart';
 import 'db.dart';
 import 'dues_screen.dart';
 import 'ledger.dart';
@@ -144,25 +144,29 @@ class HomeScreen extends StatelessWidget {
                 const SizedBox(height: 12),
                 InkWell(
                   onTap: () => Navigator.push(
-                      context, MaterialPageRoute(builder: (_) => const BackupScreen())),
-                  child: ValueListenableBuilder<BackupInfo>(
-                    valueListenable: BackupService.I.info,
+                      context, MaterialPageRoute(builder: (_) => const SyncScreen())),
+                  child: ValueListenableBuilder<SyncInfo>(
+                    valueListenable: SyncService.I.info,
                     builder: (context, info, _) => Card(
                       child: Padding(
                         padding: const EdgeInsets.all(12),
                         child: Row(children: [
-                          Icon(info.error != null
-                              ? Icons.cloud_off
-                              : info.pending
-                                  ? Icons.cloud_sync_outlined
-                                  : Icons.cloud_done_outlined),
+                          Icon(info.failed > 0
+                              ? Icons.error_outline
+                              : info.offline
+                                  ? Icons.cloud_off
+                                  : info.pending > 0
+                                      ? Icons.cloud_sync_outlined
+                                      : Icons.cloud_done_outlined),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(info.error != null
-                                ? 'پشتیبان‌گیری: ارسال نشد'
-                                : info.pending
-                                    ? 'پشتیبان‌گیری: در صف ارسال'
-                                    : 'پشتیبان‌گیری: به‌روز است'),
+                            child: Text(info.failed > 0
+                                ? 'همگام‌سازی: ${faNum(info.failed)} مورد خطادار'
+                                : info.offline
+                                    ? 'آفلاین — ${faNum(info.pending)} تغییر در صف ارسال'
+                                    : info.pending > 0
+                                        ? 'همگام‌سازی: ${faNum(info.pending)} تغییر در صف ارسال'
+                                        : 'همگام‌سازی: به‌روز است'),
                           ),
                           const Icon(Icons.chevron_left),
                         ]),

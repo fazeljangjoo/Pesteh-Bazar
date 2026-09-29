@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'backup_screen.dart';
+import 'sync_screen.dart';
 import 'license_gate_screen.dart' show ContactButtons;
 import 'license_service.dart';
 import 'utils.dart';
@@ -68,9 +68,9 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                 const SizedBox(height: 24),
                 FilledButton.tonalIcon(
                   onPressed: () => Navigator.push(
-                      context, MaterialPageRoute(builder: (_) => const BackupScreen())),
+                      context, MaterialPageRoute(builder: (_) => const SyncScreen())),
                   icon: const Icon(Icons.cloud_upload_outlined),
-                  label: const Text('پشتیبان‌گیری و بازیابی اطلاعات'),
+                  label: const Text('همگام‌سازی و بازیابی اطلاعات'),
                 ),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(

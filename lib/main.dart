@@ -1,6 +1,8 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import 'backup_service.dart';
 import 'dues_screen.dart';
 import 'home_screen.dart';
 import 'inventory_screen.dart';
@@ -11,17 +13,28 @@ import 'purchases_screen.dart';
 import 'reports_screen.dart';
 import 'sales_screen.dart';
 import 'subscription_screen.dart';
+import 'sync_service.dart';
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await NotifyService.I.init();
-  // یادآوری‌های پرداخت‌نشده را دوباره زمان‌بندی می‌کند (پس از راه‌اندازی مجدد گوشی هم لازم است)
-  // ignore: unawaited_futures
-  NotifyService.I.rescheduleAll();
-  // پشتیبان‌گیری خودکار بعد از هر تغییر داده
-  // ignore: unawaited_futures
-  BackupService.I.start();
-  runApp(const PestehApp());
+void main() {
+  // چترِ ایمنیِ سراسری: اگر جایی خطایی بدون try/catch رها شود (مثلاً یک استثنای
+  // پیش‌بینی‌نشده‌ی دیتابیس)، به‌جای گم‌شدنِ بی‌صدا یا کرش کل اپ، حداقل لاگ می‌شود
+  // و در حالت دیباگ روی کنسول دیده می‌شود.
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      debugPrint('FlutterError: ${details.exceptionAsString()}');
+    };
+
+    await NotifyService.I.init();
+    // همگام‌سازی خودکار با سرور (ارسال تغییرات آفلاین + دریافت تغییرات سایر دستگاه‌ها)
+    // نکته: یادآوری‌های سررسید بعد از ورود/باز شدن دیتابیس حساب در LicenseGate زمان‌بندی می‌شود.
+    SyncService.I.start();
+    runApp(const PestehApp());
+  }, (error, stack) {
+    debugPrint('Uncaught zone error: $error\n$stack');
+  });
 }
 
 class PestehApp extends StatelessWidget {

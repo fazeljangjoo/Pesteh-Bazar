@@ -5,6 +5,8 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'db.dart';
+import 'sync_service.dart';
 import 'utils.dart';
 
 /// اطلاعات تماس شما برای فعال‌سازی/تمدید اشتراک — حتماً این‌ها را با اطلاعات
@@ -164,6 +166,10 @@ class LicenseService {
     await sp.remove(_kActiveKey);
     await sp.remove(_kExpiryKey);
     _signedInCache = false;
+    // دیتابیس هر حساب جداست و روی گوشی می‌ماند؛ فقط بسته می‌شود. اگر عملیات ارسال‌نشده
+    // داشته باشد، با ورود دوباره به همان حساب ارسال می‌شود.
+    SyncService.I.stop();
+    await AppDb.I.closeAccount();
   }
 
   Future<void> _saveCache(bool active, DateTime? expiry) async {
