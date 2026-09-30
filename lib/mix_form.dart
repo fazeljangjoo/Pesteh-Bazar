@@ -46,6 +46,8 @@ class _MixFormState extends State<MixForm> {
   final _netWeight = TextEditingController();
   final _smallSack = TextEditingController();
   final _largeSack = TextEditingController();
+  final _ounce = TextEditingController(); // اختیاری
+  final _gram = TextEditingController(); // اختیاری
   final _note = TextEditingController();
 
   @override
@@ -73,6 +75,8 @@ class _MixFormState extends State<MixForm> {
       _netWeight.text = plain(e['net_weight'] as num);
       _smallSack.text = plain(e['small_sack_count'] as num);
       _largeSack.text = plain(e['large_sack_count'] as num);
+      _ounce.text = e['ounce'] == null ? '' : plain(e['ounce'] as num);
+      _gram.text = e['gram'] == null ? '' : plain(e['gram'] as num);
       _note.text = e['note'] as String? ?? '';
       _categoryId = e['category_id'] as int?;
       for (final source in sources) {
@@ -96,6 +100,8 @@ class _MixFormState extends State<MixForm> {
     _netWeight.dispose();
     _smallSack.dispose();
     _largeSack.dispose();
+    _ounce.dispose();
+    _gram.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -177,6 +183,8 @@ class _MixFormState extends State<MixForm> {
         'netWeight': net,
         'smallSackCount': parseNum(_smallSack.text) ?? 0,
         'largeSackCount': parseNum(_largeSack.text) ?? 0,
+        'ounce': parseNum(_ounce.text),
+        'gram': parseNum(_gram.text),
         'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
       };
       if (_isEdit) {
@@ -188,6 +196,8 @@ class _MixFormState extends State<MixForm> {
           netWeight: net,
           smallSackCount: args['smallSackCount'] as double,
           largeSackCount: args['largeSackCount'] as double,
+          ounce: args['ounce'] as double?,
+          gram: args['gram'] as double?,
           note: args['note'] as String?,
         );
       } else {
@@ -198,6 +208,8 @@ class _MixFormState extends State<MixForm> {
           netWeight: net,
           smallSackCount: args['smallSackCount'] as double,
           largeSackCount: args['largeSackCount'] as double,
+          ounce: args['ounce'] as double?,
+          gram: args['gram'] as double?,
           note: args['note'] as String?,
         );
       }
@@ -314,6 +326,11 @@ class _MixFormState extends State<MixForm> {
                 Expanded(child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', hint: '0')),
                 const SizedBox(width: 8),
                 Expanded(child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰ گرم)', hint: '0')),
+              ]),
+              Row(children: [
+                Expanded(child: numField(_ounce, 'انس (اختیاری)', hint: '0')),
+                const SizedBox(width: 8),
+                Expanded(child: numField(_gram, 'گرم (اختیاری)', hint: '0')),
               ]),
               textField(_note, 'توضیحات (اختیاری)', lines: 2),
               const SizedBox(height: 8),

@@ -309,6 +309,13 @@ class _PurchaseFormState extends State<PurchaseForm> {
       return;
     }
 
+    // اگر تعداد گونی وارد نشده باشد، قبل از ثبت تأیید می‌گیریم
+    if (((parseNum(_smallSack.text) ?? 0) + (parseNum(_largeSack.text) ?? 0)) <= 0) {
+      final ok = await confirm(context,
+          'شما تعداد را وارد نکردید؛ گونیِ انبار برای این خرید اضافه نخواهد شد و فقط وزن خالص به انبار اضافه می‌شود. مطمئنید؟');
+      if (!ok || !mounted) return;
+    }
+
     final preset = _presetKey;
     List<Map<String, String>>? customSpecs;
     if (preset != 'dombest' && preset != 'khandan') {

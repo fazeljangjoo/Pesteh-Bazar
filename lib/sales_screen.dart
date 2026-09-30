@@ -7,8 +7,32 @@ import 'notify_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
-class SalesScreen extends StatelessWidget {
+/// یکسان‌سازی «ي/ك» عربی و «ی/ک» فارسی برای جستجو
+String _norm(String s) => toEnDigits(s.replaceAll('ي', 'ی').replaceAll('ك', 'ک')).trim().toLowerCase();
+
+class SalesScreen extends StatefulWidget {
   const SalesScreen({super.key});
+  @override
+  State<SalesScreen> createState() => _SalesScreenState();
+}
+
+class _SalesScreenState extends State<SalesScreen> {
+  String _query = '';
+
+  /// کد پسته‌ی فروش (هر فروش فقط یک قلم دارد)
+  static String _codeOf(Map<String, dynamic> sale) {
+    final items = sale['items'] as List;
+    if (items.isEmpty) return '-';
+    return (items.first['code'] as String?) ?? '-';
+  }
+
+  static bool _matches(Map<String, dynamic> sale, String q) {
+    if (q.isEmpty) return true;
+    final items = sale['items'] as List;
+    final it = items.isEmpty ? const <String, dynamic>{} : items.first as Map;
+    final hay = _norm('${it['code']} ${it['category_name']} ${it['type_name']} ${sale['buyer'] ?? ''}');
+    return hay.contains(q);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -26,13 +50,35 @@ class SalesScreen extends StatelessWidget {
           future: AppDb.I.sales(),
           builder: (context, s) {
             if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            final list = s.data!;
-            if (list.isEmpty) return const Center(child: Text('هنوز فروشی ثبت نشده'));
+            final all = s.data!;
+            if (all.isEmpty) return const Center(child: Text('هنوز فروشی ثبت نشده'));
+            final q = _norm(_query);
+            final list = all.where((sale) => _matches(sale, q)).toList();
             return ListView.builder(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
-              itemCount: list.length,
+              itemCount: list.length + 1,
               itemBuilder: (context, i) {
-                final sale = list[i];
+                if (i == 0) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(children: [
+                      TextField(
+                        decoration: const InputDecoration(
+                          labelText: 'جستجو با کد پسته، نوع، دسته یا خریدار',
+                          prefixIcon: Icon(Icons.search),
+                          border: OutlineInputBorder(),
+                        ),
+                        onChanged: (v) => setState(() => _query = v),
+                      ),
+                      if (list.isEmpty)
+                        const Padding(
+                          padding: EdgeInsets.only(top: 24),
+                          child: Text('نتیجه‌ای پیدا نشد'),
+                        ),
+                    ]),
+                  );
+                }
+                final sale = list[i - 1];
                 final id = sale['id'] as int;
                 final items = sale['items'] as List;
                 final net = (sale['net_weight'] as num).toDouble();
@@ -46,7 +92,7 @@ class SalesScreen extends StatelessWidget {
                     ? '  (${faNum(small)} کوچک / ${faNum(large)} بزرگ)'
                     : '';
                 final comp = items
-                    .map((it) => '${it['type_name']} ${faNum(it['weight'] as num)}')
+                    .map((it) => '${it['category_name']} - ${it['type_name']}')
                     .join(' + ');
                 return Card(
                   child: Padding(
@@ -69,7 +115,7 @@ class SalesScreen extends StatelessWidget {
                                     MaterialPageRoute(builder: (_) => SaleForm(editSaleId: id)));
                               } else if (v == 'del') {
                                 if (await confirm(context,
-                                    'این فروش حذف شود؟ وزن‌ها به انبار برمی‌گردند.')) {
+                                    'این فروش حذف شود؟ وزن و گونی‌ها به انبار برمی‌گردند.')) {
                                   final rec = await AppDb.I.receiptOf(id);
                                   var creditIds = <int>[], chequeIds = <int>[];
                                   if (rec != null) {
@@ -98,6 +144,7 @@ class SalesScreen extends StatelessWidget {
                           ),
                         ]),
                         Text(comp),
+                        infoRow('کد پسته', _codeOf(sale)),
                         const SizedBox(height: 8),
                         infoRow('وزن کل (با گونی)', '${faNum(total)} کیلو'),
                         infoRow('وزن گونی‌ها', '${faNum(tare)} کیلو$sackCounts'),

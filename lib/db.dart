@@ -21,7 +21,8 @@ const List<(String, List<String>)> _kSnapshot = [
     'purchases',
     [
       'id', 'code', 'category_id', 'type_name', 'date', 'ounce', 'price', 'total_weight',
-      'small_sack_count', 'large_sack_count', 'net_weight', 'remaining', 'gram', 'pct_dombest',
+      'small_sack_count', 'large_sack_count', 'small_sacks_remaining', 'large_sacks_remaining',
+      'net_weight', 'remaining', 'gram', 'pct_dombest',
       'pct_tuchin', 'pct_crooked', 'pct_khandan', 'custom_specs', 'photo', 'seller', 'note',
       'is_mix', 'created_at'
     ]
@@ -73,7 +74,8 @@ const List<(String, List<String>)> _kSnapshot = [
 ];
 
 const Set<String> _kRealCols = {
-  'ounce', 'price', 'total_weight', 'small_sack_count', 'large_sack_count', 'net_weight', 'remaining',
+  'ounce', 'price', 'total_weight', 'small_sack_count', 'large_sack_count', 'small_sacks_remaining',
+  'large_sacks_remaining', 'net_weight', 'remaining',
   'gram', 'pct_dombest', 'pct_tuchin', 'pct_crooked', 'pct_khandan', 'weight', 'small_sacks',
   'large_sacks', 'item_price', 'amount',
 };
@@ -84,7 +86,8 @@ const Set<String> _kIntCols = {
 
 /// ستون‌های خرید برای لیست‌ها: عکس (base64 سنگین) عمداً انتخاب نمی‌شود؛ فقط has_photo.
 const String _pSel = 'p.id, p.code, p.category_id, p.type_name, p.date, p.ounce, p.price, p.total_weight, '
-    'p.small_sack_count, p.large_sack_count, p.net_weight, p.remaining, p.gram, p.pct_dombest, '
+    'p.small_sack_count, p.large_sack_count, p.small_sacks_remaining, p.large_sacks_remaining, '
+    'p.net_weight, p.remaining, p.gram, p.pct_dombest, '
     'p.pct_tuchin, p.pct_crooked, p.pct_khandan, p.custom_specs, p.seller, p.note, p.is_mix, '
     'p.created_at, p.ord, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
 
@@ -110,7 +113,7 @@ class AppDb {
   /// با هر تغییر داده زیاد می‌شود تا صفحه‌ها بازخوانی شوند
   final ValueNotifier<int> version = ValueNotifier<int>(0);
 
-  static const int schemaVersion = 7;
+  static const int schemaVersion = 8;
 
   String? _phone;
   Database? _db;
@@ -134,7 +137,7 @@ class AppDb {
 
   Future<Database> _open(String phone) async {
     final path = join(await getDatabasesPath(), 'pesteh_$phone.db');
-    return openDatabase(path, version: schemaVersion, onCreate: _onCreate);
+    return openDatabase(path, version: schemaVersion, onCreate: _onCreate, onUpgrade: _onUpgrade);
   }
 
   /// حساب فعال را تعیین می‌کند (دیتابیس همان حساب باز می‌شود)
@@ -176,6 +179,34 @@ class AppDb {
     } catch (_) {}
   }
 
+  /// مهاجرت دیتابیس‌های قدیمی: دو ستون گونیِ باقی‌مانده به خرید اضافه می‌شود
+  /// و مقدار اولیه‌شان = گونی خرید منهای گونی‌هایی که تا امروز صریحاً کم شده‌اند.
+  Future<void> _onUpgrade(Database d, int oldV, int newV) async {
+    if (oldV < 8) {
+      await d.execute('ALTER TABLE purchases ADD COLUMN small_sacks_remaining REAL NOT NULL DEFAULT 0');
+      await d.execute('ALTER TABLE purchases ADD COLUMN large_sacks_remaining REAL NOT NULL DEFAULT 0');
+      await _backfillSacks(d);
+    }
+  }
+
+  /// گونی باقی‌ماندهٔ داده‌های قدیمی را مثل backfillSacksRemaining سرور (app.php) حساب می‌کند:
+  /// گونی خرید − گونی‌های ثبت‌شده در فروش/مخلوط − سهم تناسبیِ فروش/مخلوط‌هایی که گونی ثبت نکرده‌اند.
+  Future<void> _backfillSacks(DatabaseExecutor t) async {
+    String sum(String col) => '''
+        (COALESCE((SELECT SUM(COALESCE($col, 0)) FROM sale_items WHERE purchase_id = purchases.id), 0)
+       + COALESCE((SELECT SUM(COALESCE($col, 0)) FROM mix_sources WHERE source_purchase_id = purchases.id), 0))''';
+    const unk = '''
+        (COALESCE((SELECT SUM(weight) FROM sale_items WHERE purchase_id = purchases.id
+                     AND small_sacks IS NULL AND large_sacks IS NULL), 0)
+       + COALESCE((SELECT SUM(weight) FROM mix_sources WHERE source_purchase_id = purchases.id
+                     AND small_sacks IS NULL AND large_sacks IS NULL), 0))''';
+    const ratio = 'CASE WHEN net_weight > 0 THEN $unk / net_weight ELSE 0 END';
+    await t.execute('''
+      UPDATE purchases SET
+        small_sacks_remaining = MAX(0, ROUND(small_sack_count - ${sum('small_sacks')} - small_sack_count * ($ratio))),
+        large_sacks_remaining = MAX(0, ROUND(large_sack_count - ${sum('large_sacks')} - large_sack_count * ($ratio)))''');
+  }
+
   Future<void> _onCreate(Database d, int v) async {
     await d.execute('''
       CREATE TABLE categories(
@@ -203,6 +234,8 @@ class AppDb {
         total_weight REAL NOT NULL,
         small_sack_count REAL NOT NULL DEFAULT 0,
         large_sack_count REAL NOT NULL DEFAULT 0,
+        small_sacks_remaining REAL NOT NULL DEFAULT 0,
+        large_sacks_remaining REAL NOT NULL DEFAULT 0,
         net_weight REAL NOT NULL,
         remaining REAL NOT NULL,
         gram REAL,
@@ -563,6 +596,7 @@ class AppDb {
         await t.delete(e.$1);
       }
       await t.delete('sync_idmap');
+      var needSackBackfill = false;
       for (final e in _kSnapshot) {
         final table = e.$1;
         final cols = e.$2;
@@ -584,6 +618,13 @@ class AppDb {
             row['photo'] = photo;
             row['photo_pending'] = (photo == null && hasPhotoRemote) ? 1 : 0;
             row['ord'] = id;
+            // اگر سرور هنوز ستون‌های گونیِ باقی‌مانده را نمی‌فرستد، بعد از دریافت محاسبه می‌شوند
+            for (final k in const ['small_sacks_remaining', 'large_sacks_remaining']) {
+              if (row[k] == null) {
+                row.remove(k);
+                needSackBackfill = true;
+              }
+            }
           } else if (table == 'sales') {
             row['ord'] = row['id'];
           }
@@ -591,6 +632,7 @@ class AppDb {
         }
         await b.commit(noResult: true);
       }
+      if (needSackBackfill) await _backfillSacks(t);
       await t.insert('meta', {'k': 'initial_done', 'v': '1'}, conflictAlgorithm: ConflictAlgorithm.replace);
       await t.insert('meta', {'k': 'last_pull', 'v': DateTime.now().toIso8601String()},
           conflictAlgorithm: ConflictAlgorithm.replace);
@@ -701,11 +743,15 @@ class AppDb {
 
   // ======================= خرید =======================
   /// فقط خریدهای واقعی (بارهای مخلوط/کوت‌ریزی اینجا نمایش داده نمی‌شوند)
-  Future<List<Map<String, dynamic>>> purchases() async => (await db).rawQuery('''
+  Future<List<Map<String, dynamic>>> purchases() async {
+    final d = await db;
+    final rows = await d.rawQuery('''
         SELECT $_pSel, c.name AS category_name, c.preset_key AS category_preset
         FROM purchases p JOIN categories c ON c.id = p.category_id
         WHERE p.is_mix = 0
         ORDER BY p.ord DESC, p.id DESC''');
+    return _withMixInfo(d, await _withSacksLeft(d, rows));
+  }
 
   /// یک خرید با همهٔ ستون‌ها (شامل عکس)
   Future<Map<String, dynamic>?> purchaseById(int id) async {
@@ -813,6 +859,8 @@ class AppDb {
         'id': id,
         'code': 'N${-id}', // کد موقت؛ بعد از ارسال به سرور کد واقعی (KH…) جایگزین می‌شود
         'remaining': v['net_weight'],
+        'small_sacks_remaining': v['small_sack_count'],
+        'large_sacks_remaining': v['large_sack_count'],
         'is_mix': 0,
         'photo': photo,
         'photo_pending': 0,
@@ -846,7 +894,20 @@ class AppDb {
       if (sold > 1e-6 && (net - oldNet).abs() > 1e-6) {
         throw Exception('چون بخشی از این خرید فروخته شده، وزن آن قابل تغییر نیست');
       }
-      final upd = <String, Object?>{...v, 'remaining': _r(net - sold, 3)};
+      // گونی‌هایی که تا حالا مصرف شده ثابت می‌ماند؛ فقط سقف جدید (تعداد خرید) عوض می‌شود
+      final usedSmall = (cur['small_sack_count'] as num).toDouble() - (cur['small_sacks_remaining'] as num).toDouble();
+      final usedLarge = (cur['large_sack_count'] as num).toDouble() - (cur['large_sacks_remaining'] as num).toDouble();
+      final newSmallRem = (v['small_sack_count'] as double) - usedSmall;
+      final newLargeRem = (v['large_sack_count'] as double) - usedLarge;
+      if (newSmallRem < -1e-6 || newLargeRem < -1e-6) {
+        throw Exception('تعداد گونی نمی‌تواند از گونیِ تاکنون مصرف‌شدهٔ این خرید کمتر باشد');
+      }
+      final upd = <String, Object?>{
+        ...v,
+        'remaining': _r(net - sold, 3),
+        'small_sacks_remaining': math.max(0.0, _r(newSmallRem, 2)),
+        'large_sacks_remaining': math.max(0.0, _r(newLargeRem, 2)),
+      };
       final photoChanged = p.containsKey('photo');
       String? photo;
       if (photoChanged) {
@@ -945,53 +1006,66 @@ class AppDb {
     return _withSacksLeft(d, rows);
   }
 
-  /// تعداد گونی باقی‌مانده‌ی هر خرید: گونی‌های خرید منهای گونی‌های فروخته‌شده.
-  /// اگر فروشی تعداد گونی نداشته باشد (قدیمی یا وزن گونی به کیلو)، سهم گونی‌ها
-  /// به‌نسبت وزن فروخته‌شده برآورد می‌شود و sacks_estimated=true می‌شود.
+  /// برای هر ردیف: آیا مقداری از آن هنوز داخل مخلوطی است که کامل فروش نرفته؟
+  /// (in_mix_stock / in_mix_codes — بازگشتی برای مخلوطِ مخلوط؛ دقیقاً مثل attachSacksLeft در app.php)
+  Future<List<Map<String, dynamic>>> _withMixInfo(DatabaseExecutor d, List<Map<String, dynamic>> rows) async {
+    if (rows.isEmpty) return rows;
+    final links = await d.rawQuery('SELECT source_purchase_id AS src, mix_purchase_id AS mix_id FROM mix_sources');
+    final childrenOf = <int, List<int>>{};
+    for (final r in links) {
+      childrenOf.putIfAbsent((r['src'] as num).toInt(), () => []).add((r['mix_id'] as num).toInt());
+    }
+    final alive = <int, String>{};
+    if (childrenOf.isNotEmpty) {
+      for (final r in await d.rawQuery('SELECT id, code FROM purchases WHERE is_mix = 1 AND remaining > 0.000001')) {
+        alive[(r['id'] as num).toInt()] = (r['code'] as String?) ?? '';
+      }
+    }
+    return [
+      for (final r in rows)
+        () {
+          final codes = <String>[];
+          final seen = <int>{};
+          final stack = <int>[...(childrenOf[(r['id'] as num).toInt()] ?? const <int>[])];
+          while (stack.isNotEmpty) {
+            final m = stack.removeLast();
+            if (!seen.add(m)) continue;
+            if (alive.containsKey(m)) codes.add(alive[m]!);
+            stack.addAll(childrenOf[m] ?? const <int>[]);
+          }
+          return <String, dynamic>{...r, 'in_mix_codes': codes, 'in_mix_stock': codes.isNotEmpty};
+        }()
+    ];
+  }
+
+  /// «موجود» مثل وب: هنوز وزنی از خودش مانده، یا مقداری از آن داخل مخلوطِ فروش‌نرفته است
+  static bool isAvailable(Map<String, dynamic> p) =>
+      ((p['remaining'] as num?) ?? 0).toDouble() > 1e-6 || p['in_mix_stock'] == true;
+
+  /// همهٔ خریدها و مخلوط‌ها (موجود + فروش‌رفته) با گونی باقی‌مانده و اطلاعات مخلوط — برای صفحهٔ انبار
+  Future<List<Map<String, dynamic>>> inventoryAll() async {
+    final d = await db;
+    final rows = await d.rawQuery('''
+        SELECT $_pSel, c.name AS category_name, c.preset_key AS category_preset
+        FROM purchases p JOIN categories c ON c.id = p.category_id
+        ORDER BY c.name, p.type_name, p.id''');
+    return _withMixInfo(d, await _withSacksLeft(d, rows));
+  }
+
+  /// گونی باقی‌مانده‌ی هر خرید مستقیماً از دو ستون ذخیره‌شده خوانده می‌شود
+  /// (small_sacks_remaining / large_sacks_remaining) و مستقل از وزن باقی‌مانده است.
+  /// کلیدهای small_left / large_left برای سازگاری با صفحه‌ها نگه داشته شده‌اند.
   Future<List<Map<String, dynamic>>> _withSacksLeft(
       Database d, List<Map<String, Object?>> rows) async {
-    // وزن/گونیِ مصرف‌شده از هر بار، هم از محل فروش و هم از محل مخلوط‌کردن (کوت‌ریزی)
-    final sums = await d.rawQuery('''
-        SELECT purchase_id AS pid,
-               SUM(CASE WHEN small_sacks IS NULL AND large_sacks IS NULL THEN weight ELSE 0 END) AS unk_w,
-               SUM(COALESCE(small_sacks, 0)) AS ks,
-               SUM(COALESCE(large_sacks, 0)) AS kl
-        FROM (
-          SELECT purchase_id, weight, small_sacks, large_sacks FROM sale_items
-          UNION ALL
-          SELECT source_purchase_id AS purchase_id, weight, small_sacks, large_sacks FROM mix_sources
-        )
-        GROUP BY purchase_id''');
-    final byId = <int, Map<String, Object?>>{
-      for (final r in sums) (r['pid'] as int): r,
-    };
-    final out = <Map<String, dynamic>>[];
-    for (final r in rows) {
-      final id = r['id'] as int;
-      final net = (r['net_weight'] as num).toDouble();
-      final small = (r['small_sack_count'] as num).toDouble();
-      final large = (r['large_sack_count'] as num).toDouble();
-      var sl = small;
-      var ll = large;
-      var est = false;
-      final s = byId[id];
-      if (s != null) {
-        final unk = (s['unk_w'] as num?)?.toDouble() ?? 0;
-        final ratio = net > 0 ? unk / net : 0.0;
-        sl = small - ((s['ks'] as num?)?.toDouble() ?? 0) - small * ratio;
-        ll = large - ((s['kl'] as num?)?.toDouble() ?? 0) - large * ratio;
-        est = unk > 0.0005;
-      }
-      if (sl < 0) sl = 0;
-      if (ll < 0) ll = 0;
-      out.add({
-        ...r,
-        'small_left': sl.roundToDouble(),
-        'large_left': ll.roundToDouble(),
-        'sacks_estimated': est,
-      });
-    }
-    return out;
+    return [
+      for (final r in rows)
+        {
+          ...r,
+          'small_left': ((r['small_sacks_remaining'] as num?) ?? 0).toDouble(),
+          'large_left': ((r['large_sacks_remaining'] as num?) ?? 0).toDouble(),
+          'sacks_estimated': false,
+        }
+    ];
   }
 
   /// مثل lots() اما برای ویرایش یک فروش موجود: مانده‌ی هر خرید را طوری برمی‌گرداند
@@ -1002,9 +1076,13 @@ class AppDb {
     final d = await db;
     final items = await d.query('sale_items', where: 'sale_id=?', whereArgs: [saleId]);
     final used = <int, double>{};
+    final usedSmall = <int, double>{};
+    final usedLarge = <int, double>{};
     for (final it in items) {
       final pid = it['purchase_id'] as int;
       used[pid] = (used[pid] ?? 0) + (it['weight'] as num).toDouble();
+      usedSmall[pid] = (usedSmall[pid] ?? 0) + ((it['small_sacks'] as num?) ?? 0).toDouble();
+      usedLarge[pid] = (usedLarge[pid] ?? 0) + ((it['large_sacks'] as num?) ?? 0).toDouble();
     }
     final rows = await d.rawQuery('''
         SELECT $_pSel, c.name AS category_name, c.preset_key AS category_preset
@@ -1016,7 +1094,22 @@ class AppDb {
       final saleWeight = used[id] ?? 0;
       final adjustedRemaining = (r['remaining'] as num).toDouble() + saleWeight;
       if (adjustedRemaining > 0.0005) {
-        out.add({...r, 'remaining': adjustedRemaining, 'sale_weight': saleWeight});
+        final sSmall = usedSmall[id] ?? 0;
+        final sLarge = usedLarge[id] ?? 0;
+        final small = math.min((r['small_sack_count'] as num).toDouble(),
+            ((r['small_sacks_remaining'] as num?) ?? 0).toDouble() + sSmall);
+        final large = math.min((r['large_sack_count'] as num).toDouble(),
+            ((r['large_sacks_remaining'] as num?) ?? 0).toDouble() + sLarge);
+        out.add({
+          ...r,
+          'remaining': adjustedRemaining,
+          'sale_weight': saleWeight,
+          'sale_small': sSmall,
+          'sale_large': sLarge,
+          'small_left': small,
+          'large_left': large,
+          'sacks_estimated': false,
+        });
       }
     }
     return out;
@@ -1031,9 +1124,13 @@ class AppDb {
     final items =
         await d.query('mix_sources', where: 'mix_purchase_id=?', whereArgs: [mixPurchaseId]);
     final used = <int, double>{};
+    final usedSmall = <int, double>{};
+    final usedLarge = <int, double>{};
     for (final it in items) {
       final pid = it['source_purchase_id'] as int;
       used[pid] = (used[pid] ?? 0) + (it['weight'] as num).toDouble();
+      usedSmall[pid] = (usedSmall[pid] ?? 0) + ((it['small_sacks'] as num?) ?? 0).toDouble();
+      usedLarge[pid] = (usedLarge[pid] ?? 0) + ((it['large_sacks'] as num?) ?? 0).toDouble();
     }
     final rows = await d.rawQuery('''
         SELECT $_pSel, c.name AS category_name, c.preset_key AS category_preset
@@ -1046,7 +1143,17 @@ class AppDb {
       final usedWeight = used[id] ?? 0;
       final adjustedRemaining = (r['remaining'] as num).toDouble() + usedWeight;
       if (adjustedRemaining > 0.0005) {
-        out.add({...r, 'remaining': adjustedRemaining});
+        final small = math.min((r['small_sack_count'] as num).toDouble(),
+            ((r['small_sacks_remaining'] as num?) ?? 0).toDouble() + (usedSmall[id] ?? 0));
+        final large = math.min((r['large_sack_count'] as num).toDouble(),
+            ((r['large_sacks_remaining'] as num?) ?? 0).toDouble() + (usedLarge[id] ?? 0));
+        out.add({
+          ...r,
+          'remaining': adjustedRemaining,
+          'small_left': small,
+          'large_left': large,
+          'sacks_estimated': false,
+        });
       }
     }
     return out;
@@ -1078,6 +1185,17 @@ class AppDb {
   /// موجودی را با گرد کردن ۳ رقمی کم/زیاد می‌کند (مثل ستون DECIMAL(12,3) سرور)
   Future<void> _addRemaining(DatabaseExecutor t, int purchaseId, double delta) async {
     await t.rawUpdate('UPDATE purchases SET remaining = ROUND(remaining + ?, 3) WHERE id = ?', [delta, purchaseId]);
+  }
+
+  /// گونی باقی‌مانده‌ی یک خرید را کم/زیاد می‌کند (delta منفی = کم شدن).
+  /// نتیجه بین ۰ و تعداد گونی خرید نگه داشته می‌شود؛ کوچک و بزرگ کاملاً جدا هستند.
+  Future<void> _addSacks(DatabaseExecutor t, int purchaseId, double small, double large) async {
+    if (small == 0 && large == 0) return;
+    await t.rawUpdate('''
+        UPDATE purchases SET
+          small_sacks_remaining = MAX(0, MIN(small_sack_count, ROUND(small_sacks_remaining + ?, 2))),
+          large_sacks_remaining = MAX(0, MIN(large_sack_count, ROUND(large_sacks_remaining + ?, 2)))
+        WHERE id = ?''', [small, large, purchaseId]);
   }
 
   /// همه‌ی بارهای مخلوط‌شده (برای نمایش در انبار)
@@ -1135,12 +1253,15 @@ class AppDb {
       final w = _r(s['weight'] as double, 3);
       if (w <= 0) continue;
       await _addRemaining(t, pid, -w);
+      final ms = _rn(_nn(s['small_sacks']), 2);
+      final ml = _rn(_nn(s['large_sacks']), 2);
+      await _addSacks(t, pid, -(ms ?? 0.0), -(ml ?? 0.0));
       await t.insert('mix_sources', {
         'mix_purchase_id': mixId,
         'source_purchase_id': pid,
         'weight': w,
-        'small_sacks': _rn(_nn(s['small_sacks']), 2),
-        'large_sacks': _rn(_nn(s['large_sacks']), 2),
+        'small_sacks': ms,
+        'large_sacks': ml,
       });
     }
   }
@@ -1168,11 +1289,16 @@ class AppDb {
     required double netWeight,
     required double smallSackCount,
     required double largeSackCount,
+    double? ounce,
+    double? gram,
     String? note,
   }) async {
     if (categoryId == 0) throw Exception('دسته را انتخاب کنید');
     if (netWeight <= 0 || netWeight > 1e9) throw Exception('وزن نهایی مخلوط (طبق ترازو) را وارد کنید');
     if (smallSackCount < 0 || largeSackCount < 0) throw Exception('تعداد گونی نامعتبر است');
+    if ((ounce != null && (ounce < 0 || ounce > 1e9)) || (gram != null && (gram < 0 || gram > 1e9))) {
+      throw Exception('مقدار انس یا گرم نامعتبر است');
+    }
     final srcs = _normMixSources(sources);
     final d = await db;
     late int mixId;
@@ -1193,8 +1319,12 @@ class AppDb {
         'total_weight': net,
         'small_sack_count': _r(smallSackCount, 2),
         'large_sack_count': _r(largeSackCount, 2),
+        'small_sacks_remaining': _r(smallSackCount, 2),
+        'large_sacks_remaining': _r(largeSackCount, 2),
         'net_weight': net,
         'remaining': net,
+        'ounce': _rn(ounce, 3),
+        'gram': _rn(gram, 2),
         'is_mix': 1,
         'note': nt,
         'photo_pending': 0,
@@ -1212,6 +1342,8 @@ class AppDb {
             'net_weight': net,
             'small_sack_count': _r(smallSackCount, 2),
             'large_sack_count': _r(largeSackCount, 2),
+            'ounce': _rn(ounce, 3),
+            'gram': _rn(gram, 2),
             'note': nt,
           },
           refKind: 'pur',
@@ -1244,7 +1376,10 @@ class AppDb {
       }
       final sources = await t.query('mix_sources', where: 'mix_purchase_id=?', whereArgs: [mixPurchaseId]);
       for (final s in sources) {
-        await _addRemaining(t, (s['source_purchase_id'] as num).toInt(), (s['weight'] as num).toDouble());
+        final sp = (s['source_purchase_id'] as num).toInt();
+        await _addRemaining(t, sp, (s['weight'] as num).toDouble());
+        await _addSacks(t, sp, ((s['small_sacks'] as num?) ?? 0).toDouble(),
+            ((s['large_sacks'] as num?) ?? 0).toDouble());
       }
       await t.delete('mix_sources', where: 'mix_purchase_id=?', whereArgs: [mixPurchaseId]);
       await t.delete('purchases', where: 'id=?', whereArgs: [mixPurchaseId]);
@@ -1266,11 +1401,16 @@ class AppDb {
     required double netWeight,
     required double smallSackCount,
     required double largeSackCount,
+    double? ounce,
+    double? gram,
     String? note,
   }) async {
     if (categoryId == 0) throw Exception('دسته را انتخاب کنید');
     if (netWeight <= 0 || netWeight > 1e9) throw Exception('وزن نهایی مخلوط (طبق ترازو) را وارد کنید');
     if (smallSackCount < 0 || largeSackCount < 0) throw Exception('تعداد گونی نامعتبر است');
+    if ((ounce != null && (ounce < 0 || ounce > 1e9)) || (gram != null && (gram < 0 || gram > 1e9))) {
+      throw Exception('مقدار انس یا گرم نامعتبر است');
+    }
     final srcs = _normMixSources(sources);
     final d = await db;
     var updated = false;
@@ -1282,7 +1422,10 @@ class AppDb {
       // اول وزن مبدأهای قبلی به موجودی برمی‌گردد، بعد مبدأهای تازه بررسی می‌شوند
       final oldSources = await t.query('mix_sources', where: 'mix_purchase_id=?', whereArgs: [mixPurchaseId]);
       for (final s in oldSources) {
-        await _addRemaining(t, (s['source_purchase_id'] as num).toInt(), (s['weight'] as num).toDouble());
+        final sp = (s['source_purchase_id'] as num).toInt();
+        await _addRemaining(t, sp, (s['weight'] as num).toDouble());
+        await _addSacks(t, sp, ((s['small_sacks'] as num?) ?? 0).toDouble(),
+            ((s['large_sacks'] as num?) ?? 0).toDouble());
       }
       final avgPrice = await _checkMixSources(t, srcs);
       final net = _r(netWeight, 3);
@@ -1297,8 +1440,12 @@ class AppDb {
             'total_weight': net,
             'small_sack_count': _r(smallSackCount, 2),
             'large_sack_count': _r(largeSackCount, 2),
+            'small_sacks_remaining': _r(smallSackCount, 2),
+            'large_sacks_remaining': _r(largeSackCount, 2),
             'net_weight': net,
             'remaining': net,
+            'ounce': _rn(ounce, 3),
+            'gram': _rn(gram, 2),
             'note': nt,
           },
           where: 'id=?',
@@ -1316,6 +1463,8 @@ class AppDb {
             'net_weight': net,
             'small_sack_count': _r(smallSackCount, 2),
             'large_sack_count': _r(largeSackCount, 2),
+            'ounce': _rn(ounce, 3),
+            'gram': _rn(gram, 2),
             'note': nt,
           },
           refKind: 'pur',
@@ -1593,7 +1742,8 @@ class AppDb {
     final out = <Map<String, dynamic>>[];
     for (final s in rows) {
       final items = await d.rawQuery('''
-        SELECT si.weight, si.item_price, p.price AS cost_price, p.type_name AS type_name, c.name AS category_name
+        SELECT si.weight, si.item_price, si.small_sacks, si.large_sacks, si.purchase_id AS purchase_id,
+               p.code AS code, p.price AS cost_price, p.type_name AS type_name, c.name AS category_name
         FROM sale_items si
         JOIN purchases p ON p.id = si.purchase_id
         JOIN categories c ON c.id = p.category_id
@@ -1603,6 +1753,10 @@ class AppDb {
     return out;
   }
 
+  /// اقلام یک فروش (فروش‌های جدید همیشه یک قلم دارند؛ فروش‌های قدیمیِ چندقلمی ممکن است بیشتر داشته باشند)
+  Future<List<Map<String, dynamic>>> saleItemsOf(int saleId) async =>
+      (await db).query('sale_items', where: 'sale_id=?', whereArgs: [saleId], orderBy: 'id');
+
   Future<Map<String, dynamic>?> saleById(int id) async {
     final rows = await (await db).query('sales', where: 'id=?', whereArgs: [id]);
     return rows.isEmpty ? null : rows.first;
@@ -1611,7 +1765,10 @@ class AppDb {
   /// اقلام فروش: وزن باید مثبت باشد و ردیف‌های تکراری یک خرید ادغام می‌شوند
   /// (وزن و گونی جمع، فی میانگین وزنی) — همان normalizeSaleItems در app.php
   List<Map<String, dynamic>> _normSaleItems(List<Map<String, dynamic>> items, double fallback) {
-    if (items.isEmpty) throw Exception('حداقل یک قلم از انبار انتخاب کنید');
+    if (items.isEmpty) throw Exception('یک قلم از انبار انتخاب کنید');
+    if (items.length != 1) {
+      throw Exception('هر فروش فقط از یک قلم انبار ثبت می‌شود؛ برای چند جنس، چند فروش جدا ثبت کنید');
+    }
     final m = <int, Map<String, dynamic>>{};
     for (final it in items) {
       final pid = (it['purchase_id'] as num).toInt();
@@ -1619,7 +1776,7 @@ class AppDb {
       if (w <= 0 || w > 1e9) throw Exception('وزن هر قلم فروش باید بزرگ‌تر از صفر باشد');
       final hasPrice = it['item_price'] != null && it['item_price'] != '';
       final price = hasPrice ? _n(it['item_price']) : fallback;
-      if (price < 0 || price > 1e13) throw Exception('فی فروش نامعتبر است');
+      if (price <= 0 || price > 1e13) throw Exception('فی فروش نامعتبر است');
       final ss = _nn(it['small_sacks']);
       final ls = _nn(it['large_sacks']);
       if ((ss != null && ss < 0) || (ls != null && ls < 0)) throw Exception('تعداد گونی نامعتبر است');
@@ -1696,19 +1853,31 @@ class AppDb {
     return _SaleV(row, payload, norm);
   }
 
-  /// در صورت کمبود موجودیِ یکی از اقلام، خطا دقیقاً نام همان جنس را اعلام می‌کند
+  /// وزن و (در صورت واردشدن) گونی هر قلم از موجودی همان خرید کم می‌شود.
+  /// اعتبارسنجی مستقل از فرم است: وزن ≤ remaining، و گونی کوچک و بزرگ هرکدام جداگانه ≤ گونی باقی‌مانده.
+  /// اگر گونی وارد نشده باشد (null یا ۰) ستون‌های گونیِ باقی‌مانده دست‌نخورده می‌مانند.
   Future<void> _applySaleItems(DatabaseExecutor t, int saleId, List<Map<String, dynamic>> items) async {
     for (final it in items) {
       final rows = await t.rawQuery('''
-          SELECT p.remaining, p.type_name, c.name AS category_name
+          SELECT p.remaining, p.small_sacks_remaining, p.large_sacks_remaining, p.type_name, c.name AS category_name
           FROM purchases p JOIN categories c ON c.id = p.category_id
           WHERE p.id = ?''', [it['purchase_id']]);
       if (rows.isEmpty) throw Exception('یکی از اقلام انبار یافت نشد');
+      final label = '${rows.first['type_name']} (${rows.first['category_name']})';
       final rem = (rows.first['remaining'] as num).toDouble();
       final w = (it['weight'] as num).toDouble();
       if (w > rem + 1e-6) {
-        final label = '${rows.first['type_name']} (${rows.first['category_name']})';
         throw Exception('موجودی «$label» کافی نیست؛ فقط ${_fmt(rem)} کیلو باقی مانده');
+      }
+      final ss = _nn(it['small_sacks']) ?? 0.0;
+      final ls = _nn(it['large_sacks']) ?? 0.0;
+      final smallLeft = (rows.first['small_sacks_remaining'] as num).toDouble();
+      final largeLeft = (rows.first['large_sacks_remaining'] as num).toDouble();
+      if (ss > smallLeft + 1e-6) {
+        throw Exception('گونی کوچک درخواستی از گونی کوچک باقی‌مانده‌ی «$label» بیشتر است؛ فقط ${_fmt(smallLeft)} عدد مانده');
+      }
+      if (ls > largeLeft + 1e-6) {
+        throw Exception('گونی بزرگ درخواستی از گونی بزرگ باقی‌مانده‌ی «$label» بیشتر است؛ فقط ${_fmt(largeLeft)} عدد مانده');
       }
       await t.insert('sale_items', {
         'sale_id': saleId,
@@ -1720,6 +1889,18 @@ class AppDb {
       });
       await t.update('purchases', {'remaining': math.max(0.0, _r(rem - w, 3))},
           where: 'id=?', whereArgs: [it['purchase_id']]);
+      await _addSacks(t, it['purchase_id'] as int, -ss, -ls);
+    }
+  }
+
+  /// برگرداندن وزن و گونیِ اقلام یک فروش به انبار (برای ویرایش و حذف)
+  Future<void> _restoreSaleItems(DatabaseExecutor t, int saleId) async {
+    final oldItems = await t.query('sale_items', where: 'sale_id=?', whereArgs: [saleId]);
+    for (final it in oldItems) {
+      final pid = (it['purchase_id'] as num).toInt();
+      await _addRemaining(t, pid, (it['weight'] as num).toDouble());
+      await _addSacks(t, pid, ((it['small_sacks'] as num?) ?? 0).toDouble(),
+          ((it['large_sacks'] as num?) ?? 0).toDouble());
     }
   }
 
@@ -1736,7 +1917,7 @@ class AppDb {
     version.value++;
   }
 
-  /// ویرایش فروش: تخصیص‌های قبلی به انبار برمی‌گردد، سپس ترکیب جدید اعمال می‌شود
+  /// ویرایش فروش: وزن و گونیِ قبلی به همان خرید برمی‌گردد، سپس مقادیر جدید (دوباره اعتبارسنجی‌شده) اعمال می‌شود
   Future<void> updateSale(int saleId, Map<String, dynamic> sale, List<Map<String, dynamic>> items) async {
     final d = await db;
     await d.transaction((t) async {
@@ -1746,10 +1927,7 @@ class AppDb {
       curRows.first.forEach((k, v) => merged[k] = v);
       sale.forEach((k, v) => merged[k] = v);
       final v = _saleValues(merged, items);
-      final oldItems = await t.query('sale_items', where: 'sale_id=?', whereArgs: [saleId]);
-      for (final it in oldItems) {
-        await _addRemaining(t, (it['purchase_id'] as num).toInt(), (it['weight'] as num).toDouble());
-      }
+      await _restoreSaleItems(t, saleId);
       await t.delete('sale_items', where: 'sale_id=?', whereArgs: [saleId]);
       await _applySaleItems(t, saleId, v.items);
       await t.update('sales', v.row, where: 'id=?', whereArgs: [saleId]);
@@ -1758,14 +1936,11 @@ class AppDb {
     version.value++;
   }
 
-  /// حذف فروش و برگرداندن وزن‌ها به انبار
+  /// حذف فروش و برگرداندن وزن و گونی به انبار
   Future<void> deleteSale(int id) async {
     final d = await db;
     await d.transaction((t) async {
-      final items = await t.query('sale_items', where: 'sale_id=?', whereArgs: [id]);
-      for (final it in items) {
-        await _addRemaining(t, (it['purchase_id'] as num).toInt(), (it['weight'] as num).toDouble());
-      }
+      await _restoreSaleItems(t, id);
       await t.delete('sale_items', where: 'sale_id=?', whereArgs: [id]);
       await t.delete('sales', where: 'id=?', whereArgs: [id]);
       final r = await t.query('receipts', where: 'sale_id=?', whereArgs: [id]);

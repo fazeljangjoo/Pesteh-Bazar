@@ -6,8 +6,18 @@ import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
-class InventoryScreen extends StatelessWidget {
+/// یکسان‌سازی «ي/ك» عربی و «ی/ک» فارسی برای جستجو
+String _norm(String s) => toEnDigits(s.replaceAll('ي', 'ی').replaceAll('ك', 'ک')).trim().toLowerCase();
+
+class InventoryScreen extends StatefulWidget {
   const InventoryScreen({super.key});
+  @override
+  State<InventoryScreen> createState() => _InventoryScreenState();
+}
+
+class _InventoryScreenState extends State<InventoryScreen> {
+  String _query = '';
+  bool _showSold = false; // false = موجود | true = فروش رفته (مثل وب)
 
   Future<void> _showMixDetails(BuildContext context, Map<String, dynamic> l) async {
     final sources = await AppDb.I.mixSourcesOf(l['id'] as int);
@@ -44,6 +54,10 @@ class InventoryScreen extends StatelessWidget {
               const SizedBox(height: 8),
               infoRow('وزن خالص این مخلوط', '${faNum(net)} کیلو'),
               infoRow('مانده فعلی', '${faNum(rem)} کیلو'),
+              infoRow('گونی مانده: کوچک / بزرگ',
+                  '${faNum((l['small_left'] as num?) ?? 0)} / ${faNum((l['large_left'] as num?) ?? 0)}'),
+              if (l['ounce'] != null) infoRow('انس', faNum(l['ounce'] as num)),
+              if (l['gram'] != null) infoRow('گرم', faNum(l['gram'] as num)),
               if (l['note'] != null && (l['note'] as String).isNotEmpty)
                 infoRow('توضیحات', l['note'] as String),
               const SizedBox(height: 12),
@@ -111,29 +125,48 @@ class InventoryScreen extends StatelessWidget {
       body: ValueListenableBuilder<int>(
         valueListenable: AppDb.I.version,
         builder: (_, __, ___) => FutureBuilder<List<Map<String, dynamic>>>(
-          future: AppDb.I.lots(),
+          future: AppDb.I.inventoryAll(),
           builder: (context, s) {
             if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            final lots = s.data!;
-            if (lots.isEmpty) return const Center(child: Text('انبار خالی است'));
+            final all = s.data!;
+            if (all.isEmpty) return const Center(child: Text('انبار خالی است'));
 
-            // دسته -> نوع -> بارها
-            final Map<String, Map<String, List<Map<String, dynamic>>>> g = {};
-            double totalKg = 0, totalValue = 0, totalSmall = 0, totalLarge = 0;
-            for (final l in lots) {
-              final rem = (l['remaining'] as num).toDouble();
-              totalKg += rem;
-              totalValue += rem * (l['price'] as num).toDouble();
-              totalSmall += (l['small_left'] as num).toDouble();
-              totalLarge += (l['large_left'] as num).toDouble();
-              g
-                  .putIfAbsent(l['category_name'] as String, () => {})
-                  .putIfAbsent(l['type_name'] as String, () => [])
-                  .add(l);
-            }
+            // «موجود» مثل وب: هنوز وزنی از خودش مانده، یا مقداری از آن داخل مخلوطِ فروش‌نرفته است
+            final available = all.where(AppDb.isAvailable).toList();
+            final soldOut = all.where((p) => !AppDb.isAvailable(p)).toList();
+            final q = _norm(_query);
+            bool match(Map<String, dynamic> p) =>
+                q.isEmpty ||
+                _norm('${p['code']} ${p['category_name']} ${p['type_name']}').contains(q);
+            final base = _showSold ? soldOut : available;
+            final other = _showSold ? available : soldOut;
+            final lots = base.where(match).toList();
 
             final children = <Widget>[
-              Card(
+              SegmentedButton<bool>(
+                segments: <ButtonSegment<bool>>[
+                  ButtonSegment<bool>(
+                      value: false, label: Text('موجود (${faNum(available.length, dec: 0)})')),
+                  ButtonSegment<bool>(
+                      value: true, label: Text('فروش رفته (${faNum(soldOut.length, dec: 0)})')),
+                ],
+                selected: <bool>{_showSold},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) => setState(() => _showSold = v.first),
+              ),
+              const SizedBox(height: 8),
+            ];
+
+            if (!_showSold) {
+              double totalKg = 0, totalValue = 0, totalSmall = 0, totalLarge = 0;
+              for (final l in available) {
+                final rem = (l['remaining'] as num).toDouble();
+                totalKg += rem;
+                totalValue += rem * (l['price'] as num).toDouble();
+                totalSmall += (l['small_left'] as num).toDouble();
+                totalLarge += (l['large_left'] as num).toDouble();
+              }
+              children.add(Card(
                 color: Theme.of(context).colorScheme.primaryContainer,
                 child: Padding(
                   padding: const EdgeInsets.all(12),
@@ -144,42 +177,84 @@ class InventoryScreen extends StatelessWidget {
                     infoRow('گونی کوچک / بزرگ', '${faNum(totalSmall)} / ${faNum(totalLarge)}'),
                   ]),
                 ),
-              ),
-            ];
+              ));
+            } else {
+              double soldKg = 0, soldValue = 0;
+              for (final p in soldOut) {
+                final w = (p['net_weight'] as num).toDouble();
+                soldKg += w;
+                soldValue += w * (p['price'] as num).toDouble();
+              }
+              children.add(Card(
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(children: [
+                    infoRow('تعداد خریدهای فروش‌رفته', '${faNum(soldOut.length, dec: 0)} بار'),
+                    infoRow('مجموع وزن فروش‌رفته', '${faNum(soldKg)} کیلو'),
+                    infoRow('ارزش خرید آن‌ها', '${faNum(soldValue, dec: 0)} تومان'),
+                  ]),
+                ),
+              ));
+            }
 
-            for (final catEntry in g.entries) {
-              children.add(sectionTitle(context, catEntry.key));
-              for (final e in catEntry.value.entries) {
-                final sum = e.value.fold<double>(0, (a, l) => a + (l['remaining'] as num).toDouble());
-                final sackSum = e.value.fold<double>(
-                    0, (a, l) => a + (l['small_left'] as num) + (l['large_left'] as num));
-                children.add(Card(
-                  child: ExpansionTile(
-                    title: Text(e.key),
-                    subtitle: Text('${faNum(sum)} کیلو  •  ${faNum(e.value.length)} بار  •  ${faNum(sackSum)} گونی'),
-                    children: [
-                      for (final l in e.value)
-                        ListTile(
-                          dense: true,
-                          onTap: (l['is_mix'] as int? ?? 0) == 1
-                              ? () => _showMixDetails(context, l)
-                              : null,
-                          leading: (l['is_mix'] as int? ?? 0) == 1
-                              ? const Tooltip(
-                                  message: 'مخلوط (کوت‌ریزی) — از چند جنس ساخته شده',
-                                  child: Icon(Icons.merge_type))
-                              : null,
-                          title: Text('${faNum(l['remaining'] as num)} کیلو مانده'
-                              '${(l['is_mix'] as int? ?? 0) == 1 ? '  •  مخلوط' : ''}'),
-                          subtitle: Text(
-                              'خرید ${jalaliDate(l['date'] as String)}  •  فی ${faNum(l['price'] as num, dec: 0)}\n'
-                              'گونی مانده: کوچک ${faNum(l['small_left'] as num)} / بزرگ ${faNum(l['large_left'] as num)}${l['sacks_estimated'] == true ? ' (تقریبی)' : ''}'
-                              '${l['ounce'] != null ? '  •  انس ${faNum(l['ounce'] as num)}' : ''}'),
-                          isThreeLine: true,
-                        ),
-                    ],
-                  ),
+            children.add(Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: TextField(
+                decoration: const InputDecoration(
+                  labelText: 'جستجو با کد پسته (مثلاً KH00012 یا MX00003)، نوع یا دسته',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                ),
+                onChanged: (v) => setState(() => _query = v),
+              ),
+            ));
+
+            if (lots.isEmpty) {
+              final otherHits = q.isEmpty ? 0 : other.where(match).length;
+              children.add(Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24),
+                child: Center(
+                    child: Text(q.isNotEmpty
+                        ? 'نتیجه‌ای پیدا نشد'
+                        : (_showSold
+                            ? 'هنوز هیچ خریدی به‌طور کامل فروش نرفته است'
+                            : 'هیچ جنسی در انبار موجود نیست'))),
+              ));
+              if (otherHits > 0) {
+                children.add(OutlinedButton(
+                  onPressed: () => setState(() => _showSold = !_showSold),
+                  child: Text(
+                      '${faNum(otherHits, dec: 0)} مورد در بخش «${_showSold ? 'موجود' : 'فروش رفته'}» پیدا شد — نمایش'),
                 ));
+              }
+            } else {
+              // دسته -> نوع -> بارها
+              final Map<String, Map<String, List<Map<String, dynamic>>>> g = {};
+              for (final l in lots) {
+                g
+                    .putIfAbsent(l['category_name'] as String, () => {})
+                    .putIfAbsent(l['type_name'] as String, () => [])
+                    .add(l);
+              }
+              for (final catEntry in g.entries) {
+                children.add(sectionTitle(context, catEntry.key));
+                for (final e in catEntry.value.entries) {
+                  final sumRem =
+                      e.value.fold<double>(0, (a, l) => a + (l['remaining'] as num).toDouble());
+                  final sumNet =
+                      e.value.fold<double>(0, (a, l) => a + (l['net_weight'] as num).toDouble());
+                  children.add(Card(
+                    child: ExpansionTile(
+                      // هنگام جستجو نتیجه‌ها باز نمایش داده می‌شوند
+                      key: PageStorageKey('${_showSold}/${catEntry.key}/${e.key}/${q.isNotEmpty}'),
+                      initiallyExpanded: q.isNotEmpty,
+                      title: Text(e.key),
+                      subtitle: Text(
+                          '${faNum(_showSold ? sumNet : sumRem)} کیلو  •  ${faNum(e.value.length, dec: 0)} بار'),
+                      children: [for (final l in e.value) _lotTile(context, l)],
+                    ),
+                  ));
+                }
               }
             }
             children.add(const SizedBox(height: 72));
@@ -187,6 +262,39 @@ class InventoryScreen extends StatelessWidget {
           },
         ),
       ),
+    );
+  }
+
+  Widget _lotTile(BuildContext context, Map<String, dynamic> l) {
+    final isMix = (l['is_mix'] as int? ?? 0) == 1;
+    final net = (l['net_weight'] as num).toDouble();
+    final rem = (l['remaining'] as num).toDouble();
+    final soldW = net - rem < 0 ? 0.0 : net - rem;
+    final codes = ((l['in_mix_codes'] as List?) ?? const []).cast<String>();
+    final sold = !AppDb.isAvailable(l);
+    final lines = <String>[
+      'کد پسته: ${l['code'] ?? '-'}',
+      'خرید ${jalaliDate(l['date'] as String)}  •  فی ${faNum(l['price'] as num, dec: 0)}',
+      if (!sold && soldW > 1e-6) 'از ${faNum(net)} کیلو خریداری‌شده، ${faNum(soldW)} کیلو فروخته/مصرف شده',
+      if (codes.isNotEmpty)
+        '🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط ${codes.join('، ')} است (هنوز کامل فروش نرفته)',
+      if (!sold)
+        'گونی مانده: کوچک ${faNum(l['small_left'] as num)} / بزرگ ${faNum(l['large_left'] as num)}'
+            '${l['ounce'] != null ? '  •  انس ${faNum(l['ounce'] as num)}' : ''}'
+            '${l['gram'] != null ? '  •  گرم ${faNum(l['gram'] as num)}' : ''}',
+    ];
+    return ListTile(
+      dense: true,
+      onTap: isMix ? () => _showMixDetails(context, l) : null,
+      leading: isMix
+          ? const Tooltip(
+              message: 'مخلوط (کوت‌ریزی) — از چند جنس ساخته شده', child: Icon(Icons.merge_type))
+          : null,
+      title: Text(sold
+          ? '${faNum(net)} کیلو  •  فروش رفت${isMix ? '  •  مخلوط' : ''}'
+          : '${faNum(rem)} کیلو مانده${isMix ? '  •  مخلوط' : ''}'),
+      subtitle: Text(lines.join('\n')),
+      isThreeLine: lines.length >= 3,
     );
   }
 }

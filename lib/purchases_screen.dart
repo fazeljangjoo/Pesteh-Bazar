@@ -31,6 +31,10 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
           '${faNum(p['small_sack_count'] as num)} / ${faNum(p['large_sack_count'] as num)}'],
       ['وزن خالص', '${faNum(p['net_weight'] as num)} کیلو'],
       ['مانده در انبار', '${faNum(p['remaining'] as num)} کیلو'],
+      ['گونی مانده: کوچک / بزرگ',
+          '${faNum((p['small_sacks_remaining'] as num?) ?? 0)} / ${faNum((p['large_sacks_remaining'] as num?) ?? 0)}'],
+      if (((p['in_mix_codes'] as List?) ?? const []).isNotEmpty)
+        ['داخل مخلوط (هنوز فروش نرفته)', ((p['in_mix_codes'] as List).cast<String>()).join('، ')],
       if (preset == 'dombest' && p['gram'] != null) ['گرم', faNum(p['gram'] as num)],
       if (preset == 'dombest' && pct('pct_khandan') != null) ['درصد خندان در دنبست', pct('pct_khandan')!],
       if (preset == 'khandan' && pct('pct_dombest') != null) ['درصد دنبست در خندان', pct('pct_dombest')!],
@@ -108,100 +112,130 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
     );
   }
 
+  /// یکسان‌سازی «ي/ك» عربی و «ی/ک» فارسی برای جستجو
+  static String _norm(String s) => toEnDigits(s.replaceAll('ي', 'ی').replaceAll('ك', 'ک')).trim().toLowerCase();
+
+  /// مثل وب: «فروخته‌شده» فقط وقتی است که وزنی از خودش نمانده باشد و مقداری از آن هم
+  /// داخل مخلوطِ فروش‌نرفته نباشد.
+  static bool _isSold(Map<String, dynamic> p) => !AppDb.isAvailable(p);
+
+  static String _inMixLine(Map<String, dynamic> p) {
+    final codes = ((p['in_mix_codes'] as List?) ?? const []).cast<String>();
+    if (codes.isEmpty) return '';
+    final rem = (p['remaining'] as num).toDouble();
+    return '\n🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط ${codes.join('، ')} است (هنوز کامل فروش نرفته)';
+  }
+
+  Widget _card(BuildContext context, Map<String, dynamic> p) {
+    final hasPhoto = ((p['has_photo'] as num?) ?? 0) == 1;
+    final sold = _isSold(p);
+    return Card(
+      child: ListTile(
+        onTap: () => _details(context, p),
+        leading: CircleAvatar(child: Icon(hasPhoto ? Icons.photo_camera_outlined : Icons.grass)),
+        title: Text('${p['category_name']} - ${p['type_name']}'),
+        subtitle: Text(
+            'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
+            '${sold ? 'فروخته‌شده' : 'مانده ${faNum(p['remaining'] as num)} کیلو'}  •  فی ${faNum(p['price'] as num, dec: 0)} تومان'
+            '${_inMixLine(p)}'),
+        isThreeLine: true,
+        trailing: PopupMenuButton<String>(
+          onSelected: (v) async {
+            if (v == 'edit') {
+              Navigator.push(context, MaterialPageRoute(builder: (_) => PurchaseForm(existing: p)));
+            } else if (v == 'del' && await confirm(context, 'این خرید حذف شود؟')) {
+              final pay = await AppDb.I.paymentOf(p['id'] as int);
+              var creditIds = <int>[], chequeIds = <int>[];
+              if (pay != null) {
+                final payId = pay['id'] as int;
+                creditIds = (await AppDb.I.creditInstList(payId)).map((r) => r['id'] as int).toList();
+                chequeIds = (await AppDb.I.chequeInstList(payId)).map((r) => r['id'] as int).toList();
+              }
+              final ok = await AppDb.I.deletePurchase(p['id'] as int);
+              if (ok) {
+                for (final id in creditIds) {
+                  await NotifyService.I.cancelCreditRow(id);
+                }
+                for (final id in chequeIds) {
+                  await NotifyService.I.cancelChequeRow(id);
+                }
+              } else if (context.mounted) {
+                snack(context, 'از این خرید فروش انجام شده؛ ابتدا فروش را حذف کنید');
+              }
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'edit', child: Text('ویرایش')),
+            PopupMenuItem(value: 'del', child: Text('حذف')),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _tabList(BuildContext context, List<Map<String, dynamic>> list, String emptyText) {
+    if (list.isEmpty) return Center(child: Text(_query.trim().isEmpty ? emptyText : 'نتیجه‌ای پیدا نشد'));
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(12, 4, 12, 88),
+      itemCount: list.length,
+      itemBuilder: (context, i) => _card(context, list[i]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('خرید')),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => Navigator.push(
-            context, MaterialPageRoute(builder: (_) => const PurchaseForm())),
-        icon: const Icon(Icons.add),
-        label: const Text('خرید جدید'),
-      ),
-      body: ValueListenableBuilder<int>(
-        valueListenable: AppDb.I.version,
-        builder: (_, __, ___) => FutureBuilder<List<Map<String, dynamic>>>(
-          future: AppDb.I.purchases(),
-          builder: (context, s) {
-            if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            final all = s.data!;
-            final q = _query.trim().toLowerCase();
-            final list = q.isEmpty
-                ? all
-                : all.where((p) => '${p['code']} ${p['category_name']} ${p['type_name']}'
-                    .toLowerCase().contains(q)).toList();
-            if (list.isEmpty) {
-              return Center(child: Text(all.isEmpty ? 'هنوز خریدی ثبت نشده' : 'نتیجه‌ای پیدا نشد'));
-            }
-            return ListView.builder(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 88),
-              itemCount: list.length + 1,
-              itemBuilder: (context, i) {
-                if (i == 0) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: TextField(
-                      decoration: const InputDecoration(
-                        labelText: 'جستجو با کد، دسته یا نوع',
-                        prefixIcon: Icon(Icons.search),
-                        border: OutlineInputBorder(),
-                      ),
-                      onChanged: (v) => setState(() => _query = v),
+    return DefaultTabController(
+      length: 2,
+      child: Scaffold(
+        appBar: AppBar(
+          title: const Text('خرید'),
+          bottom: const TabBar(tabs: [
+            Tab(text: 'خریدهای موجود'),
+            Tab(text: 'خریدهای فروخته‌شده'),
+          ]),
+        ),
+        floatingActionButton: FloatingActionButton.extended(
+          onPressed: () =>
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseForm())),
+          icon: const Icon(Icons.add),
+          label: const Text('خرید جدید'),
+        ),
+        body: ValueListenableBuilder<int>(
+          valueListenable: AppDb.I.version,
+          builder: (_, __, ___) => FutureBuilder<List<Map<String, dynamic>>>(
+            future: AppDb.I.purchases(),
+            builder: (context, s) {
+              if (!s.hasData) return const Center(child: CircularProgressIndicator());
+              final all = s.data!;
+              final q = _norm(_query);
+              final filtered = q.isEmpty
+                  ? all
+                  : all
+                      .where((p) => _norm('${p['code']} ${p['category_name']} ${p['type_name']}').contains(q))
+                      .toList();
+              final available = filtered.where((p) => !_isSold(p)).toList();
+              final sold = filtered.where(_isSold).toList();
+              return Column(children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
+                  child: TextField(
+                    decoration: const InputDecoration(
+                      labelText: 'جستجو با کد، دسته یا نوع',
+                      prefixIcon: Icon(Icons.search),
+                      border: OutlineInputBorder(),
                     ),
-                  );
-                }
-                final p = list[i - 1];
-                final hasPhoto = ((p['has_photo'] as num?) ?? 0) == 1;
-                return Card(
-                  child: ListTile(
-                    onTap: () => _details(context, p),
-                    leading: CircleAvatar(
-                        child: Icon(hasPhoto ? Icons.photo_camera_outlined : Icons.grass)),
-                    title: Text('${p['category_name']} - ${p['type_name']}'),
-                    subtitle: Text(
-                      'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
-                        'فی ${faNum(p['price'] as num, dec: 0)} تومان'),
-                    isThreeLine: true,
-                    trailing: PopupMenuButton<String>(
-                      onSelected: (v) async {
-                        if (v == 'edit') {
-                          Navigator.push(context,
-                              MaterialPageRoute(builder: (_) => PurchaseForm(existing: p)));
-                        } else if (v == 'del' && await confirm(context, 'این خرید حذف شود؟')) {
-                          final pay = await AppDb.I.paymentOf(p['id'] as int);
-                          var creditIds = <int>[], chequeIds = <int>[];
-                          if (pay != null) {
-                            final payId = pay['id'] as int;
-                            creditIds = (await AppDb.I.creditInstList(payId))
-                                .map((r) => r['id'] as int)
-                                .toList();
-                            chequeIds = (await AppDb.I.chequeInstList(payId))
-                                .map((r) => r['id'] as int)
-                                .toList();
-                          }
-                          final ok = await AppDb.I.deletePurchase(p['id'] as int);
-                          if (ok) {
-                            for (final id in creditIds) {
-                              await NotifyService.I.cancelCreditRow(id);
-                            }
-                            for (final id in chequeIds) {
-                              await NotifyService.I.cancelChequeRow(id);
-                            }
-                          } else if (context.mounted) {
-                            snack(context, 'از این خرید فروش انجام شده؛ ابتدا فروش را حذف کنید');
-                          }
-                        }
-                      },
-                      itemBuilder: (_) => const [
-                        PopupMenuItem(value: 'edit', child: Text('ویرایش')),
-                        PopupMenuItem(value: 'del', child: Text('حذف')),
-                      ],
-                    ),
+                    onChanged: (v) => setState(() => _query = v),
                   ),
-                );
-              },
-            );
-          },
+                ),
+                Expanded(
+                  child: TabBarView(children: [
+                    _tabList(context, available, 'هیچ خرید موجودی در انبار نیست'),
+                    _tabList(context, sold, 'هنوز خریدِ کاملاً فروخته‌شده‌ای نداریم'),
+                  ]),
+                ),
+              ]);
+            },
+          ),
         ),
       ),
     );
