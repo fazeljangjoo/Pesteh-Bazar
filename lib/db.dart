@@ -1230,15 +1230,28 @@ class AppDb {
       final w = s['weight'] as double;
       if (w <= 0) continue;
       final rows = await t.rawQuery('''
-          SELECT p.remaining, p.price, p.type_name, c.name AS category_name
+          SELECT p.remaining, p.price, p.type_name, p.small_sacks_remaining, p.large_sacks_remaining,
+                 c.name AS category_name
           FROM purchases p JOIN categories c ON c.id = p.category_id
           WHERE p.id = ?''', [pid]);
       if (rows.isEmpty) throw Exception('یکی از مبدأها یافت نشد');
       final rem = (rows.first['remaining'] as num).toDouble();
       final price = (rows.first['price'] as num).toDouble();
+      final label = '${rows.first['type_name']} (${rows.first['category_name']})';
       if (w > rem + 1e-6) {
-        final label = '${rows.first['type_name']} (${rows.first['category_name']})';
         throw Exception('موجودی «$label» کافی نیست؛ فقط ${_fmt(rem)} کیلو باقی مانده');
+      }
+      // گونیِ مصرف‌شده از یک جنسِ انبار نباید از گونیِ باقی‌مانده‌ی همان جنس بیشتر باشد
+      // (گونیِ مخلوطِ جدید جداست و محدودیتی ندارد)
+      final ss = _nn(s['small_sacks']) ?? 0.0;
+      final ls = _nn(s['large_sacks']) ?? 0.0;
+      final smallLeft = ((rows.first['small_sacks_remaining'] as num?) ?? 0).toDouble();
+      final largeLeft = ((rows.first['large_sacks_remaining'] as num?) ?? 0).toDouble();
+      if (ss > smallLeft + 1e-6) {
+        throw Exception('گونی کوچک مصرفی از «$label» بیشتر از موجودی است؛ فقط ${_fmt(smallLeft)} عدد مانده');
+      }
+      if (ls > largeLeft + 1e-6) {
+        throw Exception('گونی بزرگ مصرفی از «$label» بیشتر از موجودی است؛ فقط ${_fmt(largeLeft)} عدد مانده');
       }
       sumW += w;
       sumVal += w * price;

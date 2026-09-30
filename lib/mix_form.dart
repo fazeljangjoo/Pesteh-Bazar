@@ -127,6 +127,14 @@ class _MixFormState extends State<MixForm> {
       if (w > rem + 1e-6) {
         return 'وزن برداشته‌شده از «${e['type_name']}» بیشتر از موجودی آن (${faNum(rem)} کیلو) است';
       }
+      final sl = (e['small_left'] as num).toDouble();
+      final ll = (e['large_left'] as num).toDouble();
+      if ((parseNum(_rows[id]?.small.text) ?? 0) > sl + 1e-6) {
+        return 'گونی کوچک مصرفی از «${e['type_name']}» بیشتر از موجودی آن (${faNum(sl)}) است';
+      }
+      if ((parseNum(_rows[id]?.large.text) ?? 0) > ll + 1e-6) {
+        return 'گونی بزرگ مصرفی از «${e['type_name']}» بیشتر از موجودی آن (${faNum(ll)}) است';
+      }
     }
     return null;
   }
@@ -420,10 +428,13 @@ class _MixFormState extends State<MixForm> {
               child: TextFormField(
                 controller: r.small,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
+                onChanged: (_) => setState(() {}),
+                validator: (v) => _sackCheck(v, (e['small_left'] as num).toDouble()),
+                decoration: InputDecoration(
                     labelText: 'گونی کوچک مصرف‌شده (اختیاری)',
                     hintText: '0',
-                    border: OutlineInputBorder()),
+                    helperText: 'حداکثر ${faNum(e['small_left'] as num)}',
+                    border: const OutlineInputBorder()),
               ),
             ),
             const SizedBox(width: 8),
@@ -431,16 +442,27 @@ class _MixFormState extends State<MixForm> {
               child: TextFormField(
                 controller: r.large,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
+                onChanged: (_) => setState(() {}),
+                validator: (v) => _sackCheck(v, (e['large_left'] as num).toDouble()),
+                decoration: InputDecoration(
                     labelText: 'گونی بزرگ مصرف‌شده (اختیاری)',
                     hintText: '0',
-                    border: OutlineInputBorder()),
+                    helperText: 'حداکثر ${faNum(e['large_left'] as num)}',
+                    border: const OutlineInputBorder()),
               ),
             ),
           ]),
         ]),
       ),
     );
+  }
+
+  String? _sackCheck(String? v, double cap) {
+    if ((v ?? '').trim().isEmpty) return null;
+    final n = parseNum(v);
+    if (n == null || n < 0) return 'عدد معتبر وارد کنید';
+    if (n > cap + 1e-6) return 'بیشتر از موجودی (${faNum(cap)})';
+    return null;
   }
 
   void _selectAll() {
