@@ -17,6 +17,7 @@ class PaymentScreen extends StatefulWidget {
 
 class _PaymentScreenState extends State<PaymentScreen> {
   bool _loading = true;
+  late int _purchaseId;
   int? _paymentId;
   String? _payType; // lump | staged
   String? _stagedType; // credit | cheque
@@ -51,15 +52,33 @@ class _PaymentScreenState extends State<PaymentScreen> {
   @override
   void initState() {
     super.initState();
+    _purchaseId = widget.purchaseId;
+    AppDb.I.version.addListener(_onDbChanged);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    AppDb.I.version.removeListener(_onDbChanged);
+    super.dispose();
+  }
+
+  // بعد از هر دریافت از سرور شناسه‌ها عوض می‌شوند؛ صفحه باید دوباره خودش را با شناسه‌های جدید بسازد
+  void _onDbChanged() {
+    if (!mounted || _loading) return;
     _load();
   }
 
   Future<void> _load() async {
-    _purchase = await AppDb.I.purchaseById(widget.purchaseId);
-    final pay = await AppDb.I.paymentOf(widget.purchaseId);
+    _purchaseId = await AppDb.I.currentId('pur', _purchaseId);
+    _purchase = await AppDb.I.purchaseById(_purchaseId);
+    final pay = await AppDb.I.paymentOf(_purchaseId);
     _paymentId = pay?['id'] as int?;
     _payType = pay?['pay_type'] as String?;
     _stagedType = pay?['staged_type'] as String?;
+    _lump = [];
+    _credit = [];
+    _cheque = [];
     if (_paymentId != null) {
       _lump = await AppDb.I.lumpTxList(_paymentId!);
       _credit = await AppDb.I.creditInstList(_paymentId!);
@@ -69,7 +88,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
   }
 
   Future<void> _setType(String payType, String? stagedType) async {
-    _paymentId = await AppDb.I.setPaymentType(widget.purchaseId, payType, stagedType);
+    _purchaseId = await AppDb.I.currentId('pur', _purchaseId);
+    _paymentId = await AppDb.I.setPaymentType(_purchaseId, payType, stagedType);
     setState(() {
       _payType = payType;
       _stagedType = stagedType;

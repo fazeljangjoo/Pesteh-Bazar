@@ -59,8 +59,11 @@ class SyncService {
   Timer? _debounce;
   Timer? _tick;
   DateTime _lastPullTry = DateTime.fromMillisecondsSinceEpoch(0);
+  // آخرین تغییر محلی/ارسال موفق؛ تا ۹۰ ثانیه بعدش دریافتِ خودکار از سرور انجام نمی‌شود
+  DateTime _lastActivity = DateTime.fromMillisecondsSinceEpoch(0);
 
   static const _pullEvery = Duration(minutes: 3);
+  static const _settle = Duration(seconds: 90);
 
   String get _url => '${ApiConfig.baseUrl}/app.php';
 
@@ -78,6 +81,7 @@ class SyncService {
 
   void _onChanged() {
     if (!AppDb.I.hasAccount) return;
+    _lastActivity = DateTime.now();
     _refreshCounts();
     _debounce?.cancel();
     _debounce = Timer(const Duration(seconds: 2), () => syncNow(pull: false));
@@ -133,7 +137,8 @@ class SyncService {
     final (p, f) = await AppDb.I.queueCounts();
     _emit(pending: p, failed: f);
     final due = DateTime.now().difference(_lastPullTry) >= _pullEvery;
-    if (p == 0 && f == 0 && (pull == true || (pull == null && due))) {
+    final settled = DateTime.now().difference(_lastActivity) >= _settle;
+    if (p == 0 && f == 0 && (pull == true || (pull == null && due && settled))) {
       _lastPullTry = DateTime.now();
       await _pull(cred.$1, cred.$2);
     }
@@ -146,7 +151,7 @@ class SyncService {
     if (v == null) return null;
     final id = (v as num).toInt();
     if (id >= 0) return id;
-    final sid = await AppDb.I.serverIdOf(kind, id);
+    final sid = await AppDb.I.serverIdOf(kind, id) ?? await AppDb.I.aliasOf(kind, id);
     if (sid == null) throw _Unresolved('وابسته به موردی است که به سرور نرسیده');
     return sid;
   }
@@ -255,7 +260,7 @@ class SyncService {
       }
       _offline = false;
 
-      if (r.code == 200) {
+      if (r.code == 200 && r.data != null) {
         final mk = op['map_kind'] as String?;
         final lid = (op['local_id'] as num?)?.toInt();
         final sid = (r.data?['id'] as num?)?.toInt();
@@ -273,6 +278,10 @@ class SyncService {
           }
         }
         await AppDb.I.finishOp(seq, rev);
+        _lastActivity = DateTime.now();
+        if (action == 'receipts.save' || action == 'payments.save') {
+          await AppDb.I.metaSet('last_tx_push', DateTime.now().toIso8601String());
+        }
         continue;
       }
       if (r.code == 401) {

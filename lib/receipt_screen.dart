@@ -18,6 +18,7 @@ class ReceiptScreen extends StatefulWidget {
 
 class _ReceiptScreenState extends State<ReceiptScreen> {
   bool _loading = true;
+  late int _saleId;
   int? _receiptId;
   String? _recvType; // lump | staged
   String? _stagedType; // credit | cheque
@@ -52,15 +53,33 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   @override
   void initState() {
     super.initState();
+    _saleId = widget.saleId;
+    AppDb.I.version.addListener(_onDbChanged);
+    _load();
+  }
+
+  @override
+  void dispose() {
+    AppDb.I.version.removeListener(_onDbChanged);
+    super.dispose();
+  }
+
+  // بعد از هر دریافت از سرور شناسه‌ها عوض می‌شوند؛ صفحه باید دوباره خودش را با شناسه‌های جدید بسازد
+  void _onDbChanged() {
+    if (!mounted || _loading) return;
     _load();
   }
 
   Future<void> _load() async {
-    _sale = await AppDb.I.saleById(widget.saleId);
-    final rec = await AppDb.I.receiptOf(widget.saleId);
+    _saleId = await AppDb.I.currentId('sale', _saleId);
+    _sale = await AppDb.I.saleById(_saleId);
+    final rec = await AppDb.I.receiptOf(_saleId);
     _receiptId = rec?['id'] as int?;
     _recvType = rec?['recv_type'] as String?;
     _stagedType = rec?['staged_type'] as String?;
+    _lump = [];
+    _credit = [];
+    _cheque = [];
     if (_receiptId != null) {
       _lump = await AppDb.I.receiptLumpTxList(_receiptId!);
       _credit = await AppDb.I.receiptCreditInstList(_receiptId!);
@@ -70,7 +89,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
   }
 
   Future<void> _setType(String recvType, String? stagedType) async {
-    _receiptId = await AppDb.I.setReceiptType(widget.saleId, recvType, stagedType);
+    _saleId = await AppDb.I.currentId('sale', _saleId);
+    _receiptId = await AppDb.I.setReceiptType(_saleId, recvType, stagedType);
     setState(() {
       _recvType = recvType;
       _stagedType = stagedType;
