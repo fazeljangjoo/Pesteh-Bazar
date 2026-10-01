@@ -295,3 +295,44 @@ Widget dateField(BuildContext context, String label, DateTime? value, ValueChang
     ),
   );
 }
+
+/// هشدار غیرمسدودکننده: اگر جمع همهٔ تراکنش‌های ثبت‌شده (به‌علاوهٔ مبلغ در حال ثبت) از مبلغ کل بیشتر شود نمایش داده می‌شود
+class OverpayWarning extends StatelessWidget {
+  final TextEditingController controller;
+  final double total;
+  final double others; // جمع سایر تراکنش‌های ثبت‌شده (بدون ردیف در حال ویرایش)
+  final bool receipt;
+  const OverpayWarning({
+    super.key,
+    required this.controller,
+    required this.total,
+    required this.others,
+    this.receipt = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<TextEditingValue>(
+      valueListenable: controller,
+      builder: (_, __, ___) {
+        final sum = others + (parseNum(controller.text) ?? 0);
+        if (total <= 0 || sum <= total + 0.5) return const SizedBox.shrink();
+        return Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.all(10),
+          decoration: BoxDecoration(
+            color: Colors.orange.shade50,
+            border: Border.all(color: Colors.orange.shade700),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            'هشدار: با این مبلغ، جمع همهٔ تراکنش‌های ثبت‌شده '
+            '${faNum(sum - total, dec: 0)} تومان بیشتر از مبلغ کل شده است؛ '
+            'شما دارید بیشتر از مبلغ کل ${receipt ? 'دریافت' : 'پرداخت'} می‌کنید. ثبت آن همچنان ممکن است.',
+            style: TextStyle(color: Colors.orange.shade900, fontSize: 12.5),
+          ),
+        );
+      },
+    );
+  }
+}

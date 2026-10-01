@@ -1614,6 +1614,12 @@ class AppDb {
         payId = await t.insert('payments', {'purchase_id': purchaseId, 'pay_type': payType, 'staged_type': stagedType});
       } else {
         payId = rows.first['id'] as int;
+        if (rows.first['pay_type'] != payType || rows.first['staged_type'] != stagedType) {
+          // تغییر نوع پرداخت: همهٔ اطلاعات پرداخت قبلی حذف می‌شود
+          for (final tb in const ['lump_tx', 'credit_inst', 'cheque_inst']) {
+            await t.delete(tb, where: 'payment_id=?', whereArgs: [payId]);
+          }
+        }
         await t.update('payments', {'pay_type': payType, 'staged_type': stagedType},
             where: 'id=?', whereArgs: [payId]);
       }
@@ -1710,6 +1716,12 @@ class AppDb {
         rid = await t.insert('receipts', {'sale_id': saleId, 'recv_type': recvType, 'staged_type': stagedType});
       } else {
         rid = rows.first['id'] as int;
+        if (rows.first['recv_type'] != recvType || rows.first['staged_type'] != stagedType) {
+          // تغییر نوع دریافت: همهٔ اطلاعات دریافت قبلی حذف می‌شود
+          for (final tb in const ['receipt_lump_tx', 'receipt_credit_inst', 'receipt_cheque_inst']) {
+            await t.delete(tb, where: 'receipt_id=?', whereArgs: [rid]);
+          }
+        }
         await t.update('receipts', {'recv_type': recvType, 'staged_type': stagedType},
             where: 'id=?', whereArgs: [rid]);
       }
@@ -1769,6 +1781,15 @@ class AppDb {
   /// اقلام یک فروش (فروش‌های جدید همیشه یک قلم دارند؛ فروش‌های قدیمیِ چندقلمی ممکن است بیشتر داشته باشند)
   Future<List<Map<String, dynamic>>> saleItemsOf(int saleId) async =>
       (await db).query('sale_items', where: 'sale_id=?', whereArgs: [saleId], orderBy: 'id');
+
+  /// کد/کدهای پستهٔ یک فروش (برای رسید و گزارش)
+  Future<String> saleCodes(int saleId) async {
+    final rows = await (await db).rawQuery(
+        'SELECT p.code AS code FROM sale_items si JOIN purchases p ON p.id = si.purchase_id WHERE si.sale_id = ?',
+        [saleId]);
+    final codes = rows.map((r) => '${r['code'] ?? ''}').where((c) => c.isNotEmpty).toList();
+    return codes.isEmpty ? '-' : codes.join('، ');
+  }
 
   Future<Map<String, dynamic>?> saleById(int id) async {
     final rows = await (await db).query('sales', where: 'id=?', whereArgs: [id]);
@@ -2021,7 +2042,7 @@ class AppDb {
     final out = <Map<String, dynamic>>[];
     final lumps = await d.rawQuery('''
         SELECT lt.date AS date, lt.amount AS amount, lt.paid AS paid,
-               p.type_name AS type_name, c.name AS category_name
+               p.type_name AS type_name, c.name AS category_name, p.seller AS seller, p.code AS code
         FROM lump_tx lt
         JOIN payments pay ON pay.id = lt.payment_id
         JOIN purchases p ON p.id = pay.purchase_id
@@ -2033,11 +2054,13 @@ class AppDb {
         'amount': r['amount'],
         'paid': (r['paid'] as int?) ?? 1,
         'label': '${r['type_name']} (${r['category_name']})',
+        'name': (r['seller'] as String?)?.trim().isNotEmpty == true ? r['seller'] : '-',
+        'code': (r['code'] as String?) ?? '-',
       });
     }
     final credits = await d.rawQuery('''
         SELECT ci.due_date AS date, ci.amount AS amount, ci.paid AS paid,
-               p.type_name AS type_name, c.name AS category_name
+               p.type_name AS type_name, c.name AS category_name, p.seller AS seller, p.code AS code
         FROM credit_inst ci
         JOIN payments pay ON pay.id = ci.payment_id
         JOIN purchases p ON p.id = pay.purchase_id
@@ -2049,11 +2072,13 @@ class AppDb {
         'amount': r['amount'],
         'paid': r['paid'],
         'label': '${r['type_name']} (${r['category_name']})',
+        'name': (r['seller'] as String?)?.trim().isNotEmpty == true ? r['seller'] : '-',
+        'code': (r['code'] as String?) ?? '-',
       });
     }
     final cheques = await d.rawQuery('''
         SELECT chi.due_date AS date, chi.amount AS amount, chi.paid AS paid,
-               p.type_name AS type_name, c.name AS category_name
+               p.type_name AS type_name, c.name AS category_name, p.seller AS seller, p.code AS code
         FROM cheque_inst chi
         JOIN payments pay ON pay.id = chi.payment_id
         JOIN purchases p ON p.id = pay.purchase_id
@@ -2065,6 +2090,8 @@ class AppDb {
         'amount': r['amount'],
         'paid': r['paid'],
         'label': '${r['type_name']} (${r['category_name']})',
+        'name': (r['seller'] as String?)?.trim().isNotEmpty == true ? r['seller'] : '-',
+        'code': (r['code'] as String?) ?? '-',
       });
     }
     return _filterAndSort(out, from, to);
@@ -2074,7 +2101,8 @@ class AppDb {
     final d = await db;
     final out = <Map<String, dynamic>>[];
     final lumps = await d.rawQuery('''
-        SELECT lt.date AS date, lt.amount AS amount, lt.paid AS paid, s.buyer AS buyer
+        SELECT lt.date AS date, lt.amount AS amount, lt.paid AS paid, s.buyer AS buyer,
+               (SELECT GROUP_CONCAT(pp.code, '، ') FROM sale_items si JOIN purchases pp ON pp.id = si.purchase_id WHERE si.sale_id = s.id) AS codes
         FROM receipt_lump_tx lt
         JOIN receipts rec ON rec.id = lt.receipt_id
         JOIN sales s ON s.id = rec.sale_id''');
@@ -2085,10 +2113,13 @@ class AppDb {
         'amount': r['amount'],
         'paid': (r['paid'] as int?) ?? 1,
         'label': (r['buyer'] as String?) ?? '-',
+        'name': (r['buyer'] as String?)?.trim().isNotEmpty == true ? r['buyer'] : '-',
+        'code': (r['codes'] as String?) ?? '-',
       });
     }
     final credits = await d.rawQuery('''
-        SELECT ci.due_date AS date, ci.amount AS amount, ci.paid AS paid, s.buyer AS buyer
+        SELECT ci.due_date AS date, ci.amount AS amount, ci.paid AS paid, s.buyer AS buyer,
+               (SELECT GROUP_CONCAT(pp.code, '، ') FROM sale_items si JOIN purchases pp ON pp.id = si.purchase_id WHERE si.sale_id = s.id) AS codes
         FROM receipt_credit_inst ci
         JOIN receipts rec ON rec.id = ci.receipt_id
         JOIN sales s ON s.id = rec.sale_id''');
@@ -2099,10 +2130,13 @@ class AppDb {
         'amount': r['amount'],
         'paid': r['paid'],
         'label': (r['buyer'] as String?) ?? '-',
+        'name': (r['buyer'] as String?)?.trim().isNotEmpty == true ? r['buyer'] : '-',
+        'code': (r['codes'] as String?) ?? '-',
       });
     }
     final cheques = await d.rawQuery('''
-        SELECT chi.due_date AS date, chi.amount AS amount, chi.paid AS paid, s.buyer AS buyer
+        SELECT chi.due_date AS date, chi.amount AS amount, chi.paid AS paid, s.buyer AS buyer,
+               (SELECT GROUP_CONCAT(pp.code, '، ') FROM sale_items si JOIN purchases pp ON pp.id = si.purchase_id WHERE si.sale_id = s.id) AS codes
         FROM receipt_cheque_inst chi
         JOIN receipts rec ON rec.id = chi.receipt_id
         JOIN sales s ON s.id = rec.sale_id''');
@@ -2113,6 +2147,8 @@ class AppDb {
         'amount': r['amount'],
         'paid': r['paid'],
         'label': (r['buyer'] as String?) ?? '-',
+        'name': (r['buyer'] as String?)?.trim().isNotEmpty == true ? r['buyer'] : '-',
+        'code': (r['codes'] as String?) ?? '-',
       });
     }
     return _filterAndSort(out, from, to);

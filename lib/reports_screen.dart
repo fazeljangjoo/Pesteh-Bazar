@@ -15,6 +15,22 @@ class ReportsScreen extends StatefulWidget {
 class _ReportsScreenState extends State<ReportsScreen> {
   DateTime? _from;
   DateTime? _to;
+  String _q = ''; // جستجوی کد پسته در گزارش سود
+
+  /// بازهٔ مؤثر گزارش سود: اگر کاربر تاریخی انتخاب نکرده باشد، ماه جاری شمسی
+  (DateTime?, DateTime?) _effectiveRange() {
+    if (_from != null || _to != null) return (_from, _to);
+    final now = DateTime.now();
+    final j = gregorianToJalali(now.year, now.month, now.day);
+    return (jalaliToGregorian(j[0], j[1], 1), jalaliToGregorian(j[0], j[1], daysInJalaliMonth(j[0], j[1])));
+  }
+
+  String _profitPeriodLabel() {
+    final r = _effectiveRange();
+    final f = r.$1 == null ? '...' : jalaliDateFromDt(r.$1!);
+    final t = r.$2 == null ? '...' : jalaliDateFromDt(r.$2!);
+    return '${(_from == null && _to == null) ? 'ماه جاری' : 'بازهٔ انتخابی'}: از $f تا $t';
+  }
 
   String _periodLabel() {
     if (_from == null && _to == null) return 'همه‌ی بازه‌ها';
@@ -30,14 +46,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
           : await AppDb.I.allReceiptTransactions(from: _from, to: _to);
       final total = rows.fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
       final table = <List<String>>[
-        ['وضعیت', 'نوع', isPayments ? 'خرید' : 'خریدار', 'تاریخ', 'مبلغ (تومان)'],
+        ['وضعیت', 'نوع', 'کد پسته', 'تاریخ', 'مبلغ (تومان)', isPayments ? 'فروشنده' : 'خریدار'],
         for (final r in rows)
           [
             (r['paid'] as int) == 1 ? 'تسویه‌شده' : 'باقیمانده',
             r['kind'] as String,
-            r['label'] as String,
+            '${r['code'] ?? '-'}',
             jalaliDate(r['date'] as String),
             faNum(r['amount'] as num, dec: 0),
+            '${r['name'] ?? '-'}',
           ],
       ];
       final file = await PdfService.buildGlobalReport(
@@ -65,10 +82,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
             final scheme = Theme.of(context).colorScheme;
             final all = s.data!;
             if (all.isEmpty) return const Center(child: Text('هنوز فروشی ثبت نشده'));
+            final range = _effectiveRange();
+            final q = toEnDigits(_q).trim().toLowerCase();
             final list = all.where((sale) {
               final dt = DateTime.parse(sale['date'] as String);
-              if (_from != null && dt.isBefore(_from!)) return false;
-              if (_to != null && dt.isAfter(_to!.add(const Duration(days: 1)))) return false;
+              if (range.$1 != null && dt.isBefore(range.$1!)) return false;
+              if (range.$2 != null && !dt.isBefore(range.$2!.add(const Duration(days: 1)))) return false;
+              if (q.isNotEmpty) {
+                final codes = (sale['items'] as List).map((it) => '${it['code'] ?? ''}'.toLowerCase());
+                if (!codes.any((c) => c.contains(q))) return false;
+              }
               return true;
             }).toList();
 
@@ -93,7 +116,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
               totalRevenue += revenue;
               totalCost += cost;
               final comp = items
-                  .map((it) => '${it['type_name']} ${faNum(it['weight'] as num)}')
+                  .map((it) => '${it['type_name']}${it['code'] != null ? ' (کد ${it['code']})' : ''} ${faNum(it['weight'] as num)}')
                   .join(' + ');
               rows.add(Card(
                 child: Padding(
@@ -121,6 +144,20 @@ class _ReportsScreenState extends State<ReportsScreen> {
             return ListView(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
               children: [
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(_profitPeriodLabel(), style: Theme.of(context).textTheme.bodySmall),
+                ),
+                TextField(
+                  decoration: const InputDecoration(
+                    labelText: 'جستجو با کد پسته (مثلاً KH00012)',
+                    prefixIcon: Icon(Icons.search),
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  onChanged: (v) => setState(() => _q = v),
+                ),
+                const SizedBox(height: 8),
                 Card(
                   color: Theme.of(context).colorScheme.primaryContainer,
                   child: Padding(
@@ -152,7 +189,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                      sectionTitle(context, 'خروجی PDF تراکنش‌ها'),
+                      sectionTitle(context, 'بازهٔ گزارش و خروجی PDF تراکنش‌ها'),
                       Row(children: [
                         Expanded(
                           child: OutlinedButton(

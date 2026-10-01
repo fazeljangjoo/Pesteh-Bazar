@@ -50,6 +50,11 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
   double get _remaining => _total - _settled;
 
+  /// جمع همهٔ ردیف‌های ثبت‌شده (تسویه‌شده یا نه) به‌جز ردیفی که در حال ویرایش است
+  double _othersSum(List<Map<String, dynamic>> rows, int? exceptId) => rows
+      .where((r) => exceptId == null || r['id'] != exceptId)
+      .fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +93,29 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  String _typeLabel(String t, String? st) => t == 'lump'
+      ? 'دریافت یکجا'
+      : (st == 'cheque' ? 'دریافت مرحله‌ای (چک)' : 'دریافت مرحله‌ای (اعتباری/قسطی)');
+
+  /// انتخاب یا تغییر نوع دریافت همیشه با تأیید کاربر انجام می‌شود
+  Future<void> _requestType(String t, String? st) async {
+    if (t == _recvType && st == _stagedType) return;
+    final String msg = _recvType == null
+        ? 'نوع «${_typeLabel(t, st)}» انتخاب شود؟'
+        : 'با تغییر نوع دریافت از «${_typeLabel(_recvType!, _stagedType)}» به «${_typeLabel(t, st)}»، '
+            'همهٔ اطلاعات دریافت قبلی (تراکنش‌ها، اقساط و چک‌ها) حذف می‌شوند و باید اطلاعات جدید را دوباره وارد کنید. ادامه می‌دهید؟';
+    if (!await confirm(context, msg)) return;
+    if (_recvType != null) {
+    for (final r in _credit) {
+      await NotifyService.I.cancelCreditRow(r['id'] as int);
+    }
+    for (final r in _cheque) {
+      await NotifyService.I.cancelChequeRow(r['id'] as int);
+    }
+    }
+    await _setType(t, st);
+  }
+
   Future<void> _setType(String recvType, String? stagedType) async {
     _saleId = await AppDb.I.currentId('sale', _saleId);
     _receiptId = await AppDb.I.setReceiptType(_saleId, recvType, stagedType);
@@ -100,8 +128,10 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 
   Future<void> _exportPdf() async {
     try {
+      final codes = await AppDb.I.saleCodes(_saleId);
       final file = await PdfService.buildPaymentLedger(
         title: 'رسید وصول مطالبات — ${widget.saleLabel}',
+        pesteCode: codes,
         totalLabel: 'مبلغ کل فروش',
         total: _total,
         settled: _settled,
@@ -132,7 +162,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _ReceiptLumpForm(),
+      builder: (_) => _ReceiptLumpForm(total: _total, others: _othersSum(_lump, null)),
     );
     if (row == null) return;
     await AppDb.I.addReceiptLumpTx(_receiptId!, row);
@@ -143,7 +173,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _ReceiptLumpForm(existing: existing),
+      builder: (_) => _ReceiptLumpForm(existing: existing, total: _total, others: _othersSum(_lump, existing['id'] as int?)),
     );
     if (row == null) return;
     await AppDb.I.updateReceiptLumpTx(existing['id'] as int, row);
@@ -165,7 +195,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _ReceiptCreditForm(),
+      builder: (_) => _ReceiptCreditForm(total: _total, others: _othersSum(_credit, null)),
     );
     if (row == null) return;
     final id = await AppDb.I.addReceiptCreditInst(_receiptId!, row);
@@ -179,7 +209,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _ReceiptCreditForm(existing: existing),
+      builder: (_) => _ReceiptCreditForm(existing: existing, total: _total, others: _othersSum(_credit, existing['id'] as int?)),
     );
     if (row == null) return;
     await AppDb.I.updateReceiptCreditInst(existing['id'] as int, row);
@@ -211,7 +241,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _ReceiptChequeForm(),
+      builder: (_) => _ReceiptChequeForm(total: _total, others: _othersSum(_cheque, null)),
     );
     if (row == null) return;
     final id = await AppDb.I.addReceiptChequeInst(_receiptId!, row);
@@ -225,7 +255,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _ReceiptChequeForm(existing: existing),
+      builder: (_) => _ReceiptChequeForm(existing: existing, total: _total, others: _othersSum(_cheque, existing['id'] as int?)),
     );
     if (row == null) return;
     await AppDb.I.updateReceiptChequeInst(existing['id'] as int, row);
@@ -277,13 +307,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                       value: 'lump',
                       groupValue: _recvType,
                       title: const Text('دریافت یکجا'),
-                      onChanged: (v) => _setType('lump', null),
+                      onChanged: (v) => _requestType('lump', null),
                     ),
                     RadioListTile<String>(
                       value: 'staged',
                       groupValue: _recvType,
                       title: const Text('دریافت مرحله‌ای'),
-                      onChanged: (v) => _setType('staged', _stagedType ?? 'credit'),
+                      onChanged: (v) => _requestType('staged', _stagedType ?? 'credit'),
                     ),
                   ]),
                 ),
@@ -295,13 +325,13 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
                         value: 'credit',
                         groupValue: _stagedType,
                         title: const Text('وصول اعتباری (قسطی)'),
-                        onChanged: (v) => _setType('staged', 'credit'),
+                        onChanged: (v) => _requestType('staged', 'credit'),
                       ),
                       RadioListTile<String>(
                         value: 'cheque',
                         groupValue: _stagedType,
                         title: const Text('چک دریافتی'),
-                        onChanged: (v) => _setType('staged', 'cheque'),
+                        onChanged: (v) => _requestType('staged', 'cheque'),
                       ),
                     ]),
                   ),
@@ -437,7 +467,9 @@ class _ReceiptScreenState extends State<ReceiptScreen> {
 // ------------------- فرم تراکنش دریافت یکجا -------------------
 class _ReceiptLumpForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const _ReceiptLumpForm({this.existing});
+  final double total;
+  final double others;
+  const _ReceiptLumpForm({this.existing, this.total = 0, this.others = 0});
   @override
   State<_ReceiptLumpForm> createState() => _ReceiptLumpFormState();
 }
@@ -491,6 +523,7 @@ class _ReceiptLumpFormState extends State<_ReceiptLumpForm> {
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               numField(_amount, 'مبلغ (تومان)', required: true, thousands: true),
+              OverpayWarning(controller: _amount, total: widget.total, others: widget.others, receipt: true),
               dateField(context, 'تاریخ دریافت', _date, (d) => setState(() => _date = d)),
               textField(_fromAccount, 'از کدام حساب (خریدار)'),
               textField(_payerName, 'به نام چه کسی (پرداخت‌کننده)'),
@@ -516,7 +549,9 @@ class _ReceiptLumpFormState extends State<_ReceiptLumpForm> {
 // ------------------- فرم قسط وصولی -------------------
 class _ReceiptCreditForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const _ReceiptCreditForm({this.existing});
+  final double total;
+  final double others;
+  const _ReceiptCreditForm({this.existing, this.total = 0, this.others = 0});
   @override
   State<_ReceiptCreditForm> createState() => _ReceiptCreditFormState();
 }
@@ -573,6 +608,7 @@ class _ReceiptCreditFormState extends State<_ReceiptCreditForm> {
               Text(widget.existing == null ? 'قسط جدید' : 'ویرایش قسط', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               numField(_amount, 'مبلغ قسط (تومان)', required: true, thousands: true),
+              OverpayWarning(controller: _amount, total: widget.total, others: widget.others, receipt: true),
               dateField(context, 'تاریخ سررسید', _due, (d) => setState(() => _due = d)),
               textField(_fromAccount, 'از کدام حساب (خریدار)'),
               textField(_payerName, 'به نام چه کسی (پرداخت‌کننده)'),
@@ -598,7 +634,9 @@ class _ReceiptCreditFormState extends State<_ReceiptCreditForm> {
 // ------------------- فرم چک دریافتی -------------------
 class _ReceiptChequeForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const _ReceiptChequeForm({this.existing});
+  final double total;
+  final double others;
+  const _ReceiptChequeForm({this.existing, this.total = 0, this.others = 0});
   @override
   State<_ReceiptChequeForm> createState() => _ReceiptChequeFormState();
 }
@@ -661,6 +699,7 @@ class _ReceiptChequeFormState extends State<_ReceiptChequeForm> {
               Text(widget.existing == null ? 'چک دریافتی جدید' : 'ویرایش چک', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               numField(_amount, 'مبلغ چک (تومان)', required: true, thousands: true),
+              OverpayWarning(controller: _amount, total: widget.total, others: widget.others, receipt: true),
               dateField(context, 'تاریخ سررسید چک', _due, (d) => setState(() => _due = d)),
               textField(_chequeNo, 'شماره چک'),
               textField(_bankName, 'نام بانک'),

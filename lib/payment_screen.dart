@@ -49,6 +49,11 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   double get _remaining => _total - _settled;
 
+  /// جمع همهٔ ردیف‌های ثبت‌شده (تسویه‌شده یا نه) به‌جز ردیفی که در حال ویرایش است
+  double _othersSum(List<Map<String, dynamic>> rows, int? exceptId) => rows
+      .where((r) => exceptId == null || r['id'] != exceptId)
+      .fold<double>(0, (s, r) => s + (r['amount'] as num).toDouble());
+
   @override
   void initState() {
     super.initState();
@@ -87,6 +92,29 @@ class _PaymentScreenState extends State<PaymentScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  String _typeLabel(String t, String? st) => t == 'lump'
+      ? 'پرداخت یکجا'
+      : (st == 'cheque' ? 'پرداخت مرحله‌ای (چک)' : 'پرداخت مرحله‌ای (اعتباری/قسطی)');
+
+  /// انتخاب یا تغییر نوع پرداخت همیشه با تأیید کاربر انجام می‌شود
+  Future<void> _requestType(String t, String? st) async {
+    if (t == _payType && st == _stagedType) return;
+    final String msg = _payType == null
+        ? 'نوع «${_typeLabel(t, st)}» انتخاب شود؟'
+        : 'با تغییر نوع پرداخت از «${_typeLabel(_payType!, _stagedType)}» به «${_typeLabel(t, st)}»، '
+            'همهٔ اطلاعات پرداخت قبلی (تراکنش‌ها، اقساط و چک‌ها) حذف می‌شوند و باید اطلاعات جدید را دوباره وارد کنید. ادامه می‌دهید؟';
+    if (!await confirm(context, msg)) return;
+    if (_payType != null) {
+    for (final r in _credit) {
+      await NotifyService.I.cancelCreditRow(r['id'] as int);
+    }
+    for (final r in _cheque) {
+      await NotifyService.I.cancelChequeRow(r['id'] as int);
+    }
+    }
+    await _setType(t, st);
+  }
+
   Future<void> _setType(String payType, String? stagedType) async {
     _purchaseId = await AppDb.I.currentId('pur', _purchaseId);
     _paymentId = await AppDb.I.setPaymentType(_purchaseId, payType, stagedType);
@@ -99,8 +127,10 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   Future<void> _exportPdf() async {
     try {
+      final seller = '${_purchase?['seller'] ?? ''}'.trim();
       final file = await PdfService.buildPaymentLedger(
-        title: 'رسید پرداخت — ${widget.purchaseLabel}',
+        title: seller.isEmpty ? 'رسید پرداخت' : 'رسید پرداخت — $seller',
+        pesteCode: '${_purchase?['code'] ?? ''}',
         totalLabel: 'مبلغ کل خرید',
         total: _total,
         settled: _settled,
@@ -114,7 +144,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
           from: 'از حساب',
           fromName: 'واریزکننده',
           to: 'به حساب',
-          toName: 'فروشنده'
+          toName: 'مقصد'
         ),
       );
       await PdfService.share(file);
@@ -131,7 +161,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _LumpForm(),
+      builder: (_) => _LumpForm(total: _total, others: _othersSum(_lump, null)),
     );
     if (row == null) return;
     await AppDb.I.addLumpTx(_paymentId!, row);
@@ -142,7 +172,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _LumpForm(existing: existing),
+      builder: (_) => _LumpForm(existing: existing, total: _total, others: _othersSum(_lump, existing['id'] as int?)),
     );
     if (row == null) return;
     await AppDb.I.updateLumpTx(existing['id'] as int, row);
@@ -164,7 +194,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _CreditForm(),
+      builder: (_) => _CreditForm(total: _total, others: _othersSum(_credit, null)),
     );
     if (row == null) return;
     final id = await AppDb.I.addCreditInst(_paymentId!, row);
@@ -178,7 +208,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _CreditForm(existing: existing),
+      builder: (_) => _CreditForm(existing: existing, total: _total, others: _othersSum(_credit, existing['id'] as int?)),
     );
     if (row == null) return;
     await AppDb.I.updateCreditInst(existing['id'] as int, row);
@@ -210,7 +240,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => const _ChequeForm(),
+      builder: (_) => _ChequeForm(total: _total, others: _othersSum(_cheque, null)),
     );
     if (row == null) return;
     final id = await AppDb.I.addChequeInst(_paymentId!, row);
@@ -224,7 +254,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
     final row = await showModalBottomSheet<Map<String, dynamic>>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _ChequeForm(existing: existing),
+      builder: (_) => _ChequeForm(existing: existing, total: _total, others: _othersSum(_cheque, existing['id'] as int?)),
     );
     if (row == null) return;
     await AppDb.I.updateChequeInst(existing['id'] as int, row);
@@ -276,13 +306,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                       value: 'lump',
                       groupValue: _payType,
                       title: const Text('پرداخت یکجا'),
-                      onChanged: (v) => _setType('lump', null),
+                      onChanged: (v) => _requestType('lump', null),
                     ),
                     RadioListTile<String>(
                       value: 'staged',
                       groupValue: _payType,
                       title: const Text('پرداخت مرحله‌ای'),
-                      onChanged: (v) => _setType('staged', _stagedType ?? 'credit'),
+                      onChanged: (v) => _requestType('staged', _stagedType ?? 'credit'),
                     ),
                   ]),
                 ),
@@ -294,13 +324,13 @@ class _PaymentScreenState extends State<PaymentScreen> {
                         value: 'credit',
                         groupValue: _stagedType,
                         title: const Text('تسویه اعتباری (قسطی)'),
-                        onChanged: (v) => _setType('staged', 'credit'),
+                        onChanged: (v) => _requestType('staged', 'credit'),
                       ),
                       RadioListTile<String>(
                         value: 'cheque',
                         groupValue: _stagedType,
                         title: const Text('چک'),
-                        onChanged: (v) => _setType('staged', 'cheque'),
+                        onChanged: (v) => _requestType('staged', 'cheque'),
                       ),
                     ]),
                   ),
@@ -436,7 +466,9 @@ class _PaymentScreenState extends State<PaymentScreen> {
 // ------------------- فرم تراکنش یکجا -------------------
 class _LumpForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const _LumpForm({this.existing});
+  final double total;
+  final double others;
+  const _LumpForm({this.existing, this.total = 0, this.others = 0});
   @override
   State<_LumpForm> createState() => _LumpFormState();
 }
@@ -490,6 +522,7 @@ class _LumpFormState extends State<_LumpForm> {
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               numField(_amount, 'مبلغ (تومان)', required: true, thousands: true),
+              OverpayWarning(controller: _amount, total: widget.total, others: widget.others),
               dateField(context, 'تاریخ واریز', _date, (d) => setState(() => _date = d)),
               textField(_fromAccount, 'از کدام حساب'),
               textField(_payerName, 'به نام چه کسی (واریزکننده)'),
@@ -515,7 +548,9 @@ class _LumpFormState extends State<_LumpForm> {
 // ------------------- فرم قسط اعتباری -------------------
 class _CreditForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const _CreditForm({this.existing});
+  final double total;
+  final double others;
+  const _CreditForm({this.existing, this.total = 0, this.others = 0});
   @override
   State<_CreditForm> createState() => _CreditFormState();
 }
@@ -572,6 +607,7 @@ class _CreditFormState extends State<_CreditForm> {
               Text(widget.existing == null ? 'قسط جدید' : 'ویرایش قسط', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               numField(_amount, 'مبلغ قسط (تومان)', required: true, thousands: true),
+              OverpayWarning(controller: _amount, total: widget.total, others: widget.others),
               dateField(context, 'تاریخ سررسید', _due, (d) => setState(() => _due = d)),
               textField(_fromAccount, 'از کدام حساب'),
               textField(_payerName, 'به نام چه کسی (واریزکننده)'),
@@ -597,7 +633,9 @@ class _CreditFormState extends State<_CreditForm> {
 // ------------------- فرم چک -------------------
 class _ChequeForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const _ChequeForm({this.existing});
+  final double total;
+  final double others;
+  const _ChequeForm({this.existing, this.total = 0, this.others = 0});
   @override
   State<_ChequeForm> createState() => _ChequeFormState();
 }
@@ -660,6 +698,7 @@ class _ChequeFormState extends State<_ChequeForm> {
               Text(widget.existing == null ? 'چک جدید' : 'ویرایش چک', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 12),
               numField(_amount, 'مبلغ چک (تومان)', required: true, thousands: true),
+              OverpayWarning(controller: _amount, total: widget.total, others: widget.others),
               dateField(context, 'تاریخ سررسید چک', _due, (d) => setState(() => _due = d)),
               textField(_chequeNo, 'شماره چک'),
               textField(_bankName, 'نام بانک'),

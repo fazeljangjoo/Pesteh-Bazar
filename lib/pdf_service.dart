@@ -18,18 +18,48 @@ typedef DirectionLabels = ({String from, String fromName, String to, String toNa
 const String _kFontRegularAsset = 'assets/fonts/Vazirmatn-Regular.ttf';
 const String _kFontBoldAsset = 'assets/fonts/Vazirmatn-Bold.ttf';
 
+/// نیم‌فاصلهٔ فارسی در فونت PDF به‌صورت علامت خراب نمایش داده می‌شد (مثلاً «پرداخت‌کننده»)؛
+/// برای رندر درست در PDF نیم‌فاصله با فاصلهٔ معمولی جایگزین می‌شود.
+String pdfText(String s) => s.replaceAll('\u200c', ' ');
+
+const String _kIconAsset = 'assets/images/pesteh-bazar-icon.png';
+
 class PdfService {
   static pw.Font? _regular;
   static pw.Font? _bold;
+  static pw.MemoryImage? _icon;
+
+  static Future<void> _ensureIcon() async {
+    if (_icon != null) return;
+    try {
+      final d = await rootBundle.load(_kIconAsset);
+      _icon = pw.MemoryImage(d.buffer.asUint8List());
+    } catch (_) {}
+  }
+
+  /// پای همهٔ صفحه‌ها: آیکون و نام «پسته بازار»
+  static pw.Widget _brandFooter() => pw.Container(
+        alignment: pw.Alignment.center,
+        margin: const pw.EdgeInsets.only(top: 8),
+        child: pw.Row(mainAxisSize: pw.MainAxisSize.min, children: [
+          if (_icon != null) pw.Image(_icon!, width: 16, height: 16),
+          if (_icon != null) pw.SizedBox(width: 5),
+          pw.Text(pdfText('پسته بازار'), style: pw.TextStyle(fontSize: 9, fontWeight: pw.FontWeight.bold)),
+        ]),
+      );
 
   /// فونت فارسی را از assets داخل خود اپ بارگیری می‌کند (آفلاین، بدون اینترنت)
   static Future<void> _ensureFonts() async {
-    if (_regular != null && _bold != null) return;
+    if (_regular != null && _bold != null) {
+      await _ensureIcon();
+      return;
+    }
     try {
       final regularData = await rootBundle.load(_kFontRegularAsset);
       final boldData = await rootBundle.load(_kFontBoldAsset);
       _regular = pw.Font.ttf(regularData);
       _bold = pw.Font.ttf(boldData);
+      await _ensureIcon();
     } catch (e) {
       throw Exception(
           'فونت فارسی پیدا نشد. فایل‌های $_kFontRegularAsset و $_kFontBoldAsset را '
@@ -73,6 +103,8 @@ class PdfService {
           _kv('وزن خالص', '${faNum(netWeight)} کیلو'),
           _kv('تعداد گونی', faNum(smallSacks + largeSacks)),
           _kv('کوچک / بزرگ', '${faNum(smallSacks)} / ${faNum(largeSacks)}'),
+          pw.Spacer(),
+          _brandFooter(),
         ],
       ),
     ));
@@ -84,8 +116,8 @@ class PdfService {
         child: pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
           children: [
-            pw.Text(k, style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
-            pw.Text(v, style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+            pw.Text(pdfText(k), style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
+            pw.Text(pdfText(v), style: pw.TextStyle(fontWeight: bold ? pw.FontWeight.bold : pw.FontWeight.normal)),
           ],
         ),
       );
@@ -93,6 +125,7 @@ class PdfService {
   /// رسید تراکنش‌های پرداخت (خرید) یا دریافت (فروش) برای یک رکورد مشخص
   static Future<File> buildPaymentLedger({
     required String title,
+    required String pesteCode,
     required String totalLabel,
     required double total,
     required double settled,
@@ -116,7 +149,7 @@ class PdfService {
           [
             (r['paid'] as int? ?? 1) == 1 ? 'تسویه شده' : 'ثبت‌شده',
             jalaliDate(r['date'] as String),
-            '${r['seller_name'] ?? '-'}',
+            '${r['seller_name'] ?? r['receiver_name'] ?? '-'}',
             '${r['payer_name'] ?? '-'}',
             faNum(r['amount'] as num, dec: 0),
           ],
@@ -128,7 +161,7 @@ class PdfService {
           [
             (r['paid'] as int) == 1 ? 'تسویه شده' : 'باقیمانده',
             jalaliDate(r['due_date'] as String),
-            '${r['seller_name'] ?? '-'}',
+            '${r['seller_name'] ?? r['receiver_name'] ?? '-'}',
             '${r['payer_name'] ?? '-'}',
             faNum(r['amount'] as num, dec: 0),
           ],
@@ -152,15 +185,17 @@ class PdfService {
         pageFormat: PdfPageFormat.a4,
         textDirection: pw.TextDirection.rtl,
         header: (ctx) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Text(title, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-          pw.Text('تاریخ تهیه گزارش: ${jalaliDateFromDt(now)}', style: const pw.TextStyle(fontSize: 9)),
+          pw.Text(pdfText(title), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.Text(pdfText('تاریخ تهیه گزارش: ${jalaliDateFromDt(now)}'), style: const pw.TextStyle(fontSize: 9)),
           pw.Divider(),
         ]),
+        footer: (ctx) => _brandFooter(),
         build: (ctx) => [
           pw.Container(
             padding: const pw.EdgeInsets.all(10),
             decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5), borderRadius: pw.BorderRadius.circular(6)),
             child: pw.Column(children: [
+              _kv('کد پسته', pesteCode.isEmpty ? '-' : pesteCode, bold: true),
               _kv(totalLabel, '${faNum(total, dec: 0)} تومان', bold: true),
               _kv('تسویه شده', '${faNum(settled, dec: 0)} تومان'),
               _kv(remaining >= 0 ? 'باقیمانده' : 'اضافه‌پرداخت', '${faNum(remaining.abs(), dec: 0)} تومان'),
@@ -169,8 +204,8 @@ class PdfService {
           pw.SizedBox(height: 16),
           if (rows.length > 1)
             pw.Table.fromTextArray(
-              headers: rows.first,
-              data: rows.skip(1).toList(),
+              headers: rows.first.map(pdfText).toList(),
+              data: rows.skip(1).map((r) => r.map(pdfText).toList()).toList(),
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 10),
               cellStyle: const pw.TextStyle(fontSize: 9),
               cellAlignment: pw.Alignment.centerRight,
@@ -178,7 +213,7 @@ class PdfService {
               border: pw.TableBorder.all(width: 0.4),
             )
           else
-            pw.Text('تراکنشی ثبت نشده است'),
+            pw.Text(pdfText('تراکنشی ثبت نشده است')),
         ],
       ),
     );
@@ -203,18 +238,19 @@ class PdfService {
         pageFormat: PdfPageFormat.a4,
         textDirection: pw.TextDirection.rtl,
         header: (ctx) => pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-          pw.Text(title, style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
-          pw.Text(periodLabel, style: const pw.TextStyle(fontSize: 10)),
-          pw.Text('تاریخ تهیه گزارش: ${jalaliDateFromDt(now)}', style: const pw.TextStyle(fontSize: 9)),
+          pw.Text(pdfText(title), style: pw.TextStyle(fontSize: 16, fontWeight: pw.FontWeight.bold)),
+          pw.Text(pdfText(periodLabel), style: const pw.TextStyle(fontSize: 10)),
+          pw.Text(pdfText('تاریخ تهیه گزارش: ${jalaliDateFromDt(now)}'), style: const pw.TextStyle(fontSize: 9)),
           pw.Divider(),
         ]),
+        footer: (ctx) => _brandFooter(),
         build: (ctx) => [
           _kv('جمع کل', '${faNum(grandTotal, dec: 0)} تومان', bold: true),
           pw.SizedBox(height: 12),
           if (tableRows.length > 1)
             pw.Table.fromTextArray(
-              headers: tableRows.first,
-              data: tableRows.skip(1).toList(),
+              headers: tableRows.first.map(pdfText).toList(),
+              data: tableRows.skip(1).map((r) => r.map(pdfText).toList()).toList(),
               headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
               cellStyle: const pw.TextStyle(fontSize: 8),
               cellAlignment: pw.Alignment.centerRight,
@@ -222,7 +258,7 @@ class PdfService {
               border: pw.TableBorder.all(width: 0.4),
             )
           else
-            pw.Text('در این بازه تراکنشی یافت نشد'),
+            pw.Text(pdfText('در این بازه تراکنشی یافت نشد')),
         ],
       ),
     );
