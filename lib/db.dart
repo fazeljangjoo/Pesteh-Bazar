@@ -530,6 +530,18 @@ class AppDb {
     return r.isEmpty ? null : (r.first['server_id'] as num).toInt();
   }
 
+  /// اگر شناسهٔ موقتِ منفیِ این رکورد در دریافت از سرور به شناسهٔ واقعی تبدیل شده باشد، آن را برمی‌گرداند
+  /// (فقط وقتی رکوردی با همین شناسه در گوشی نیست؛ وگرنه null).
+  Future<int?> aliasOf(String kind, int id) async {
+    if (id >= 0) return null;
+    if (await localExists(kind, id)) return null;
+    final v = await metaGet('alias:$kind:$id');
+    return v == null ? null : int.tryParse(v);
+  }
+
+  /// شناسهٔ فعلیِ یک رکورد (برای صفحه‌هایی که از قبل باز بوده‌اند)
+  Future<int> currentId(String kind, int id) async => (await aliasOf(kind, id)) ?? id;
+
   /// بعد از موفقیت یک عملیات «ساخت»: شناسهٔ واقعی را ثبت می‌کند و کد خرید را مثل سرور می‌سازد
   Future<void> recordMapping(String kind, int localId, int serverId) async {
     final d = await db;
@@ -580,6 +592,39 @@ class AppDb {
       } else {
         final n = Sqflite.firstIntValue(await t.rawQuery('SELECT COUNT(*) FROM sync_ops')) ?? 0;
         if (n > 0) return;
+        // سپر ایمنی: اگر در ۱۵ دقیقهٔ اخیر پرداخت/دریافت (قسط، چک، تراکنش) به سرور فرستاده‌ایم
+        // و سرور ردیف کمتری از گوشی دارد، یعنی آن ارسال روی سرور ثبت نشده. به‌جای پاک‌کردنِ
+        // داده‌ی گوشی، وضعیت کامل پرداخت/دریافت‌ها دوباره به صف می‌رود تا دوباره ارسال شود.
+        final lp = await t.query('meta', columns: ['v'], where: 'k=?', whereArgs: ['last_tx_push'], limit: 1);
+        final lastPush = lp.isEmpty ? null : DateTime.tryParse((lp.first['v'] as String?) ?? '');
+        if (lastPush != null && DateTime.now().difference(lastPush) < const Duration(minutes: 15)) {
+          var localHasMore = false;
+          for (final tb in const [
+            'lump_tx',
+            'credit_inst',
+            'cheque_inst',
+            'receipt_lump_tx',
+            'receipt_credit_inst',
+            'receipt_cheque_inst'
+          ]) {
+            final localN = Sqflite.firstIntValue(await t.rawQuery('SELECT COUNT(*) FROM $tb')) ?? 0;
+            final srv = tables[tb];
+            final srvN = srv is List ? srv.length : 0;
+            if (localN > srvN) {
+              localHasMore = true;
+              break;
+            }
+          }
+          if (localHasMore) {
+            for (final r in await t.query('receipts', columns: ['sale_id'])) {
+              await _queueReceipt(t, (r['sale_id'] as num).toInt());
+            }
+            for (final r in await t.query('payments', columns: ['purchase_id'])) {
+              await _queuePayment(t, (r['purchase_id'] as num).toInt());
+            }
+            return;
+          }
+        }
       }
       final idmap = <int, int>{};
       for (final r in await t.query('sync_idmap', where: "kind='pur'")) {
@@ -594,6 +639,12 @@ class AppDb {
       }
       for (final e in _kSnapshot.reversed) {
         await t.delete(e.$1);
+      }
+      // شناسه‌های موقت (منفی) بعد از این دریافت عوض می‌شوند؛ صفحه‌های بازِ قدیمی هنوز شناسهٔ
+      // قدیمی را دارند. نگاشت «قدیم ← سرور» را نگه می‌داریم تا همان صفحه‌ها درست ادامه بدهند.
+      for (final r in await t.query('sync_idmap')) {
+        await t.insert('meta', {'k': 'alias:${r['kind']}:${r['local_id']}', 'v': '${r['server_id']}'},
+            conflictAlgorithm: ConflictAlgorithm.replace);
       }
       await t.delete('sync_idmap');
       var needSackBackfill = false;
