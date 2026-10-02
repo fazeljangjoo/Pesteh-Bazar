@@ -286,6 +286,8 @@ class SyncService {
       }
       if (r.code == 401) {
         _error = 'نشست ورود منقضی شده؛ از حساب خارج و دوباره وارد شوید';
+        // LicenseGate وضعیت را دوباره بررسی می‌کند و اگر توکن واقعاً نامعتبر باشد، صفحهٔ ورود را نشان می‌دهد
+        LicenseService.I.sessionInvalid.value++;
         return false;
       }
       if (r.code == 403) {

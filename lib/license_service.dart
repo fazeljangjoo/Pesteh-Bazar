@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -30,7 +31,7 @@ class ApiConfig {
 }
 
 enum LicenseState {
-  /// هنوز وارد حساب نشده (نیاز به شماره و رمز عبور)
+  /// هنوز وارد حساب نشده (نیاز به شماره + کد پیامکی، یا شماره + رمز عبور)
   loggedOut,
 
   /// وارد شده اما نه اینترنت داریم و نه سابقهٔ تاییدشدهٔ قبلی از اشتراک
@@ -74,6 +75,20 @@ class OtpVerifyResult {
   bool get ok => error == null && !needName;
 }
 
+/// اطلاعات حساب از سرور (account.status): نام و اینکه کاربر رمز عبور گذاشته یا نه
+class AccountInfo {
+  final String? name;
+  final bool hasPassword;
+  const AccountInfo({this.name, this.hasPassword = false});
+}
+
+/// نتیجهٔ عملیات حساب (ذخیرهٔ نام / رمز)؛ error=null یعنی موفق
+class AccountOpResult {
+  final String? error;
+  const AccountOpResult([this.error]);
+  bool get ok => error == null;
+}
+
 class _ApiResp {
   final int status;
   final Map<String, dynamic> data;
@@ -97,7 +112,7 @@ class LicenseResult {
   }
 }
 
-/// مدیریت ورود (شماره موبایل + کد پیامکی) و بررسی اعتبار اشتراک،
+/// مدیریت ورود (شماره موبایل + کد پیامکی، یا شماره + رمز عبور) و بررسی اعتبار اشتراک،
 /// از طریق سرور PHP خودتان (به‌جای Firebase) — دقیقاً مثل نسخهٔ وب.
 ///
 /// جریان ورود: ۱) otp_send.php کد را می‌فرستد ۲) otp_verify.php کد را تأیید می‌کند.
@@ -125,14 +140,34 @@ class LicenseService {
     return w;
   }
 
+  /// دقیقاً مثل normalize_phone در سرور: 0098912... و 098912... و 0912... همه به 98912... تبدیل می‌شوند
   String normalizePhone(String raw) {
     var s = toEnDigits(raw.trim()).replaceAll(RegExp(r'[^0-9]'), '');
-    if (s.startsWith('0')) s = '98${s.substring(1)}';
+    if (s.startsWith('0098')) {
+      s = s.substring(2);
+    } else if (s.startsWith('0')) {
+      s = '98${s.substring(1)}';
+    }
     if (!s.startsWith('98')) s = '98$s';
     return s;
   }
 
-  bool isValidPhone(String raw) => normalizePhone(raw).length == 12;
+  /// فقط شمارهٔ موبایل ایران (989xxxxxxxxx) معتبر است (مثل is_valid_mobile در سرور)
+  bool isValidPhone(String raw) => RegExp(r'^989\d{9}$').hasMatch(normalizePhone(raw));
+
+  /// حداقل طول رمز عبور (مثل PASSWORD_MIN_LEN در سرور)
+  static const int passwordMinLen = 6;
+
+  /// با هر پاسخ ۴۰۱ از سرور داده‌ها (یعنی توکن دیگر معتبر نیست) زیاد می‌شود تا LicenseGate
+  /// وضعیت را دوباره بررسی کند و در صورت نیاز کاربر را به صفحهٔ ورود ببرد (مثل وب).
+  final ValueNotifier<int> sessionInvalid = ValueNotifier<int>(0);
+
+  /// تاریخ انقضای آخرین وضعیت شناخته‌شده؛ برای نوار یادآوری تمدید
+  final ValueNotifier<DateTime?> expiry = ValueNotifier<DateTime?>(null);
+
+  // در فاصلهٔ تغییر رمز، توکن روی سرور عوض شده ولی هنوز توکن جدید ذخیره نشده؛
+  // در این فاصله ۴۰۱ ناشی از همین تغییر است و نباید کاربر را خارج کند.
+  bool _tokenChanging = false;
 
   Future<String?> savedPhone() async {
     final sp = await SharedPreferences.getInstance();
@@ -234,20 +269,8 @@ class LicenseService {
     }
     if (r.data['need_name'] == true) return const OtpVerifyResult(needName: true);
 
-    final token = r.data['token'];
-    if (token is! String || token.isEmpty) return const OtpVerifyResult(error: 'پاسخ نامعتبر از سرور.');
-
-    final sp = await SharedPreferences.getInstance();
-    await sp.setString(_kPhoneKey, n);
-    await sp.setString(_kTokenKey, token);
-    final srvName = r.data['name'];
-    if (srvName is String && srvName.trim().isNotEmpty) {
-      await sp.setString(_kNameKey, srvName.trim());
-    } else {
-      await sp.remove(_kNameKey);
-    }
-    await _saveCache(r.data['active'] == true, _parseDate(r.data['expiry_date']));
-    _signedInCache = true;
+    final err = await _finishLogin(n, r.data);
+    if (err != null) return OtpVerifyResult(error: err);
 
     final isNew = r.data['is_new'] == true;
     final daysLeft = (r.data['days_left'] is num) ? (r.data['days_left'] as num).toInt() : 0;
@@ -258,6 +281,112 @@ class LicenseService {
     return OtpVerifyResult(isNew: isNew, daysLeft: daysLeft);
   }
 
+  /// ذخیرهٔ نتیجهٔ ورود موفق (مشترک بین ورود با پیامک و ورود با رمز)؛ در خطا پیام برمی‌گرداند
+  Future<String?> _finishLogin(String normalizedPhone, Map<String, dynamic> data) async {
+    final token = data['token'];
+    if (token is! String || token.isEmpty) return 'پاسخ نامعتبر از سرور.';
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kPhoneKey, normalizedPhone);
+    await sp.setString(_kTokenKey, token);
+    final srvName = data['name'];
+    if (srvName is String && srvName.trim().isNotEmpty) {
+      await sp.setString(_kNameKey, srvName.trim());
+    } else {
+      await sp.remove(_kNameKey);
+    }
+    await _saveCache(data['active'] == true, _parseDate(data['expiry_date']));
+    _signedInCache = true;
+    return null;
+  }
+
+  /// ورود با شماره + رمز عبور (راه جایگزین وقتی پیامک نمی‌رسد). فقط برای حساب‌هایی که رمز دارند.
+  /// خطاها (شماره/رمز اشتباه، محدودیت تلاش) با پیام فارسی خود سرور برمی‌گردند.
+  /// نتیجه: null = موفق، وگرنه متن خطا.
+  Future<String?> signInWithPassword(String phone, String password) async {
+    if (phone.trim().isEmpty) return 'شماره موبایل را وارد کنید';
+    if (!isValidPhone(phone)) return 'شماره موبایل را درست وارد کنید (مثال: 09123456789)';
+    if (password.isEmpty) return 'رمز عبور را وارد کنید';
+    final n = normalizePhone(phone);
+    final r = await _post('login.php', {'phone': n, 'password': password});
+    if (r.netError != null) return r.netError;
+    if (r.status != 200) {
+      return (r.data['error'] as String?) ?? 'ورود ناموفق بود؛ دوباره تلاش کنید.';
+    }
+    return _finishLogin(n, r.data);
+  }
+
+  // ======================= حساب کاربری (نام / رمز عبور) =======================
+
+  /// فراخوانی app.php با شماره و توکن ذخیره‌شده (برای account.*)
+  Future<_ApiResp> _appCall(String action, Map<String, dynamic> payload) async {
+    final cred = await credentials();
+    if (cred == null) return _ApiResp(401, {'error': 'نیاز به ورود مجدد است'});
+    return _post('app.php', {'phone': cred.$1, 'token': cred.$2, 'action': action, 'payload': payload});
+  }
+
+  /// نام و وضعیت «رمز دارد/ندارد» را از سرور می‌خواند؛ در خطا (آفلاین و ...) null
+  Future<AccountInfo?> fetchAccountInfo() async {
+    final r = await _appCall('account.status', {});
+    if (r.netError != null || r.status != 200) {
+      if (r.status == 401 && !_tokenChanging) sessionInvalid.value++;
+      return null;
+    }
+    final item = r.data['item'];
+    if (item is! Map) return null;
+    final name = item['name'];
+    final n = (name is String && name.trim().isNotEmpty) ? name.trim() : null;
+    final sp = await SharedPreferences.getInstance();
+    if (n != null) {
+      await sp.setString(_kNameKey, n);
+    } else {
+      await sp.remove(_kNameKey);
+    }
+    return AccountInfo(name: n, hasPassword: item['has_password'] == true);
+  }
+
+  /// ذخیرهٔ نام (۲ تا ۶۰ حرف)
+  Future<AccountOpResult> setName(String rawName) async {
+    final name = rawName.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (name.length < 2) return const AccountOpResult('نام را وارد کنید (حداقل ۲ حرف)');
+    final r = await _appCall('account.set_name', {'name': name});
+    if (r.netError != null) return AccountOpResult(r.netError);
+    if (r.status == 401 && !_tokenChanging) sessionInvalid.value++;
+    if (r.status != 200) return AccountOpResult((r.data['error'] as String?) ?? 'ذخیرهٔ نام ناموفق بود');
+    final saved = r.data['name'];
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kNameKey, (saved is String && saved.isNotEmpty) ? saved : name);
+    return const AccountOpResult();
+  }
+
+  /// تعیین/تغییر رمز عبور توسط خود کاربر. [currentPassword] فقط وقتی لازم است که کاربر قبلاً رمز گذاشته باشد.
+  /// با هر تغییر، سرور توکن را عوض می‌کند: همین دستگاه با توکن جدید (new_token) وارد می‌ماند و
+  /// بقیهٔ دستگاه‌ها در اولین بررسی خارج می‌شوند.
+  Future<AccountOpResult> setPassword({String currentPassword = '', required String newPassword}) async {
+    if (newPassword.length < passwordMinLen) {
+      return const AccountOpResult('رمز جدید باید حداقل ۶ کاراکتر باشد');
+    }
+    _tokenChanging = true;
+    try {
+      final r = await _appCall('account.set_password', {
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      });
+      if (r.netError != null) return AccountOpResult(r.netError);
+      if (r.status != 200) {
+        if (r.status == 401) sessionInvalid.value++;
+        return AccountOpResult((r.data['error'] as String?) ?? 'ذخیرهٔ رمز عبور ناموفق بود');
+      }
+      final newToken = r.data['new_token'];
+      if (newToken is String && newToken.isNotEmpty) {
+        final sp = await SharedPreferences.getInstance();
+        await sp.setString(_kTokenKey, newToken);
+      }
+      return const AccountOpResult();
+    } finally {
+      _tokenChanging = false;
+    }
+  }
+
   Future<void> signOut() async {
     final sp = await SharedPreferences.getInstance();
     await sp.remove(_kPhoneKey);
@@ -266,6 +395,7 @@ class LicenseService {
     await sp.remove(_kExpiryKey);
     await sp.remove(_kNameKey);
     _signedInCache = false;
+    expiry.value = null;
     // دیتابیس هر حساب جداست و روی گوشی می‌ماند؛ فقط بسته می‌شود. اگر عملیات ارسال‌نشده
     // داشته باشد، با ورود دوباره به همان حساب ارسال می‌شود.
     SyncService.I.stop();
@@ -280,6 +410,7 @@ class LicenseService {
     } else {
       await sp.remove(_kExpiryKey);
     }
+    this.expiry.value = (active && expiry != null) ? expiry : null;
   }
 
   Future<(bool, DateTime?)> _loadCache() async {
@@ -316,7 +447,13 @@ class LicenseService {
           .timeout(const Duration(seconds: 10));
 
       if (resp.statusCode == 401) {
-        // توکن دیگر معتبر نیست؛ کاربر باید دوباره با کد پیامکی وارد شود.
+        if (_tokenChanging) {
+          // وسط تغییر رمز خودِ کاربر هستیم؛ این ۴۰۱ کاذب است و نباید خارج شود
+          final (active, expiry) = await _loadCache();
+          final valid = active && expiry != null && DateTime.now().isBefore(DateTime(expiry.year, expiry.month, expiry.day, 23, 59, 59));
+          return LicenseResult(valid ? LicenseState.valid : LicenseState.blocked, phone: phone, name: await savedName(), expiry: expiry);
+        }
+        // توکن دیگر معتبر نیست (مثلاً رمز از دستگاه دیگر عوض شده)؛ کاربر باید دوباره وارد شود.
         await signOut();
         return LicenseResult(LicenseState.loggedOut);
       }
@@ -344,6 +481,7 @@ class LicenseService {
     } catch (_) {
       final (active, expiry) = await _loadCache();
       final name = await savedName();
+      this.expiry.value = (active && expiry != null) ? expiry : null;
       if (expiry == null) {
         return LicenseResult(LicenseState.needsInternet, phone: phone, name: name);
       }

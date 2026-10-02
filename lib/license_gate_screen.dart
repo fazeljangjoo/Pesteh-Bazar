@@ -28,13 +28,21 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    LicenseService.I.sessionInvalid.addListener(_onSessionInvalid);
     refresh();
   }
 
   @override
   void dispose() {
+    LicenseService.I.sessionInvalid.removeListener(_onSessionInvalid);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  /// سرور توکن را نپذیرفت (مثلاً رمز از دستگاه دیگری عوض شد): وضعیت دوباره بررسی می‌شود و
+  /// اگر توکن واقعاً نامعتبر بود، کاربر به صفحهٔ ورود می‌رود (مثل وب).
+  void _onSessionInvalid() {
+    if (mounted && !_loading) refresh();
   }
 
   @override
@@ -155,9 +163,10 @@ class ContactButtons extends StatelessWidget {
   }
 }
 
-enum _LoginStep { phone, code, name }
+enum _LoginStep { phone, code, name, pass }
 
-/// ورود با شماره موبایل + کد پیامکی (سه مرحله: شماره ← کد ← [نام، فقط کاربر جدید])
+/// ورود با شماره موبایل: پیش‌فرض «کد پیامکی» (شماره ← کد ← [نام، فقط کاربر جدید])
+/// و با یک لینک زیر دکمه «ورود با رمز عبور» (شماره + رمز؛ فقط برای حساب‌هایی که رمز دارند)
 class LoginScreen extends StatefulWidget {
   final VoidCallback onSuccess;
   const LoginScreen({super.key, required this.onSuccess});
@@ -169,6 +178,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _phone = TextEditingController();
   final _code = TextEditingController();
   final _name = TextEditingController();
+  final _pass = TextEditingController();
+  bool _showPass = false;
   _LoginStep _step = _LoginStep.phone;
   String _verifiedCode = ''; // کدی که درست بود ولی منتظر نام هستیم
   bool _loading = false;
@@ -182,6 +193,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _phone.dispose();
     _code.dispose();
     _name.dispose();
+    _pass.dispose();
     super.dispose();
   }
 
@@ -204,12 +216,32 @@ class _LoginScreenState extends State<LoginScreen> {
       _step = s;
       _error = null;
     });
-    if (s == _LoginStep.phone) {
+    if (s == _LoginStep.phone || s == _LoginStep.pass) {
       _timer?.cancel();
       _cooldown = 0;
       _code.clear();
       _verifiedCode = '';
     }
+    if (s == _LoginStep.pass) _pass.clear();
+  }
+
+  /// جابه‌جایی «ورود با رمز عبور» ⇄ «ورود با کد پیامکی» (فقط در دو مرحلهٔ اول دیده می‌شود)
+  void _toggleMode() => _goStep(_step == _LoginStep.pass ? _LoginStep.phone : _LoginStep.pass);
+
+  Future<void> _passwordLogin() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final err = await LicenseService.I.signInWithPassword(_phone.text, _pass.text);
+    if (!mounted) return;
+    setState(() => _loading = false);
+    if (err != null) {
+      setState(() => _error = err);
+      return;
+    }
+    _pass.clear();
+    widget.onSuccess();
   }
 
   Future<void> _sendCode({bool resend = false}) async {
@@ -283,6 +315,8 @@ class _LoginScreenState extends State<LoginScreen> {
     if (_loading) return;
     if (_step == _LoginStep.phone) {
       _sendCode();
+    } else if (_step == _LoginStep.pass) {
+      _passwordLogin();
     } else {
       _verify();
     }
@@ -292,6 +326,7 @@ class _LoginScreenState extends State<LoginScreen> {
         _LoginStep.phone => 'دریافت کد ورود',
         _LoginStep.code => 'ورود',
         _LoginStep.name => 'ثبت‌نام و ورود',
+        _LoginStep.pass => 'ورود',
       };
 
   @override
@@ -307,16 +342,22 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 12),
               Text('بازار پسته', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
-              const Text('ورود با شماره موبایل و کد پیامکی', style: TextStyle(color: Colors.black54)),
+              Text(
+                  _step == _LoginStep.pass
+                      ? 'ورود با شماره موبایل و رمز عبور'
+                      : 'ورود با شماره موبایل و کد پیامکی',
+                  style: const TextStyle(color: Colors.black54)),
               const SizedBox(height: 24),
-              if (_step == _LoginStep.phone)
+              if (_step == _LoginStep.phone || _step == _LoginStep.pass)
                 TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
                   textDirection: TextDirection.ltr,
                   autofocus: false,
-                  textInputAction: TextInputAction.done,
-                  onSubmitted: (_) => _submit(),
+                  textInputAction: _step == _LoginStep.pass ? TextInputAction.next : TextInputAction.done,
+                  onSubmitted: (_) {
+                    if (_step != _LoginStep.pass) _submit();
+                  },
                   decoration: const InputDecoration(
                     labelText: 'شماره موبایل',
                     hintText: '09xxxxxxxxx',
@@ -324,6 +365,31 @@ class _LoginScreenState extends State<LoginScreen> {
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
                 ),
+              if (_step == _LoginStep.pass) ...[
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _pass,
+                  obscureText: !_showPass,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  maxLength: 200,
+                  textDirection: TextDirection.ltr,
+                  autofillHints: const [AutofillHints.password],
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
+                  decoration: InputDecoration(
+                    labelText: 'رمز عبور',
+                    counterText: '',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      tooltip: _showPass ? 'پنهان‌کردن رمز' : 'نمایش رمز',
+                      icon: Icon(_showPass ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                      onPressed: () => setState(() => _showPass = !_showPass),
+                    ),
+                  ),
+                ),
+              ],
               if (_step == _LoginStep.code) ...[
                 Text('کد پیامکی به $phoneShown ارسال شد',
                     textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54)),
@@ -401,6 +467,15 @@ class _LoginScreenState extends State<LoginScreen> {
                       : Text(_buttonLabel),
                 ),
               ),
+              if (_step == _LoginStep.phone || _step == _LoginStep.pass) ...[
+                const SizedBox(height: 4),
+                Center(
+                  child: TextButton(
+                    onPressed: _loading ? null : _toggleMode,
+                    child: Text(_step == _LoginStep.pass ? 'ورود با کد پیامکی' : 'ورود با رمز عبور'),
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               const Text('کاربر جدید: ۲۰ روز اشتراک آزمایشی رایگان',
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 12.5)),
