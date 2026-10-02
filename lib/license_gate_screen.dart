@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -73,6 +75,18 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
       _dataError = dataErr;
       _loading = false;
     });
+    // خوش‌آمدگویی کاربر جدیدی که همین الان ثبت‌نام کرده
+    if (r.state == LicenseState.valid && dataErr == null) {
+      final welcome = LicenseService.I.takeWelcome();
+      if (welcome != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context)
+            ..hideCurrentSnackBar()
+            ..showSnackBar(SnackBar(content: Text(welcome), duration: const Duration(seconds: 6)));
+        });
+      }
+    }
   }
 
   @override
@@ -141,6 +155,9 @@ class ContactButtons extends StatelessWidget {
   }
 }
 
+enum _LoginStep { phone, code, name }
+
+/// ورود با شماره موبایل + کد پیامکی (سه مرحله: شماره ← کد ← [نام، فقط کاربر جدید])
 class LoginScreen extends StatefulWidget {
   final VoidCallback onSuccess;
   const LoginScreen({super.key, required this.onSuccess});
@@ -149,101 +166,252 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
-  final _form = GlobalKey<FormState>();
   final _phone = TextEditingController();
-  final _password = TextEditingController();
+  final _code = TextEditingController();
+  final _name = TextEditingController();
+  _LoginStep _step = _LoginStep.phone;
+  String _verifiedCode = ''; // کدی که درست بود ولی منتظر نام هستیم
   bool _loading = false;
-  bool _obscure = true;
   String? _error;
+  int _cooldown = 0;
+  Timer? _timer;
 
-  Future<void> _submit() async {
-    if (!_form.currentState!.validate()) return;
+  @override
+  void dispose() {
+    _timer?.cancel();
+    _phone.dispose();
+    _code.dispose();
+    _name.dispose();
+    super.dispose();
+  }
+
+  void _startCooldown(int sec) {
+    _timer?.cancel();
+    setState(() => _cooldown = sec < 0 ? 0 : sec);
+    if (_cooldown <= 0) return;
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) {
+        t.cancel();
+        return;
+      }
+      setState(() => _cooldown--);
+      if (_cooldown <= 0) t.cancel();
+    });
+  }
+
+  void _goStep(_LoginStep s) {
+    setState(() {
+      _step = s;
+      _error = null;
+    });
+    if (s == _LoginStep.phone) {
+      _timer?.cancel();
+      _cooldown = 0;
+      _code.clear();
+      _verifiedCode = '';
+    }
+  }
+
+  Future<void> _sendCode({bool resend = false}) async {
+    if (!LicenseService.I.isValidPhone(_phone.text)) {
+      setState(() => _error = _phone.text.trim().isEmpty
+          ? 'شماره موبایل را وارد کنید'
+          : 'شماره موبایل را درست وارد کنید (مثال: 09123456789)');
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
-    final err = await LicenseService.I.signIn(_phone.text, _password.text);
+    final r = await LicenseService.I.sendOtp(_phone.text);
     if (!mounted) return;
     setState(() => _loading = false);
-    if (err != null) {
-      setState(() => _error = err);
+    if (r.ok) {
+      if (resend) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('کد جدید ارسال شد')));
+      } else {
+        _goStep(_LoginStep.code);
+        _code.clear();
+      }
+      _startCooldown(r.resendIn);
+    } else if (r.canEnterCode) {
+      // کد قبلاً فرستاده شده و مهلت ارسال دوباره تمام نشده: کاربر را به مرحلهٔ کد می‌بریم
+      if (!resend) _goStep(_LoginStep.code);
+      _startCooldown(r.resendIn);
+      setState(() => _error = r.error);
+    } else {
+      setState(() => _error = r.error);
+    }
+  }
+
+  Future<void> _verify() async {
+    final isNameStep = _step == _LoginStep.name;
+    final code = isNameStep ? _verifiedCode : _code.text;
+    String? name;
+    if (isNameStep) {
+      name = _name.text.trim();
+      if (name.length < 2) {
+        setState(() => _error = 'نام خود را وارد کنید');
+        return;
+      }
+    } else if (code.trim().isEmpty) {
+      setState(() => _error = 'کد پیامکی را وارد کنید');
       return;
     }
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final r = await LicenseService.I.verifyOtp(_phone.text, code, name: name);
     if (!mounted) return;
     setState(() => _loading = false);
+    if (r.needName) {
+      // کاربر جدید: کد درست است ولی هنوز مصرف نشده؛ نام را می‌پرسیم
+      _verifiedCode = code;
+      _goStep(_LoginStep.name);
+      return;
+    }
+    if (r.error != null) {
+      setState(() => _error = r.error);
+      return;
+    }
+    _timer?.cancel();
     widget.onSuccess();
   }
 
+  void _submit() {
+    if (_loading) return;
+    if (_step == _LoginStep.phone) {
+      _sendCode();
+    } else {
+      _verify();
+    }
+  }
+
+  String get _buttonLabel => switch (_step) {
+        _LoginStep.phone => 'دریافت کد ورود',
+        _LoginStep.code => 'ورود',
+        _LoginStep.name => 'ثبت‌نام و ورود',
+      };
+
   @override
   Widget build(BuildContext context) {
+    final phoneShown = toFaDigits(toEnDigits(_phone.text.trim()));
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
-            child: Form(
-              key: _form,
-              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.storefront_outlined, size: 64),
-                const SizedBox(height: 12),
-                Text('بازار پسته', style: Theme.of(context).textTheme.headlineSmall),
-                const SizedBox(height: 4),
-                const Text('برای استفاده از برنامه وارد حساب کاربری‌تان شوید',
-                    style: TextStyle(color: Colors.black54)),
-                const SizedBox(height: 24),
-                TextFormField(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              const Icon(Icons.storefront_outlined, size: 64),
+              const SizedBox(height: 12),
+              Text('بازار پسته', style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 4),
+              const Text('ورود با شماره موبایل و کد پیامکی', style: TextStyle(color: Colors.black54)),
+              const SizedBox(height: 24),
+              if (_step == _LoginStep.phone)
+                TextField(
                   controller: _phone,
                   keyboardType: TextInputType.phone,
                   textDirection: TextDirection.ltr,
+                  autofocus: false,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
                   decoration: const InputDecoration(
                     labelText: 'شماره موبایل',
+                    hintText: '09xxxxxxxxx',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.phone_outlined),
                   ),
-                  validator: (v) =>
-                      (v == null || v.trim().isEmpty) ? 'شماره موبایل را وارد کنید' : null,
                 ),
+              if (_step == _LoginStep.code) ...[
+                Text('کد پیامکی به $phoneShown ارسال شد',
+                    textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54)),
                 const SizedBox(height: 12),
-                TextFormField(
-                  controller: _password,
-                  obscureText: _obscure,
+                TextField(
+                  controller: _code,
+                  keyboardType: TextInputType.number,
                   textDirection: TextDirection.ltr,
-                  decoration: InputDecoration(
-                    labelText: 'رمز عبور',
-                    border: const OutlineInputBorder(),
-                    prefixIcon: const Icon(Icons.lock_outline),
-                    suffixIcon: IconButton(
-                      icon: Icon(_obscure ? Icons.visibility_off_outlined : Icons.visibility_outlined),
-                      onPressed: () => setState(() => _obscure = !_obscure),
-                    ),
-                  ),
-                  validator: (v) => (v == null || v.isEmpty) ? 'رمز عبور را وارد کنید' : null,
-                  onFieldSubmitted: (_) => _submit(),
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_error!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
-                ],
-                const SizedBox(height: 20),
-                SizedBox(
-                  width: double.infinity,
-                  child: FilledButton(
-                    onPressed: _loading ? null : _submit,
-                    child: _loading
-                        ? const SizedBox(
-                            height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Text('ورود'),
+                  textAlign: TextAlign.center,
+                  maxLength: 12,
+                  autofocus: true,
+                  autofillHints: const [AutofillHints.oneTimeCode],
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
+                  style: const TextStyle(fontSize: 20, letterSpacing: 4),
+                  decoration: const InputDecoration(
+                    labelText: 'کد پیامکی',
+                    counterText: '',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.sms_outlined),
                   ),
                 ),
-                const SizedBox(height: 20),
-                const Divider(),
-                const SizedBox(height: 8),
-                const Text('حساب کاربری ندارید یا شماره/رمزتان کار نمی‌کند؟',
+                Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
+                  TextButton(
+                    onPressed: (_cooldown > 0 || _loading) ? null : () => _sendCode(resend: true),
+                    child: Text(_cooldown > 0
+                        ? 'ارسال دوباره (${faNum(_cooldown, dec: 0)} ثانیه)'
+                        : 'ارسال دوباره کد'),
+                  ),
+                  TextButton(
+                    onPressed: _loading ? null : () => _goStep(_LoginStep.phone),
+                    child: const Text('تغییر شماره'),
+                  ),
+                ]),
+              ],
+              if (_step == _LoginStep.name) ...[
+                const Text('به بازار پسته خوش آمدید! برای ساخت حساب جدید، نام خود را وارد کنید.',
                     textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
-                const SizedBox(height: 10),
-                ContactButtons(phoneForMessage: _phone.text),
-              ]),
-            ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _name,
+                  keyboardType: TextInputType.name,
+                  textCapitalization: TextCapitalization.words,
+                  maxLength: 60,
+                  autofocus: true,
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
+                  decoration: const InputDecoration(
+                    labelText: 'نام و نام خانوادگی',
+                    hintText: 'مثلاً علی رضایی',
+                    counterText: '',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.person_outline),
+                  ),
+                ),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton(
+                    onPressed: _loading ? null : () => _goStep(_LoginStep.phone),
+                    child: const Text('تغییر شماره'),
+                  ),
+                ),
+              ],
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(_error!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
+              ],
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: _loading ? null : _submit,
+                  child: _loading
+                      ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                      : Text(_buttonLabel),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Text('کاربر جدید: ۲۰ روز اشتراک آزمایشی رایگان',
+                  textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 12.5)),
+              const SizedBox(height: 16),
+              const Divider(),
+              const SizedBox(height: 8),
+              const Text('مشکلی در ورود دارید؟',
+                  textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+              const SizedBox(height: 10),
+              ContactButtons(phoneForMessage: _phone.text),
+            ]),
           ),
         ),
       ),

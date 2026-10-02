@@ -50,6 +50,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(16),
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      if (r?.name != null) infoRow('نام', r!.name!),
                       infoRow('شماره حساب', r?.phone != null ? toFaDigits(r!.phone!) : '-'),
                       if (r?.expiry != null) infoRow('تاریخ انقضا', jalaliDateFromDt(r!.expiry!)),
                       infoRow(
