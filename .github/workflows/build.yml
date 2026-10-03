@@ -7,6 +7,11 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
 
@@ -104,12 +109,41 @@ jobs:
 
       - run: flutter pub get
 
-      - name: Use a fixed signing key (new builds install over the old app, data is kept)
+      - name: Configure release signing (key comes from GitHub Secrets)
         run: |
-          mkdir -p ~/.android
-          cp ci/debug.keystore ~/.android/debug.keystore
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          python3 - <<'PYEOF'
+          path = "android/app/build.gradle.kts"
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          block = "\n".join([
+              "    signingConfigs {",
+              "        create(\"release\") {",
+              "            storeFile = file(System.getenv(\"KEYSTORE_PATH\"))",
+              "            storePassword = System.getenv(\"ANDROID_KEYSTORE_PASSWORD\")",
+              "            keyAlias = System.getenv(\"ANDROID_KEY_ALIAS\")",
+              "            keyPassword = System.getenv(\"ANDROID_KEY_PASSWORD\")",
+              "        }",
+              "    }",
+              "",
+              "    buildTypes {",
+          ])
+          if 'create("release")' not in content:
+              assert "    buildTypes {" in content, "buildTypes block not found"
+              content = content.replace("    buildTypes {", block, 1)
+          content = content.replace('signingConfigs.getByName("debug")', 'signingConfigs.getByName("release")')
+          assert 'signingConfigs.getByName("release")' in content, "release signing not wired"
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          PYEOF
 
       - run: flutter build apk --release --obfuscate --split-debug-info=build/debug-symbols
+
+      - name: Show APK signing certificate (SHA-256 must be identical on every build)
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -E "SHA-256|DN"
 
       - name: Verify INTERNET permission is inside the built APK
         run: |
