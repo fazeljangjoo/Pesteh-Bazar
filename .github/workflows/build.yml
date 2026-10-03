@@ -20,6 +20,24 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Check signing secrets (fails in seconds with a clear reason)
+        run: |
+          MISSING=""
+          for v in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!v}" ]; then echo "::error::Secret $v is empty or missing"; MISSING=1; fi
+          done
+          [ -z "$MISSING" ] || exit 1
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+          echo "keystore file size: $(stat -c%s "$RUNNER_TEMP/release.jks") bytes"
+          echo "keystore file sha256: $(sha256sum "$RUNNER_TEMP/release.jks" | cut -d' ' -f1)"
+          echo "store password length: ${#ANDROID_KEYSTORE_PASSWORD}"
+          echo "key password length: ${#ANDROID_KEY_PASSWORD}"
+          if printf '%s' "$ANDROID_KEYSTORE_PASSWORD" | LC_ALL=C grep -qP '[^\x21-\x7E]'; then
+            echo "::warning::store password contains a space, newline or non-English character"
+          fi
+          keytool -list -keystore "$RUNNER_TEMP/release.jks" -storepass:env ANDROID_KEYSTORE_PASSWORD -alias "$ANDROID_KEY_ALIAS"
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -111,8 +129,6 @@ jobs:
 
       - name: Configure release signing (key comes from GitHub Secrets)
         run: |
-          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          echo "KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
           python3 - <<'PYEOF'
           path = "android/app/build.gradle.kts"
           with open(path, encoding="utf-8") as f:
