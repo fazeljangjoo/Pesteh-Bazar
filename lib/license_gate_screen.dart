@@ -350,6 +350,7 @@ class _LoginScreenState extends State<LoginScreen> {
               const SizedBox(height: 24),
               if (_step == _LoginStep.phone || _step == _LoginStep.pass)
                 TextField(
+                  key: const ValueKey('login_phone'),
                   controller: _phone,
                   keyboardType: TextInputType.phone,
                   textDirection: TextDirection.ltr,
@@ -368,6 +369,7 @@ class _LoginScreenState extends State<LoginScreen> {
               if (_step == _LoginStep.pass) ...[
                 const SizedBox(height: 12),
                 TextField(
+                  key: const ValueKey('login_pass'),
                   controller: _pass,
                   obscureText: !_showPass,
                   autocorrect: false,
@@ -395,6 +397,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center, style: const TextStyle(color: Colors.black54)),
                 const SizedBox(height: 12),
                 TextField(
+                  key: const ValueKey('login_code'),
                   controller: _code,
                   keyboardType: TextInputType.number,
                   textDirection: TextDirection.ltr,
@@ -430,6 +433,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
                 const SizedBox(height: 12),
                 TextField(
+                  // کلید یکتا لازم است: بدون آن، فلاتر فیلد «کد پیامکی» (کیبورد عددی) را برای
+                  // فیلد «نام» دوباره استفاده می‌کند و کیبورد عددی باقی می‌ماند.
+                  key: const ValueKey('login_name'),
                   controller: _name,
                   keyboardType: TextInputType.name,
                   textCapitalization: TextCapitalization.words,
