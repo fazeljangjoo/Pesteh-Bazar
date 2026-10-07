@@ -38,7 +38,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
       ['گونی مانده: کوچک / بزرگ',
           '${faNum((p['small_sacks_remaining'] as num?) ?? 0)} / ${faNum((p['large_sacks_remaining'] as num?) ?? 0)}'],
       if (((p['in_mix_codes'] as List?) ?? const []).isNotEmpty)
-        ['داخل مخلوط (هنوز فروش نرفته)', ((p['in_mix_codes'] as List).cast<String>()).join('، ')],
+        ['داخل مخلوط/جداسازی (هنوز فروش نرفته)', ((p['in_mix_codes'] as List).cast<String>()).join('، ')],
       if (preset == 'dombest' && p['gram'] != null) ['گرم', faNum(p['gram'] as num)],
       if (preset == 'dombest' && pct('pct_khandan') != null) ['درصد خندان در دنبست', pct('pct_khandan')!],
       if (preset == 'khandan' && pct('pct_dombest') != null) ['درصد دنبست در خندان', pct('pct_dombest')!],
@@ -133,7 +133,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
     final codes = ((p['in_mix_codes'] as List?) ?? const []).cast<String>();
     if (codes.isEmpty) return '';
     final rem = (p['remaining'] as num).toDouble();
-    return '\n🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط ${codes.join('، ')} است (هنوز کامل فروش نرفته)';
+    return '\n🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط/جداسازی ${codes.join('، ')} است (هنوز کامل فروش نرفته)';
   }
 
   Widget _card(BuildContext context, Map<String, dynamic> p) {

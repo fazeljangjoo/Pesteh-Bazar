@@ -25,7 +25,7 @@ const List<(String, List<String>)> _kSnapshot = [
       'small_sack_count', 'large_sack_count', 'small_sacks_remaining', 'large_sacks_remaining',
       'net_weight', 'remaining', 'gram', 'pct_dombest',
       'pct_tuchin', 'pct_crooked', 'pct_khandan', 'custom_specs', 'photo', 'seller', 'note',
-      'is_mix', 'created_at', 'usd_rate', 'price_usd'
+      'is_mix', 'created_at', 'usd_rate', 'price_usd', 'waste'
     ]
   ),
   ('mix_sources', ['id', 'mix_purchase_id', 'source_purchase_id', 'weight', 'small_sacks', 'large_sacks']),
@@ -78,7 +78,7 @@ const Set<String> _kRealCols = {
   'ounce', 'price', 'total_weight', 'small_sack_count', 'large_sack_count', 'small_sacks_remaining',
   'large_sacks_remaining', 'net_weight', 'remaining',
   'gram', 'pct_dombest', 'pct_tuchin', 'pct_crooked', 'pct_khandan', 'weight', 'small_sacks',
-  'large_sacks', 'item_price', 'amount', 'usd_rate', 'price_usd',
+  'large_sacks', 'item_price', 'amount', 'usd_rate', 'price_usd', 'waste',
 };
 const Set<String> _kIntCols = {
   'id', 'category_id', 'mix_purchase_id', 'source_purchase_id', 'purchase_id', 'payment_id', 'sale_id',
@@ -90,7 +90,7 @@ const String _pSel = 'p.id, p.code, p.category_id, p.type_name, p.date, p.ounce,
     'p.small_sack_count, p.large_sack_count, p.small_sacks_remaining, p.large_sacks_remaining, '
     'p.net_weight, p.remaining, p.gram, p.pct_dombest, '
     'p.pct_tuchin, p.pct_crooked, p.pct_khandan, p.custom_specs, p.seller, p.note, p.is_mix, '
-    'p.usd_rate, p.price_usd, p.created_at, p.ord, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
+    'p.usd_rate, p.price_usd, p.waste, p.created_at, p.ord, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
 
 class _SaleV {
   final Map<String, dynamic> row;
@@ -114,7 +114,7 @@ class AppDb {
   /// با هر تغییر داده زیاد می‌شود تا صفحه‌ها بازخوانی شوند
   final ValueNotifier<int> version = ValueNotifier<int>(0);
 
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   String? _phone;
   Database? _db;
@@ -194,6 +194,10 @@ class AppDb {
       await d.execute('ALTER TABLE purchases ADD COLUMN price_usd REAL');
       await d.execute('ALTER TABLE sales ADD COLUMN usd_rate REAL');
     }
+    if (oldV < 10) {
+      // ضایعات/خاکِ مخلوط/جداسازی (مخلوط‌های قدیمی null می‌مانند)
+      await d.execute('ALTER TABLE purchases ADD COLUMN waste REAL');
+    }
   }
 
   /// گونی باقی‌ماندهٔ داده‌های قدیمی را مثل backfillSacksRemaining سرور (app.php) حساب می‌کند:
@@ -257,6 +261,7 @@ class AppDb {
         created_at TEXT,
         usd_rate REAL,
         price_usd REAL,
+        waste REAL,
         ord INTEGER NOT NULL DEFAULT 0
       )''');
     await d.execute('''
@@ -1289,7 +1294,7 @@ class AppDb {
   Future<List<Map<String, dynamic>>> mixSourcesOf(int mixPurchaseId) async {
     final d = await db;
     return d.rawQuery('''
-        SELECT ms.*, p.type_name AS type_name, p.date AS source_date, c.name AS category_name
+        SELECT ms.*, p.type_name AS type_name, p.code AS code, p.date AS source_date, c.name AS category_name
         FROM mix_sources ms
         JOIN purchases p ON p.id = ms.source_purchase_id
         JOIN categories c ON c.id = p.category_id
@@ -1376,6 +1381,35 @@ class AppDb {
             }
       ];
 
+  double _takenOf(List<Map<String, dynamic>> srcs) {
+    var t = 0.0;
+    for (final s in srcs) {
+      final w = _r(s['weight'] as double, 3);
+      if (w > 0) t += w;
+    }
+    return t;
+  }
+
+  /// ضایعات/خاکِ مخلوط یا جداسازی. قاعده (مثل سرور): وزن برداشته‌شده = وزن خالصِ بار تازه + ضایعات.
+  /// [waste] == null یعنی بررسی انجام نمی‌شود (سازگاری با نسخه‌های قدیمی).
+  double? _checkWaste(List<Map<String, dynamic>> srcs, double net, double? waste) {
+    if (waste == null) return null;
+    if (waste < 0 || waste > 1e9) throw Exception('وزن ضایعات نامعتبر است');
+    var taken = 0.0;
+    for (final s in srcs) {
+      taken += _r(s['weight'] as double, 3);
+    }
+    final diff = taken - net - waste;
+    if (diff.abs() > 0.0015) {
+      if (diff > 0) {
+        throw Exception('وزن برداشته‌شده ${_fmt(taken)} کیلو است ولی وزن خالص + ضایعات فقط ${_fmt(net + waste)} کیلو می‌شود؛ '
+            '${_fmt(diff)} کیلو اختلاف ثبت‌نشده دارید. اگر خاک یا ضایعات بوده، در «ضایعات» وارد کنید');
+      }
+      throw Exception('وزن خالص + ضایعات (${_fmt(net + waste)} کیلو) از وزن برداشته‌شده (${_fmt(taken)} کیلو) بیشتر است');
+    }
+    return _r(waste, 3);
+  }
+
   /// یک بار مخلوط (کوت‌ریزی) جدید می‌سازد: وزن دلخواه از چند بار موجود در انبار
   /// کم می‌شود و یک بار تازه با وزن خالص و تعداد گونیِ واردشده به انبار اضافه می‌شود.
   /// فی خرید بار جدید میانگین وزنیِ فی بارهای مبدأ است.
@@ -1390,6 +1424,7 @@ class AppDb {
     required double largeSackCount,
     double? ounce,
     double? gram,
+    double? waste,
     String? note,
   }) async {
     if (categoryId == 0) throw Exception('دسته را انتخاب کنید');
@@ -1399,10 +1434,15 @@ class AppDb {
       throw Exception('مقدار انس یا گرم نامعتبر است');
     }
     final srcs = _normMixSources(sources);
+    final wasteV = _checkWaste(srcs, _r(netWeight, 3), waste);
     final d = await db;
     late int mixId;
     await d.transaction((t) async {
-      final (avgPrice, avgUsd) = await _checkMixSources(t, srcs);
+      final (avgPrice0, avgUsd0) = await _checkMixSources(t, srcs);
+      // فی = هزینهٔ کل ÷ وزن خالص: هزینهٔ ضایعات هم در فی لحاظ می‌شود (بدون ضایعات = همان میانگین وزنی)
+      final feeFactor = wasteV == null ? 1.0 : _takenOf(srcs) / _r(netWeight, 3);
+      final avgPrice = avgPrice0 * feeFactor;
+      final avgUsd = avgUsd0 == null ? null : avgUsd0 * feeFactor;
       final mixUsd = avgUsd == null ? null : _r(avgUsd, 4);
       final mixRate = (mixUsd != null && mixUsd > 0) ? _r(avgPrice / mixUsd, 2) : null;
       final net = _r(netWeight, 3);
@@ -1428,6 +1468,7 @@ class AppDb {
         'remaining': net,
         'ounce': _rn(ounce, 3),
         'gram': _rn(gram, 2),
+        'waste': wasteV,
         'is_mix': 1,
         'note': nt,
         'photo_pending': 0,
@@ -1447,6 +1488,7 @@ class AppDb {
             'large_sack_count': _r(largeSackCount, 2),
             'ounce': _rn(ounce, 3),
             'gram': _rn(gram, 2),
+            if (wasteV != null) 'waste': wasteV,
             'note': nt,
           },
           refKind: 'pur',
@@ -1506,6 +1548,7 @@ class AppDb {
     required double largeSackCount,
     double? ounce,
     double? gram,
+    double? waste,
     String? note,
   }) async {
     if (categoryId == 0) throw Exception('دسته را انتخاب کنید');
@@ -1515,6 +1558,7 @@ class AppDb {
       throw Exception('مقدار انس یا گرم نامعتبر است');
     }
     final srcs = _normMixSources(sources);
+    final wasteV = _checkWaste(srcs, _r(netWeight, 3), waste);
     final d = await db;
     var updated = false;
     await d.transaction((t) async {
@@ -1530,7 +1574,11 @@ class AppDb {
         await _addSacks(t, sp, ((s['small_sacks'] as num?) ?? 0).toDouble(),
             ((s['large_sacks'] as num?) ?? 0).toDouble());
       }
-      final (avgPrice, avgUsd) = await _checkMixSources(t, srcs);
+      final (avgPrice0, avgUsd0) = await _checkMixSources(t, srcs);
+      // فی = هزینهٔ کل ÷ وزن خالص: هزینهٔ ضایعات هم در فی لحاظ می‌شود (بدون ضایعات = همان میانگین وزنی)
+      final feeFactor = wasteV == null ? 1.0 : _takenOf(srcs) / _r(netWeight, 3);
+      final avgPrice = avgPrice0 * feeFactor;
+      final avgUsd = avgUsd0 == null ? null : avgUsd0 * feeFactor;
       final mixUsd = avgUsd == null ? null : _r(avgUsd, 4);
       final mixRate = (mixUsd != null && mixUsd > 0) ? _r(avgPrice / mixUsd, 2) : null;
       final net = _r(netWeight, 3);
@@ -1553,6 +1601,7 @@ class AppDb {
             'remaining': net,
             'ounce': _rn(ounce, 3),
             'gram': _rn(gram, 2),
+            'waste': wasteV,
             'note': nt,
           },
           where: 'id=?',
@@ -1572,6 +1621,7 @@ class AppDb {
             'large_sack_count': _r(largeSackCount, 2),
             'ounce': _rn(ounce, 3),
             'gram': _rn(gram, 2),
+            if (wasteV != null) 'waste': wasteV,
             'note': nt,
           },
           refKind: 'pur',
@@ -1689,6 +1739,25 @@ class AppDb {
       final r = await t.query('payments', columns: ['purchase_id'], where: 'id=?', whereArgs: [parentId]);
       if (r.isNotEmpty) await _queuePayment(t, (r.first['purchase_id'] as num).toInt());
     }
+  }
+
+  /// جمع مبالغ «پرداخت‌شده» یک خرید (isSale=false) یا «دریافت‌شده» یک فروش (isSale=true) برای فاکتور.
+  /// هر پرداخت/دریافت فقط در یکی از سه جدول (یک‌جا، اقساط اعتباری، اقساط چکی) رکورد دارد و
+  /// فقط ردیف‌هایی که paid=1 هستند جمع زده می‌شوند. اگر پرداختی ثبت نشده باشد صفر برمی‌گردد.
+  Future<double> paidAmount({required bool isSale, required int id}) async {
+    final d = await db;
+    final head = await d.query(isSale ? 'receipts' : 'payments',
+        where: isSale ? 'sale_id=?' : 'purchase_id=?', whereArgs: [id], limit: 1);
+    if (head.isEmpty) return 0;
+    final hid = head.first['id'];
+    final type = (head.first[isSale ? 'recv_type' : 'pay_type'] as String?) ?? 'lump';
+    final staged = head.first['staged_type'] as String?;
+    final fk = isSale ? 'receipt_id' : 'payment_id';
+    final tbl = isSale
+        ? (type == 'lump' ? 'receipt_lump_tx' : (staged == 'credit' ? 'receipt_credit_inst' : 'receipt_cheque_inst'))
+        : (type == 'lump' ? 'lump_tx' : (staged == 'credit' ? 'credit_inst' : 'cheque_inst'));
+    final r = await d.rawQuery('SELECT COALESCE(SUM(amount),0) AS s FROM $tbl WHERE $fk=? AND paid=1', [hid]);
+    return (r.first['s'] as num).toDouble();
   }
 
   Future<Map<String, dynamic>?> paymentOf(int purchaseId) async {

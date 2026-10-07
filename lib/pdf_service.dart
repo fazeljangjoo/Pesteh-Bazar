@@ -102,7 +102,8 @@ class PdfService {
           _kv('وزن کل', '${faNum(totalWeight)} کیلو'),
           _kv('وزن خالص', '${faNum(netWeight)} کیلو'),
           _kv('تعداد گونی', faNum(smallSacks + largeSacks)),
-          _kv('کوچک / بزرگ', '${faNum(smallSacks)} / ${faNum(largeSacks)}'),
+          _kv('تعداد گونی کوچک', faNum(smallSacks)),
+          _kv('تعداد گونی بزرگ', faNum(largeSacks)),
           pw.Spacer(),
           _brandFooter(),
         ],
@@ -285,6 +286,7 @@ class PdfService {
     required double unitPrice, // تومان به‌ازای هر کیلو
     required List<List<String>> specs, // [عنوان، مقدار]
     double? usdRate, // تومان به‌ازای هر دلار
+    double? paidAmount, // مبلغ پرداخت‌شده/دریافت‌شده (تومان)؛ null = بدون بخش پرداخت (مثلاً بار مخلوط)
     String? note,
   }) async {
     await _ensureFonts();
@@ -380,6 +382,11 @@ class PdfService {
             child: pw.Column(children: [
               _kv('جمع کل (تومان)', '${faNum(amount, dec: 0)} تومان', bold: true),
               if (withUsd) _kv('جمع کل (دلار)', amountUsd == null ? '-' : faUsd(amountUsd), bold: true),
+              if (paidAmount != null) ...[
+                pw.Divider(),
+                _kv('مبلغ پرداخت‌شده (تومان)', '${faNum(paidAmount, dec: 0)} تومان'),
+                _kv('مانده حساب (تومان)', '${faNum(amount - paidAmount, dec: 0)} تومان', bold: true),
+              ],
             ]),
           ),
           if (note != null && note.trim().isNotEmpty) ...[
