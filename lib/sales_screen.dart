@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'invoice_service.dart';
+import 'license_service.dart';
 import 'receipt_screen.dart';
 import 'sale_form.dart';
 import 'notify_service.dart';
@@ -94,6 +96,9 @@ class _SalesScreenState extends State<SalesScreen> {
                 final comp = items
                     .map((it) => '${it['category_name']} - ${it['type_name']}')
                     .join(' + ');
+                final fx = LicenseService.I.isFx.value;
+                final usd = fx ? saleUsd(sale) : null;
+                final rate = (sale['usd_rate'] as num?)?.toDouble();
                 return Card(
                   child: Padding(
                     padding: const EdgeInsets.all(12),
@@ -151,10 +156,29 @@ class _SalesScreenState extends State<SalesScreen> {
                         infoRow('وزن خالص پسته', '${faNum(net)} کیلو'),
                         infoRow('فی فروش', '${faNum(price, dec: 0)} تومان'),
                         infoRow('مبلغ فروش', '${faNum(revenue, dec: 0)} تومان'),
+                        if (fx) ...[
+                          if (rate != null) infoRow('قیمت دلار روز فروش', '${faNum(rate, dec: 0)} تومان'),
+                          if (rate != null) infoRow('فی فروش به دلار', faUsd(price / rate, dec: 4)),
+                          if (usd != null) ...[
+                            infoRow('مبلغ فروش به دلار', faUsd(usd.revenue)),
+                            infoRow('بهای خرید به دلار', faUsd(usd.cost)),
+                            infoRow('سود دلاری', faUsd(usd.profit),
+                                valueColor: usd.profit >= 0 ? Colors.green.shade800 : Theme.of(context).colorScheme.error),
+                          ] else
+                            const Padding(
+                              padding: EdgeInsets.only(top: 4),
+                              child: Text('سود دلاری: قیمت دلار فروش یا فی دلاریِ خرید ثبت نشده',
+                                  style: TextStyle(fontSize: 12, color: Colors.black54)),
+                            ),
+                        ],
                         const SizedBox(height: 8),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: FilledButton.tonalIcon(
+                        Wrap(spacing: 8, runSpacing: 8, children: [
+                          OutlinedButton.icon(
+                            onPressed: () => InvoiceService.forSale(context, sale),
+                            icon: const Icon(Icons.receipt_long_outlined),
+                            label: const Text('فاکتور فروش'),
+                          ),
+                          FilledButton.tonalIcon(
                             onPressed: () => Navigator.push(
                               context,
                               MaterialPageRoute(
@@ -169,7 +193,7 @@ class _SalesScreenState extends State<SalesScreen> {
                             icon: const Icon(Icons.request_quote_outlined),
                             label: const Text('وصول مطالبات'),
                           ),
-                        ),
+                        ]),
                       ],
                     ),
                   ),

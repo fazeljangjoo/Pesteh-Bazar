@@ -131,6 +131,24 @@ class LicenseService {
   static const _kActiveKey = 'license_active';
   static const _kExpiryKey = 'license_expiry';
   static const _kNameKey = 'license_name';
+  static const _kPlanKey = 'license_plan';
+
+  /// آیا اشتراک این کاربر «پلن ارزی» است؟ (فقط وقتی true است قیمت دلار، سود دلاری و فاکتور ارزی دیده می‌شود)
+  /// مرجع تصمیم سرور است؛ آخرین مقدار روی گوشی ذخیره می‌شود تا آفلاین هم کار کند.
+  final ValueNotifier<bool> isFx = ValueNotifier<bool>(false);
+
+  Future<void> _setPlan(dynamic raw) async {
+    final fx = raw == 'fx';
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kPlanKey, fx ? 'fx' : 'rial');
+    if (isFx.value != fx) isFx.value = fx;
+  }
+
+  Future<void> _loadPlan() async {
+    final sp = await SharedPreferences.getInstance();
+    final fx = sp.getString(_kPlanKey) == 'fx';
+    if (isFx.value != fx) isFx.value = fx;
+  }
 
   /// پیام خوش‌آمدگویی کاربر جدید؛ یک‌بار توسط LicenseGate نمایش داده می‌شود
   String? _pendingWelcome;
@@ -295,6 +313,7 @@ class LicenseService {
       await sp.remove(_kNameKey);
     }
     await _saveCache(data['active'] == true, _parseDate(data['expiry_date']));
+    await _setPlan(data['plan']);
     _signedInCache = true;
     return null;
   }
@@ -394,6 +413,8 @@ class LicenseService {
     await sp.remove(_kActiveKey);
     await sp.remove(_kExpiryKey);
     await sp.remove(_kNameKey);
+    await sp.remove(_kPlanKey);
+    isFx.value = false;
     _signedInCache = false;
     expiry.value = null;
     // دیتابیس هر حساب جداست و روی گوشی می‌ماند؛ فقط بسته می‌شود. اگر عملیات ارسال‌نشده
@@ -463,6 +484,7 @@ class LicenseService {
       final expiry = _parseDate(data['expiry_date']);
 
       await _saveCache(active, expiry);
+      await _setPlan(data['plan']);
       // نام کاربر (برای نمایش در صفحهٔ اشتراک) هر بار از سرور تازه می‌شود
       final srvName = data['name'];
       final sp = await SharedPreferences.getInstance();
@@ -480,6 +502,7 @@ class LicenseService {
           phone: phone, name: name, expiry: expiry);
     } catch (_) {
       final (active, expiry) = await _loadCache();
+      await _loadPlan();
       final name = await savedName();
       this.expiry.value = (active && expiry != null) ? expiry : null;
       if (expiry == null) {

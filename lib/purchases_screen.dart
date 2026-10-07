@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'invoice_service.dart';
+import 'license_service.dart';
 import 'payment_screen.dart';
 import 'pdf_service.dart';
 import 'purchase_form.dart';
@@ -26,6 +28,8 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
       if (p['seller'] != null) ['فروشنده', p['seller']],
       if (p['ounce'] != null) ['انس', faNum(p['ounce'] as num)],
       ['فی خرید', '${faNum(p['price'] as num, dec: 0)} تومان'],
+      if (LicenseService.I.isFx.value && p['usd_rate'] != null) ['قیمت دلار روز خرید', '${faNum(p['usd_rate'] as num, dec: 0)} تومان'],
+      if (LicenseService.I.isFx.value && p['price_usd'] != null) ['فی خرید به دلار (هر کیلو)', faUsd(p['price_usd'] as num, dec: 4)],
       ['وزن کل', '${faNum(p['total_weight'] as num)} کیلو'],
       ['گونی کوچک (۱۰۰گ) / بزرگ (۲۰۰گ)',
           '${faNum(p['small_sack_count'] as num)} / ${faNum(p['large_sack_count'] as num)}'],
@@ -105,6 +109,12 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                 icon: const Icon(Icons.picture_as_pdf_outlined),
                 label: const Text('دریافت کارتکس A6'),
               ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => InvoiceService.forPurchase(context, p),
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('فاکتور خرید'),
+              ),
             ],
           ),
         ),
@@ -137,6 +147,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         subtitle: Text(
             'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
             '${sold ? 'فروخته‌شده' : 'مانده ${faNum(p['remaining'] as num)} کیلو'}  •  فی ${faNum(p['price'] as num, dec: 0)} تومان'
+            '${LicenseService.I.isFx.value && p['price_usd'] != null ? ' (${faUsd(p['price_usd'] as num, dec: 3)})' : ''}'
             '${_inMixLine(p)}'),
         isThreeLine: true,
         trailing: PopupMenuButton<String>(

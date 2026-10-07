@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
+
 const List<String> kPresetTypesNormal = ['اکبری', 'احمدآقایی', 'فندقی', 'کله‌قوچی'];
 const List<String> kPresetTypesKernel = ['مغز کال', 'مغز درجه یک', 'مغز درجه دو'];
 
@@ -24,7 +25,7 @@ const List<(String, List<String>)> _kSnapshot = [
       'small_sack_count', 'large_sack_count', 'small_sacks_remaining', 'large_sacks_remaining',
       'net_weight', 'remaining', 'gram', 'pct_dombest',
       'pct_tuchin', 'pct_crooked', 'pct_khandan', 'custom_specs', 'photo', 'seller', 'note',
-      'is_mix', 'created_at'
+      'is_mix', 'created_at', 'usd_rate', 'price_usd'
     ]
   ),
   ('mix_sources', ['id', 'mix_purchase_id', 'source_purchase_id', 'weight', 'small_sacks', 'large_sacks']),
@@ -48,7 +49,7 @@ const List<(String, List<String>)> _kSnapshot = [
     'sales',
     [
       'id', 'date', 'price', 'total_weight', 'small_sack_count', 'large_sack_count', 'net_weight',
-      'buyer', 'note', 'created_at'
+      'buyer', 'note', 'created_at', 'usd_rate'
     ]
   ),
   ('sale_items', ['id', 'sale_id', 'purchase_id', 'weight', 'item_price', 'small_sacks', 'large_sacks']),
@@ -77,7 +78,7 @@ const Set<String> _kRealCols = {
   'ounce', 'price', 'total_weight', 'small_sack_count', 'large_sack_count', 'small_sacks_remaining',
   'large_sacks_remaining', 'net_weight', 'remaining',
   'gram', 'pct_dombest', 'pct_tuchin', 'pct_crooked', 'pct_khandan', 'weight', 'small_sacks',
-  'large_sacks', 'item_price', 'amount',
+  'large_sacks', 'item_price', 'amount', 'usd_rate', 'price_usd',
 };
 const Set<String> _kIntCols = {
   'id', 'category_id', 'mix_purchase_id', 'source_purchase_id', 'purchase_id', 'payment_id', 'sale_id',
@@ -89,7 +90,7 @@ const String _pSel = 'p.id, p.code, p.category_id, p.type_name, p.date, p.ounce,
     'p.small_sack_count, p.large_sack_count, p.small_sacks_remaining, p.large_sacks_remaining, '
     'p.net_weight, p.remaining, p.gram, p.pct_dombest, '
     'p.pct_tuchin, p.pct_crooked, p.pct_khandan, p.custom_specs, p.seller, p.note, p.is_mix, '
-    'p.created_at, p.ord, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
+    'p.usd_rate, p.price_usd, p.created_at, p.ord, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
 
 class _SaleV {
   final Map<String, dynamic> row;
@@ -113,7 +114,7 @@ class AppDb {
   /// با هر تغییر داده زیاد می‌شود تا صفحه‌ها بازخوانی شوند
   final ValueNotifier<int> version = ValueNotifier<int>(0);
 
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   String? _phone;
   Database? _db;
@@ -187,6 +188,12 @@ class AppDb {
       await d.execute('ALTER TABLE purchases ADD COLUMN large_sacks_remaining REAL NOT NULL DEFAULT 0');
       await _backfillSacks(d);
     }
+    if (oldV < 9) {
+      // پلن ارزی: قیمت دلار هنگام خرید/فروش و فی دلاریِ خرید (داده‌های قدیمی null می‌مانند)
+      await d.execute('ALTER TABLE purchases ADD COLUMN usd_rate REAL');
+      await d.execute('ALTER TABLE purchases ADD COLUMN price_usd REAL');
+      await d.execute('ALTER TABLE sales ADD COLUMN usd_rate REAL');
+    }
   }
 
   /// گونی باقی‌ماندهٔ داده‌های قدیمی را مثل backfillSacksRemaining سرور (app.php) حساب می‌کند:
@@ -248,6 +255,8 @@ class AppDb {
         note TEXT,
         is_mix INTEGER NOT NULL DEFAULT 0,
         created_at TEXT,
+        usd_rate REAL,
+        price_usd REAL,
         ord INTEGER NOT NULL DEFAULT 0
       )''');
     await d.execute('''
@@ -316,6 +325,7 @@ class AppDb {
         buyer TEXT,
         note TEXT,
         created_at TEXT,
+        usd_rate REAL,
         ord INTEGER NOT NULL DEFAULT 0
       )''');
     await d.execute('''
@@ -843,7 +853,12 @@ class AppDb {
       specsJson = jsonEncode(cs);
     }
     if (specsJson != null && specsJson.length > 4000) throw Exception('مشخصات دلخواه بیش از حد بزرگ است');
+    // پلن ارزی: قیمت دلار (تومان) و فی دلاری هر کیلو = فی تومانی ÷ قیمت دلار
+    final usdRate = _usdRate(p['usd_rate']);
+    final priceR = _r(price, 2);
     return {
+      'usd_rate': usdRate,
+      'price_usd': usdRate == null ? null : _r(priceR / usdRate, 4),
       'category_id': catId,
       'type_name': _s(p['type_name'], 100) ?? '',
       'date': _dateOnly(p['date']),
@@ -862,6 +877,15 @@ class AppDb {
       'seller': _s(p['seller'], 150),
       'note': _s(p['note'], 500),
     };
+  }
+
+  /// قیمت دلار. فرم‌های پلن ریالی هیچ‌وقت این فیلد را نمی‌فرستند، پس رکورد جدید null می‌ماند؛
+  /// ولی در ویرایش، مقدار قدیمیِ ذخیره‌شده (از merged) دست‌نخورده حفظ می‌شود.
+  double? _usdRate(dynamic raw) {
+    final u = _nn(raw);
+    if (u == null) return null;
+    if (u <= 0 || u > 1e9) throw Exception('قیمت دلار نامعتبر است');
+    return _r(u, 2);
   }
 
   Map<String, dynamic> _purchasePayload(Map<String, dynamic> v) {
@@ -889,6 +913,7 @@ class AppDb {
       'custom_specs': specs,
       'seller': v['seller'],
       'note': v['note'],
+      'usd_rate': v['usd_rate'],
     };
   }
 
@@ -1273,15 +1298,17 @@ class AppDb {
   }
 
   /// بررسی مبدأها (موجودی کافی) و محاسبهٔ فی میانگین وزنی؛ خروجی: [avgPrice]
-  Future<double> _checkMixSources(DatabaseExecutor t, List<Map<String, dynamic>> srcs) async {
+  Future<(double, double?)> _checkMixSources(DatabaseExecutor t, List<Map<String, dynamic>> srcs) async {
     var sumW = 0.0;
     var sumVal = 0.0;
+    var sumUsd = 0.0;
+    var usdMissing = false;
     for (final s in srcs) {
       final pid = s['purchase_id'] as int;
       final w = s['weight'] as double;
       if (w <= 0) continue;
       final rows = await t.rawQuery('''
-          SELECT p.remaining, p.price, p.type_name, p.small_sacks_remaining, p.large_sacks_remaining,
+          SELECT p.remaining, p.price, p.price_usd, p.type_name, p.small_sacks_remaining, p.large_sacks_remaining,
                  c.name AS category_name
           FROM purchases p JOIN categories c ON c.id = p.category_id
           WHERE p.id = ?''', [pid]);
@@ -1306,9 +1333,17 @@ class AppDb {
       }
       sumW += w;
       sumVal += w * price;
+      final pu = (rows.first['price_usd'] as num?)?.toDouble();
+      if (pu == null) {
+        usdMissing = true; // مبدأیی که قبل از پلن ارزی خریداری شده فی دلاری ندارد
+      } else {
+        sumUsd += w * pu;
+      }
     }
     if (sumW <= 0) throw Exception('حداقل از یک جنس مبدأ وزن بردارید');
-    return sumVal / sumW;
+    // فی دلاریِ مخلوط = میانگین وزنیِ فی دلاریِ مبدأها (همان منطق فی تومانی)
+    final avgUsd = !usdMissing ? sumUsd / sumW : null;
+    return (sumVal / sumW, avgUsd);
   }
 
   Future<void> _applyMixSources(DatabaseExecutor t, int mixId, List<Map<String, dynamic>> srcs) async {
@@ -1367,7 +1402,9 @@ class AppDb {
     final d = await db;
     late int mixId;
     await d.transaction((t) async {
-      final avgPrice = await _checkMixSources(t, srcs);
+      final (avgPrice, avgUsd) = await _checkMixSources(t, srcs);
+      final mixUsd = avgUsd == null ? null : _r(avgUsd, 4);
+      final mixRate = (mixUsd != null && mixUsd > 0) ? _r(avgPrice / mixUsd, 2) : null;
       final net = _r(netWeight, 3);
       final name = _s(typeName, 100) ?? 'مخلوط';
       final nt = _s(note, 500);
@@ -1380,6 +1417,8 @@ class AppDb {
         'type_name': name,
         'date': _ymd(DateTime.now()),
         'price': _r(avgPrice, 2),
+        'usd_rate': mixRate,
+        'price_usd': mixUsd,
         'total_weight': net,
         'small_sack_count': _r(smallSackCount, 2),
         'large_sack_count': _r(largeSackCount, 2),
@@ -1491,7 +1530,9 @@ class AppDb {
         await _addSacks(t, sp, ((s['small_sacks'] as num?) ?? 0).toDouble(),
             ((s['large_sacks'] as num?) ?? 0).toDouble());
       }
-      final avgPrice = await _checkMixSources(t, srcs);
+      final (avgPrice, avgUsd) = await _checkMixSources(t, srcs);
+      final mixUsd = avgUsd == null ? null : _r(avgUsd, 4);
+      final mixRate = (mixUsd != null && mixUsd > 0) ? _r(avgPrice / mixUsd, 2) : null;
       final net = _r(netWeight, 3);
       final name = _s(typeName, 100) ?? 'مخلوط';
       final nt = _s(note, 500);
@@ -1501,6 +1542,8 @@ class AppDb {
             'category_id': categoryId,
             'type_name': name,
             'price': _r(avgPrice, 2),
+            'usd_rate': mixRate,
+            'price_usd': mixUsd,
             'total_weight': net,
             'small_sack_count': _r(smallSackCount, 2),
             'large_sack_count': _r(largeSackCount, 2),
@@ -1819,7 +1862,7 @@ class AppDb {
     for (final s in rows) {
       final items = await d.rawQuery('''
         SELECT si.weight, si.item_price, si.small_sacks, si.large_sacks, si.purchase_id AS purchase_id,
-               p.code AS code, p.price AS cost_price, p.type_name AS type_name, c.name AS category_name
+               p.code AS code, p.price AS cost_price, p.price_usd AS cost_price_usd, p.type_name AS type_name, c.name AS category_name
         FROM sale_items si
         JOIN purchases p ON p.id = si.purchase_id
         JOIN categories c ON c.id = p.category_id
@@ -1915,7 +1958,9 @@ class AppDb {
     final date = _dateOnly(sale['date']);
     final buyer = _s(sale['buyer'], 150);
     final note = _s(sale['note'], 500);
+    final usdRate = _usdRate(sale['usd_rate']); // قیمت دلار هنگام فروش (پلن ارزی)
     final row = <String, dynamic>{
+      'usd_rate': usdRate,
       'date': date,
       'price': _r(avg, 2),
       'total_weight': _r(total, 3),
@@ -1926,6 +1971,7 @@ class AppDb {
       'note': note,
     };
     final payload = <String, dynamic>{
+      'usd_rate': usdRate,
       'date': date,
       'price': fallback,
       'total_weight': _r(total, 3),

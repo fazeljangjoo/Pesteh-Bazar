@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'db.dart';
+import 'license_service.dart';
 import 'party_field.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -60,6 +61,7 @@ class _SaleFormState extends State<SaleForm> {
   final _small = TextEditingController();
   final _large = TextEditingController();
   final _price = TextEditingController();
+  final _usdRate = TextEditingController(); // قیمت دلار هنگام فروش (فقط پلن ارزی)
   final _buyer = TextEditingController();
   final _note = TextEditingController();
 
@@ -77,6 +79,7 @@ class _SaleFormState extends State<SaleForm> {
     _small.dispose();
     _large.dispose();
     _price.dispose();
+    _usdRate.dispose();
     _buyer.dispose();
     _note.dispose();
     super.dispose();
@@ -97,6 +100,7 @@ class _SaleFormState extends State<SaleForm> {
       final sale = await AppDb.I.saleById(widget.editSaleId!);
       if (sale != null && !legacy) {
         _price.text = plain(sale['price'] as num);
+        _usdRate.text = sale['usd_rate'] == null ? '' : plain(sale['usd_rate'] as num);
         _gross.text = plain(sale['total_weight'] as num);
         // گونی از خودِ قلم فروش خوانده می‌شود (همان مقداری که واقعاً از انبار کم شده بود)
         final small = ((items.first['small_sacks'] as num?) ?? 0).toDouble();
@@ -138,6 +142,22 @@ class _SaleFormState extends State<SaleForm> {
   double get _net => _r3(_grossKg - _tare);
   double get _revenue => _net * (parseNum(_price.text) ?? 0);
 
+  bool get _fx => LicenseService.I.isFx.value;
+  double? get _rate {
+    final r = parseNum(_usdRate.text);
+    return (r == null || r <= 0) ? null : r;
+  }
+
+  /// فی فروش به دلار (هر کیلو)
+  double? get _salePerKgUsd {
+    final p = parseNum(_price.text);
+    final r = _rate;
+    return (p == null || r == null) ? null : p / r;
+  }
+
+  /// فی دلاریِ خریدِ پستهٔ انتخاب‌شده (null = ثبت نشده، مثلاً خرید قبل از ارتقای پلن)
+  double? get _costPerKgUsd => (_selLot?['price_usd'] as num?)?.toDouble();
+
   void _changed() {
     if (mounted) setState(() {});
   }
@@ -176,6 +196,10 @@ class _SaleFormState extends State<SaleForm> {
     final price = parseNum(_price.text) ?? 0;
     if (price <= 0) {
       snack(context, 'فی فروش را وارد کنید');
+      return;
+    }
+    if (_fx && _rate == null) {
+      snack(context, 'قیمت دلار روز فروش را وارد کنید');
       return;
     }
     final net = _net;
@@ -218,6 +242,7 @@ class _SaleFormState extends State<SaleForm> {
       }
     ];
     final saleData = <String, dynamic>{
+      if (_fx) 'usd_rate': _rate,
       'price': price,
       'total_weight': _grossKg,
       'small_sack_count': smallN,
@@ -321,6 +346,11 @@ class _SaleFormState extends State<SaleForm> {
       w.add(sectionTitle(context, '۳) فی فروش'));
       w.add(numField(_price, 'فی فروش (تومان به ازای هر کیلو)',
           required: true, thousands: true, onChanged: _changed));
+      if (_fx)
+        w.add(numField(_usdRate, 'قیمت دلار در زمان فروش (تومان)',
+            required: true, thousands: true, onChanged: _changed));
+      else
+        w.add(fxLockedField('قیمت دلار در زمان فروش (تومان)'));
     }
 
     w.add(const SizedBox(height: 12));
@@ -352,7 +382,8 @@ class _SaleFormState extends State<SaleForm> {
             color: selected ? scheme.primary : null),
         title: Text('${e['category_name']} - ${e['type_name']}'),
         subtitle: Text(
-          'کد پسته: ${e['code'] ?? '-'}  •  خرید ${jalaliDate(e['date'] as String)}  •  فی ${faNum(e['price'] as num, dec: 0)}\n'
+          'کد پسته: ${e['code'] ?? '-'}  •  خرید ${jalaliDate(e['date'] as String)}  •  فی ${faNum(e['price'] as num, dec: 0)}'
+          '${_fx && e['price_usd'] != null ? ' (${faUsd(e['price_usd'] as num, dec: 4)})' : ''}\n'
           'موجودی ${faNum(rem)} کیلو  •  گونی مانده: کوچک ${faNum(e['small_left'] as num)} / بزرگ ${faNum(e['large_left'] as num)}',
         ),
         isThreeLine: true,
@@ -429,6 +460,19 @@ class _SaleFormState extends State<SaleForm> {
           infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
           infoRow('وزن خالص پسته', '${faNum(_net)} کیلو', valueColor: over ? scheme.error : null),
           infoRow('مبلغ فروش تقریبی', '${faNum(_revenue, dec: 0)} تومان'),
+          if (_fx && _salePerKgUsd != null) ...[
+            infoRow('فی فروش به دلار (هر کیلو)', faUsd(_salePerKgUsd!, dec: 4)),
+            infoRow('مبلغ فروش به دلار', faUsd(_net * _salePerKgUsd!)),
+            if (_costPerKgUsd != null)
+              infoRow('سود دلاریِ تقریبی', faUsd(_net * (_salePerKgUsd! - _costPerKgUsd!)),
+                  valueColor: (_salePerKgUsd! - _costPerKgUsd!) >= 0 ? Colors.green.shade800 : scheme.error)
+            else
+              const Padding(
+                padding: EdgeInsets.only(top: 4),
+                child: Text('فی دلاریِ خرید این پسته ثبت نشده (قبل از پلن ارزی خریداری شده)؛ سود دلاری محاسبه نمی‌شود.',
+                    style: TextStyle(fontSize: 12)),
+              ),
+          ],
           if (tooHeavy)
             Padding(
               padding: const EdgeInsets.only(top: 6),

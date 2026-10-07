@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'license_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -368,7 +369,8 @@ class _MixFormState extends State<MixForm> {
         value: _sel[id] ?? false,
         onChanged: (v) => _toggle(id, v ?? false),
         title: Text('${e['category_name']} - ${e['type_name']}'),
-        subtitle: Text('کد ${e['code'] ?? '-'}  •  موجودی ${faNum(rem)} کیلو  •  فی ${faNum(e['price'] as num, dec: 0)}'),
+        subtitle: Text('کد ${e['code'] ?? '-'}  •  موجودی ${faNum(rem)} کیلو  •  فی ${faNum(e['price'] as num, dec: 0)}'
+            '${LicenseService.I.isFx.value && e['price_usd'] != null ? ' (${faUsd(e['price_usd'] as num, dec: 3)})' : ''}'),
       ),
     );
   }

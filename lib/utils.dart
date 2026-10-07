@@ -238,3 +238,23 @@ Uint8List photoBytes(String dataUrl) {
   final i = dataUrl.indexOf(',');
   return base64Decode(i >= 0 ? dataUrl.substring(i + 1) : dataUrl);
 }
+
+/// مبلغ دلاری (پلن ارزی) با جداکننده هزارگان و ارقام فارسی
+String faUsd(num v, {int dec = 2}) => '${faNum(v, dec: dec)} دلار';
+
+/// درآمد، بها و سود دلاریِ یک فروش (پلن ارزی).
+///  * درآمد دلاری = (وزن خالص × فی فروش تومانی) ÷ قیمت دلارِ روز فروش
+///  * بهای دلاری = وزن × فی دلاریِ خریدِ همان پسته (در مخلوط: میانگین وزنیِ مبدأها)
+/// اگر قیمت دلار فروش یا فی دلاریِ خرید ثبت نشده باشد (مثلاً خرید قبل از ارتقای پلن) null برمی‌گرداند.
+({double revenue, double cost, double profit})? saleUsd(Map<String, dynamic> sale) {
+  final rate = (sale['usd_rate'] as num?)?.toDouble();
+  if (rate == null || rate <= 0) return null;
+  var cost = 0.0;
+  for (final it in (sale['items'] as List)) {
+    final cu = (it['cost_price_usd'] as num?)?.toDouble();
+    if (cu == null) return null;
+    cost += (it['weight'] as num).toDouble() * cu;
+  }
+  final revenue = (sale['net_weight'] as num).toDouble() * (sale['price'] as num).toDouble() / rate;
+  return (revenue: revenue, cost: cost, profit: revenue - cost);
+}

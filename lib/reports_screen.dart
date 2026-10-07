@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'license_service.dart';
 import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -96,6 +97,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }).toList();
 
             double totalRevenue = 0, totalCost = 0;
+            final fx = LicenseService.I.isFx.value;
+            double usdRevenue = 0, usdCost = 0;
+            var usdMissing = 0; // فروش‌هایی که سود دلاری‌شان قابل محاسبه نیست
             final Map<String, double> byType = {}; // "دسته - نوع" -> سود
             final rows = <Widget>[];
             for (final sale in list) {
@@ -115,6 +119,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
               final profit = revenue - cost;
               totalRevenue += revenue;
               totalCost += cost;
+              final usd = fx ? saleUsd(sale) : null;
+              if (fx) {
+                if (usd == null) {
+                  usdMissing++;
+                } else {
+                  usdRevenue += usd.revenue;
+                  usdCost += usd.cost;
+                }
+              }
               final comp = items
                   .map((it) => '${it['type_name']}${it['code'] != null ? ' (کد ${it['code']})' : ''} ${faNum(it['weight'] as num)}')
                   .join(' + ');
@@ -134,6 +147,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       infoRow('مبلغ فروش', '${faNum(revenue, dec: 0)} تومان'),
                       infoRow('بهای خرید', '${faNum(cost, dec: 0)} تومان'),
                       infoRow('سود / زیان', '${faNum(profit, dec: 0)} تومان'),
+                      if (fx && usd != null) ...[
+                        infoRow('مبلغ فروش (دلار)', faUsd(usd.revenue)),
+                        infoRow('بهای خرید (دلار)', faUsd(usd.cost)),
+                        infoRow('سود / زیان دلاری', faUsd(usd.profit),
+                            valueColor: usd.profit >= 0 ? Colors.green.shade800 : scheme.error),
+                      ] else if (fx)
+                        const Text('سود دلاری: قیمت دلار یا فی دلاریِ خرید ثبت نشده',
+                            style: TextStyle(fontSize: 12, color: Colors.black54)),
                     ],
                   ),
                 ),
@@ -166,6 +187,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       infoRow('مجموع فروش', '${faNum(totalRevenue, dec: 0)} تومان'),
                       infoRow('مجموع بهای خرید', '${faNum(totalCost, dec: 0)} تومان'),
                       infoRow('مجموع سود / زیان', '${faNum(totalProfit, dec: 0)} تومان'),
+                      if (fx) ...[
+                        const Divider(),
+                        infoRow('مجموع فروش (دلار)', faUsd(usdRevenue)),
+                        infoRow('مجموع بهای خرید (دلار)', faUsd(usdCost)),
+                        infoRow('مجموع سود / زیان دلاری', faUsd(usdRevenue - usdCost),
+                            valueColor: (usdRevenue - usdCost) >= 0 ? Colors.green.shade800 : scheme.error),
+                        if (usdMissing > 0)
+                          Text('${faNum(usdMissing, dec: 0)} فروش به‌دلیل نبودنِ قیمت دلار یا فی دلاریِ خرید در جمع دلاری نیامده است',
+                              style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
                     ]),
                   ),
                 ),

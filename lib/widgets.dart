@@ -336,3 +336,17 @@ class OverpayWarning extends StatelessWidget {
     );
   }
 }
+
+/// فیلد قفل‌شدهٔ ویژهٔ پلن ارزی (برای کاربر پلن ریالی نمایش داده می‌شود ولی غیرفعال است)
+Widget fxLockedField(String label) => Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        enabled: false,
+        decoration: InputDecoration(
+          labelText: label,
+          prefixIcon: const Icon(Icons.lock_outline),
+          helperText: 'ویژهٔ پلن ارزی؛ برای فعال‌سازی با پشتیبانی تماس بگیرید',
+          border: const OutlineInputBorder(),
+        ),
+      ),
+    );
