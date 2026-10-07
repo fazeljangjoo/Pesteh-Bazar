@@ -271,7 +271,7 @@ class LicenseService {
 
   /// مرحلهٔ ۲ ورود: تأیید کد. برای کاربر جدید ابتدا بدون [name] صدا زده می‌شود؛
   /// اگر needName برگشت، نام گرفته می‌شود و دوباره با همان کد و نام صدا زده می‌شود.
-  Future<OtpVerifyResult> verifyOtp(String phone, String code, {String? name}) async {
+  Future<OtpVerifyResult> verifyOtp(String phone, String code, {String? name, String? password}) async {
     if (!isValidPhone(phone)) return const OtpVerifyResult(error: 'شماره موبایل را درست وارد کنید');
     final cleanCode = toEnDigits(code.trim()).replaceAll(RegExp(r'[^0-9]'), '');
     if (cleanCode.isEmpty) return const OtpVerifyResult(error: 'کد پیامکی را وارد کنید');
@@ -280,6 +280,7 @@ class LicenseService {
 
     final body = <String, dynamic>{'phone': n, 'code': cleanCode};
     if (cleanName != null && cleanName.isNotEmpty) body['name'] = cleanName;
+    if (password != null && password.isNotEmpty) body['password'] = password; // فقط برای ثبت‌نام کاربر جدید
     final r = await _post('otp_verify.php', body);
     if (r.netError != null) return OtpVerifyResult(error: r.netError);
     if (r.status != 200) {
