@@ -102,7 +102,8 @@ class PdfService {
           _kv('وزن کل', '${faNum(totalWeight)} کیلو'),
           _kv('وزن خالص', '${faNum(netWeight)} کیلو'),
           _kv('تعداد گونی', faNum(smallSacks + largeSacks)),
-          _kv('کوچک / بزرگ', '${faNum(smallSacks)} / ${faNum(largeSacks)}'),
+          _kv('تعداد گونی کوچک', faNum(smallSacks)),
+          _kv('تعداد گونی بزرگ', faNum(largeSacks)),
           pw.Spacer(),
           _brandFooter(),
         ],
@@ -265,5 +266,142 @@ class PdfService {
 
     final fname = 'report_${now.millisecondsSinceEpoch}.pdf';
     return _saveDoc(doc, fname);
+  }
+
+  /// فاکتور خرید یا فروش (A4). [withUsd] = فاکتور «تومانی/ارزی» که فی و مبلغ دلاری و نرخ دلار را هم درج می‌کند.
+  static Future<File> buildInvoice({
+    required bool isSale,
+    required bool withUsd,
+    required String number,
+    required String dateLabel,
+    required String sellerName,
+    required String buyerName,
+    required String category,
+    required String type,
+    required String code,
+    required double totalWeight,
+    required double smallSacks,
+    required double largeSacks,
+    required double netWeight,
+    required double unitPrice, // تومان به‌ازای هر کیلو
+    required List<List<String>> specs, // [عنوان، مقدار]
+    double? usdRate, // تومان به‌ازای هر دلار
+    double? paidAmount, // مبلغ پرداخت‌شده/دریافت‌شده (تومان)؛ null = بدون بخش پرداخت (مثلاً بار مخلوط)
+    String? note,
+  }) async {
+    await _ensureFonts();
+    final doc = pw.Document(theme: _theme());
+    final now = DateTime.now();
+    final amount = netWeight * unitPrice;
+    final unitUsd = (withUsd && usdRate != null && usdRate > 0) ? unitPrice / usdRate : null;
+    final amountUsd = unitUsd == null ? null : netWeight * unitUsd;
+
+    final headers = <String>[
+      'ردیف', 'دسته', 'نوع', 'کد پسته', 'وزن خالص (کیلو)', 'فی (تومان)', 'مبلغ (تومان)',
+      if (withUsd) ...['فی (دلار)', 'مبلغ (دلار)'],
+    ];
+    final row = <String>[
+      faNum(1, dec: 0), category, type, code, faNum(netWeight), faNum(unitPrice, dec: 0), faNum(amount, dec: 0),
+      if (withUsd) ...[unitUsd == null ? '-' : faNum(unitUsd, dec: 4), amountUsd == null ? '-' : faNum(amountUsd)],
+    ];
+
+    pw.Widget sign(String label) => pw.Expanded(
+          child: pw.Container(
+            height: 56,
+            margin: const pw.EdgeInsets.symmetric(horizontal: 6),
+            padding: const pw.EdgeInsets.all(6),
+            decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5), borderRadius: pw.BorderRadius.circular(4)),
+            child: pw.Text(pdfText(label), style: const pw.TextStyle(fontSize: 9)),
+          ),
+        );
+
+    doc.addPage(
+      pw.MultiPage(
+        pageFormat: PdfPageFormat.a4,
+        margin: const pw.EdgeInsets.all(28),
+        textDirection: pw.TextDirection.rtl,
+        footer: (ctx) => _brandFooter(),
+        build: (ctx) => [
+          pw.Row(mainAxisAlignment: pw.MainAxisAlignment.spaceBetween, children: [
+            pw.Text(pdfText(isSale ? 'فاکتور فروش' : 'فاکتور خرید'),
+                style: pw.TextStyle(fontSize: 20, fontWeight: pw.FontWeight.bold)),
+            pw.Text(pdfText(withUsd ? 'نوع فاکتور: تومانی / ارزی' : 'نوع فاکتور: تومانی'),
+                style: const pw.TextStyle(fontSize: 10)),
+          ]),
+          pw.Divider(),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5), borderRadius: pw.BorderRadius.circular(6)),
+            child: pw.Column(children: [
+              _kv('شماره فاکتور', number, bold: true),
+              _kv('تاریخ', dateLabel),
+              _kv('فروشنده', sellerName.isEmpty ? '-' : sellerName),
+              _kv('خریدار', buyerName.isEmpty ? '-' : buyerName),
+              if (withUsd && usdRate != null) _kv('نرخ دلار (تومان)', faNum(usdRate, dec: 0)),
+            ]),
+          ),
+          pw.SizedBox(height: 14),
+          pw.Table.fromTextArray(
+            headers: headers.map(pdfText).toList(),
+            data: [row.map(pdfText).toList()],
+            headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+            cellStyle: const pw.TextStyle(fontSize: 9),
+            cellAlignment: pw.Alignment.centerRight,
+            headerAlignment: pw.Alignment.centerRight,
+            border: pw.TableBorder.all(width: 0.4),
+          ),
+          pw.SizedBox(height: 12),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(border: pw.Border.all(width: 0.5), borderRadius: pw.BorderRadius.circular(6)),
+            child: pw.Column(children: [
+              _kv('وزن کل (با گونی)', '${faNum(totalWeight)} کیلو'),
+              _kv('گونی کوچک / بزرگ', '${faNum(smallSacks)} / ${faNum(largeSacks)}'),
+              _kv('وزن خالص', '${faNum(netWeight)} کیلو'),
+            ]),
+          ),
+          if (specs.isNotEmpty) ...[
+            pw.SizedBox(height: 12),
+            pw.Text(pdfText('مشخصات جنس'), style: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 11)),
+            pw.SizedBox(height: 4),
+            pw.Table.fromTextArray(
+              headers: [pdfText('مشخصه'), pdfText('مقدار')],
+              data: [for (final r in specs) [pdfText(r[0]), pdfText(r[1])]],
+              headerStyle: pw.TextStyle(fontWeight: pw.FontWeight.bold, fontSize: 9),
+              cellStyle: const pw.TextStyle(fontSize: 9),
+              cellAlignment: pw.Alignment.centerRight,
+              headerAlignment: pw.Alignment.centerRight,
+              border: pw.TableBorder.all(width: 0.4),
+            ),
+          ],
+          pw.SizedBox(height: 14),
+          pw.Container(
+            padding: const pw.EdgeInsets.all(10),
+            decoration: pw.BoxDecoration(
+                border: pw.Border.all(width: 1), borderRadius: pw.BorderRadius.circular(6)),
+            child: pw.Column(children: [
+              _kv('جمع کل (تومان)', '${faNum(amount, dec: 0)} تومان', bold: true),
+              if (withUsd) _kv('جمع کل (دلار)', amountUsd == null ? '-' : faUsd(amountUsd), bold: true),
+              if (paidAmount != null) ...[
+                pw.Divider(),
+                _kv('مبلغ پرداخت‌شده (تومان)', '${faNum(paidAmount, dec: 0)} تومان'),
+                _kv('مانده حساب (تومان)', '${faNum(amount - paidAmount, dec: 0)} تومان', bold: true),
+              ],
+            ]),
+          ),
+          if (note != null && note.trim().isNotEmpty) ...[
+            pw.SizedBox(height: 10),
+            pw.Text(pdfText('توضیحات: $note'), style: const pw.TextStyle(fontSize: 9)),
+          ],
+          pw.SizedBox(height: 22),
+          pw.Row(children: [sign('امضای فروشنده'), sign('امضای خریدار')]),
+          pw.SizedBox(height: 8),
+          pw.Text(pdfText('تاریخ صدور: ${jalaliDateFromDt(now)}'), style: const pw.TextStyle(fontSize: 8)),
+        ],
+      ),
+    );
+
+    final safe = number.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
+    return _saveDoc(doc, 'invoice_${safe}_${now.millisecondsSinceEpoch}.pdf');
   }
 }

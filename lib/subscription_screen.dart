@@ -242,6 +242,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       if (r?.name != null) infoRow('نام', r!.name!),
                       infoRow('شماره حساب', r?.phone != null ? toFaDigits(r!.phone!) : '-'),
+                      infoRow('نوع اشتراک', LicenseService.I.isFx.value ? 'پلن ارزی (ریالی + دلاری)' : 'پلن ریالی'),
                       if (r?.expiry != null) infoRow('تاریخ انقضا', jalaliDateFromDt(r!.expiry!)),
                       infoRow(
                         'وضعیت',
