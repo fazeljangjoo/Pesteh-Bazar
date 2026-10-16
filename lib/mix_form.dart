@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'license_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -29,7 +30,7 @@ class MixForm extends StatefulWidget {
   State<MixForm> createState() => _MixFormState();
 }
 
-class _MixFormState extends State<MixForm> {
+class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
   final _form = GlobalKey<FormState>();
   List<Map<String, dynamic>> _lots = [];
   final Map<int, bool> _sel = {};
@@ -48,6 +49,7 @@ class _MixFormState extends State<MixForm> {
   final _largeSack = TextEditingController();
   final _ounce = TextEditingController(); // اختیاری
   final _gram = TextEditingController(); // اختیاری
+  final _waste = TextEditingController(); // ضایعات/خاک
   final _note = TextEditingController();
 
   @override
@@ -79,6 +81,7 @@ class _MixFormState extends State<MixForm> {
       _gram.text = e['gram'] == null ? '' : plain(e['gram'] as num);
       _note.text = e['note'] as String? ?? '';
       _categoryId = e['category_id'] as int?;
+      var takenOld = 0.0;
       for (final source in sources) {
         final id = source['source_purchase_id'] as int;
         _sel[id] = true;
@@ -86,6 +89,14 @@ class _MixFormState extends State<MixForm> {
         row.weight.text = plain(source['weight'] as num);
         row.small.text = plain(source['small_sacks'] as num? ?? 0);
         row.large.text = plain(source['large_sacks'] as num? ?? 0);
+        takenOld += (source['weight'] as num).toDouble();
+      }
+      // مخلوط‌های قدیمی ضایعات ثبت‌نشده دارند: اختلاف وزن برداشته‌شده و خالص (اگر مثبت باشد) پیشنهاد می‌شود
+      if (e['waste'] != null) {
+        _waste.text = plain(e['waste'] as num);
+      } else {
+        final d = takenOld - (e['net_weight'] as num).toDouble();
+        _waste.text = d > 0.0005 ? plain(double.parse(d.toStringAsFixed(3))) : '';
       }
       if (mounted) setState(() {});
     }
@@ -102,6 +113,7 @@ class _MixFormState extends State<MixForm> {
     _largeSack.dispose();
     _ounce.dispose();
     _gram.dispose();
+    _waste.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -111,6 +123,39 @@ class _MixFormState extends State<MixForm> {
 
   double get _takenSum => _selected.fold<double>(
       0, (s, e) => s + (parseNum(_rows[e['id'] as int]?.weight.text) ?? 0));
+
+  /// وزن برداشته‌شده − (وزن خالص + ضایعات)؛ باید صفر باشد (گردشده به ۳ رقم)
+  double get _balanceDiff {
+    final net = parseNum(_netWeight.text) ?? 0;
+    final double waste = parseNum(_waste.text) ?? 0.0;
+    return double.parse((_takenSum - net - waste).toStringAsFixed(3));
+  }
+
+  Widget _balanceCard(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final net = parseNum(_netWeight.text) ?? 0;
+    final double waste = parseNum(_waste.text) ?? 0.0;
+    final diff = _balanceDiff;
+    final ok = diff.abs() <= 0.0015;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          infoRow('برداشته‌شده', '${faNum(_takenSum)} کیلو'),
+          infoRow('خالص + ضایعات', '${faNum(net + waste)} کیلو'),
+          const SizedBox(height: 4),
+          Text(
+            ok
+                ? '✓ وزن‌ها برابرند'
+                : (diff > 0
+                    ? '${faNum(diff)} کیلو اختلاف ثبت‌نشده دارید؛ اگر خاک یا ضایعات بوده در «ضایعات» وارد کنید'
+                    : 'وزن خالص + ضایعات به اندازهٔ ${faNum(-diff)} کیلو از وزن برداشته‌شده بیشتر است'),
+            style: TextStyle(color: ok ? Colors.green.shade700 : scheme.error),
+          ),
+        ]),
+      ),
+    );
+  }
 
   void _toggle(int id, bool v) {
     setState(() {
@@ -169,6 +214,16 @@ class _MixFormState extends State<MixForm> {
       snack(context, 'وزن نهایی مخلوط (بعد از توزین) را وارد کنید');
       return;
     }
+    final double waste = parseNum(_waste.text) ?? 0.0;
+    final diff = _balanceDiff;
+    if (diff.abs() > 0.0015) {
+      snack(
+          context,
+          diff > 0
+              ? '${faNum(diff)} کیلو اختلاف ثبت‌نشده دارید؛ اگر خاک یا ضایعات بوده در «ضایعات» وارد کنید'
+              : 'وزن خالص + ضایعات به اندازهٔ ${faNum(-diff)} کیلو از وزن برداشته‌شده بیشتر است');
+      return;
+    }
     setState(() => _saving = true);
     try {
       final sources = <Map<String, dynamic>>[];
@@ -189,12 +244,14 @@ class _MixFormState extends State<MixForm> {
         'typeName': _typeName.text.trim(),
         'sources': sources,
         'netWeight': net,
-        'smallSackCount': parseNum(_smallSack.text) ?? 0,
-        'largeSackCount': parseNum(_largeSack.text) ?? 0,
+        'smallSackCount': parseNum(_smallSack.text) ?? 0.0,
+        'largeSackCount': parseNum(_largeSack.text) ?? 0.0,
         'ounce': parseNum(_ounce.text),
         'gram': parseNum(_gram.text),
+        'waste': waste,
         'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
       };
+      final ok = await saveConfirmed(context, () async {
       if (_isEdit) {
         await AppDb.I.updateMix(
           mixPurchaseId: widget.existing!['id'] as int,
@@ -206,6 +263,7 @@ class _MixFormState extends State<MixForm> {
           largeSackCount: args['largeSackCount'] as double,
           ounce: args['ounce'] as double?,
           gram: args['gram'] as double?,
+          waste: waste,
           note: args['note'] as String?,
         );
       } else {
@@ -218,13 +276,12 @@ class _MixFormState extends State<MixForm> {
           largeSackCount: args['largeSackCount'] as double,
           ounce: args['ounce'] as double?,
           gram: args['gram'] as double?,
+          waste: waste,
           note: args['note'] as String?,
         );
       }
-      if (mounted) {
-        snack(context, _isEdit ? 'مخلوط ویرایش شد' : 'مخلوط با موفقیت به انبار اضافه شد');
-        Navigator.pop(context);
-      }
+      }, successMsg: _isEdit ? 'مخلوط/جداسازی با موفقیت ویرایش شد' : 'مخلوط با موفقیت به انبار اضافه شد');
+      if (mounted && ok) Navigator.pop(context);
     } catch (e) {
       if (mounted) snack(context, e.toString().replaceFirst('Exception: ', ''));
     } finally {
@@ -248,14 +305,14 @@ class _MixFormState extends State<MixForm> {
     }
     if (_lots.isEmpty) {
       return Scaffold(
-        appBar: AppBar(title: Text(_isEdit ? 'ویرایش مخلوط' : 'ساخت مخلوط (کوت‌ریزی)')),
+        appBar: AppBar(title: Text(_isEdit ? 'ویرایش مخلوط/جداسازی' : 'مخلوط / جداسازی')),
         body: const Center(child: Text('انبار خالی است')),
       );
     }
     final sel = _selected;
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'ویرایش مخلوط' : 'ساخت مخلوط (کوت‌ریزی)')),
+      appBar: AppBar(title: Text(_isEdit ? 'ویرایش مخلوط/جداسازی' : 'مخلوط / جداسازی')),
       body: Form(
         key: _form,
         child: ListView(
@@ -266,10 +323,15 @@ class _MixFormState extends State<MixForm> {
               child: const Padding(
                 padding: EdgeInsets.all(12),
                 child: Text(
-                  'از بین اجناس موجود در انبار انتخاب کنید، از هرکدام هرچقدر می‌خواهید بردارید '
-                  'و مخلوط کنید. بعد از مخلوط‌کردن، تعداد گونیِ به‌وجودآمده و وزن نهایی (طبق ترازو) '
-                  'را وارد کنید تا یک قلم تازه به انبار اضافه شود؛ موقع فروش فقط همین یک قلم را '
-                  'انتخاب می‌کنید.',
+                  'از بین اجناس موجود در انبار انتخاب کنید و از هرکدام هرچقدر می‌خواهید بردارید.\n'
+                  '• مخلوط: چند جنس را با هم قاطی کنید تا یک قلم تازه ساخته شود.\n'
+                  '• جداسازی: فقط یک جنس را انتخاب کنید، بخشی از آن را (مثلاً دنبست یا خندانِ جداشده) '
+                  'بردارید و با نام و مشخصات تازه ثبت کنید؛ برای بخش بعدی همین کار را دوباره انجام دهید '
+                  'تا هر بخش جدا ثبت شود.\n'
+                  'در پایان وزن نهایی (طبق ترازو) و تعداد گونی را وارد کنید. اگر وزن نهایی از وزن '
+                  'برداشته‌شده کمتر شد (خاک، پوست و...)، اختلاف را در «ضایعات» ثبت کنید. '
+                  'فیِ قلم تازه = هزینهٔ کل جنس‌های برداشته‌شده ÷ وزن خالص، یعنی هزینهٔ ضایعات هم در فی لحاظ می‌شود. '
+                  'موقع فروش هر قلم تازه جدا انتخاب می‌شود.',
                 ),
               ),
             ),
@@ -306,7 +368,7 @@ class _MixFormState extends State<MixForm> {
                 ),
               ),
               const SizedBox(height: 8),
-              sectionTitle(context, '۳) مشخصات مخلوطِ تازه'),
+              sectionTitle(context, '۳) مشخصات قلم تازه (مخلوط/جداسازی)'),
               Row(children: [
                 Expanded(
                   child: DropdownButtonFormField<int>(
@@ -328,8 +390,25 @@ class _MixFormState extends State<MixForm> {
                 ),
               ]),
               const SizedBox(height: 12),
-              textField(_typeName, 'نام مخلوط (مثلاً «کوت‌ریزی مخلوط»)', required: true),
-              numField(_netWeight, 'وزن خالص نهایی مخلوط (کیلو) — طبق ترازو', required: true),
+              textField(_typeName, 'نام قلم تازه (مثلاً «دنبست جداشده» یا «کوت‌ریزی مخلوط»)', required: true),
+              numField(_netWeight, 'وزن خالص نهایی (کیلو) — طبق ترازو',
+                  required: true, onChanged: () => setState(() {})),
+              numField(_waste, 'ضایعات / خاک (کیلو) — وزنِ کم‌شده هنگام مخلوط/جداسازی',
+                  hint: '0', onChanged: () => setState(() {})),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () {
+                    final d = double.parse((_takenSum - (parseNum(_netWeight.text) ?? 0)).toStringAsFixed(3));
+                    _waste.text = d > 0 ? plain(d) : '0';
+                    setState(() {});
+                  },
+                  icon: const Icon(Icons.balance),
+                  label: const Text('ثبت اختلاف به‌عنوان ضایعات'),
+                ),
+              ),
+              _balanceCard(context),
+              const SizedBox(height: 12),
               Row(children: [
                 Expanded(child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', hint: '0')),
                 const SizedBox(width: 8),
@@ -348,7 +427,7 @@ class _MixFormState extends State<MixForm> {
                     ? const SizedBox(
                         width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.check),
-                label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت مخلوط در انبار'),
+                label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت در انبار'),
               ),
             ],
             const SizedBox(height: 24),
@@ -368,7 +447,8 @@ class _MixFormState extends State<MixForm> {
         value: _sel[id] ?? false,
         onChanged: (v) => _toggle(id, v ?? false),
         title: Text('${e['category_name']} - ${e['type_name']}'),
-        subtitle: Text('کد ${e['code'] ?? '-'}  •  موجودی ${faNum(rem)} کیلو  •  فی ${faNum(e['price'] as num, dec: 0)}'),
+        subtitle: Text('کد ${e['code'] ?? '-'}  •  موجودی ${faNum(rem)} کیلو  •  فی ${faNum(e['price'] as num, dec: 0)}'
+            '${LicenseService.I.isFx.value && e['price_usd'] != null ? ' (${faUsd(e['price_usd'] as num, dec: 3)})' : ''}'),
       ),
     );
   }

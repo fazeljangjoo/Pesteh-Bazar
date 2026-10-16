@@ -15,7 +15,7 @@ class PaymentScreen extends StatefulWidget {
   State<PaymentScreen> createState() => _PaymentScreenState();
 }
 
-class _PaymentScreenState extends State<PaymentScreen> {
+class _PaymentScreenState extends State<PaymentScreen> with EditGuard<PaymentScreen> {
   bool _loading = true;
   late int _purchaseId;
   int? _paymentId;
@@ -117,7 +117,12 @@ class _PaymentScreenState extends State<PaymentScreen> {
 
   Future<void> _setType(String payType, String? stagedType) async {
     _purchaseId = await AppDb.I.currentId('pur', _purchaseId);
-    _paymentId = await AppDb.I.setPaymentType(_purchaseId, payType, stagedType);
+    int? newId;
+    if (!await saveConfirmed(context, () async { newId = await AppDb.I.setPaymentType(_purchaseId, payType, stagedType); },
+        successMsg: 'نوع پرداخت ثبت شد')) {
+      return;
+    }
+    _paymentId = newId;
     setState(() {
       _payType = payType;
       _stagedType = stagedType;
@@ -164,7 +169,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (_) => _LumpForm(total: _total, others: _othersSum(_lump, null)),
     );
     if (row == null) return;
-    await AppDb.I.addLumpTx(_paymentId!, row);
+    if (!await saveConfirmed(context, () => AppDb.I.addLumpTx(_paymentId!, row), successMsg: 'تراکنش پرداخت با موفقیت ثبت شد')) return;
     await _load();
   }
 
@@ -175,14 +180,14 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (_) => _LumpForm(existing: existing, total: _total, others: _othersSum(_lump, existing['id'] as int?)),
     );
     if (row == null) return;
-    await AppDb.I.updateLumpTx(existing['id'] as int, row);
+    if (!await saveConfirmed(context, () => AppDb.I.updateLumpTx(existing['id'] as int, row), successMsg: 'ویرایش با موفقیت ثبت شد')) return;
     await _load();
   }
 
   Future<void> _toggleLumpPaid(Map<String, dynamic> row, bool paid) async {
     final updated = Map<String, dynamic>.from(row)..remove('id')..remove('payment_id');
     updated['paid'] = paid ? 1 : 0;
-    await AppDb.I.updateLumpTx(row['id'] as int, updated);
+    if (!await saveConfirmed(context, () => AppDb.I.updateLumpTx(row['id'] as int, updated), successMsg: 'وضعیت تسویه با موفقیت ثبت شد')) return;
     await _load();
   }
 
@@ -197,7 +202,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (_) => _CreditForm(total: _total, others: _othersSum(_credit, null)),
     );
     if (row == null) return;
-    final id = await AppDb.I.addCreditInst(_paymentId!, row);
+    int? id;
+    if (!await saveConfirmed(context, () async { id = await AppDb.I.addCreditInst(_paymentId!, row); }, successMsg: 'قسط پرداخت با موفقیت ثبت شد')) return;
     if (id != null) {
       await NotifyService.I.scheduleCreditRow({...row, 'id': id});
     }
@@ -211,7 +217,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (_) => _CreditForm(existing: existing, total: _total, others: _othersSum(_credit, existing['id'] as int?)),
     );
     if (row == null) return;
-    await AppDb.I.updateCreditInst(existing['id'] as int, row);
+    if (!await saveConfirmed(context, () => AppDb.I.updateCreditInst(existing['id'] as int, row), successMsg: 'ویرایش با موفقیت ثبت شد')) return;
     if (row['paid'] == 1) {
       await NotifyService.I.cancelCreditRow(existing['id'] as int);
     } else {
@@ -223,7 +229,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _toggleCreditPaid(Map<String, dynamic> row, bool paid) async {
     final updated = Map<String, dynamic>.from(row)..remove('id')..remove('payment_id');
     updated['paid'] = paid ? 1 : 0;
-    await AppDb.I.updateCreditInst(row['id'] as int, updated);
+    if (!await saveConfirmed(context, () => AppDb.I.updateCreditInst(row['id'] as int, updated), successMsg: 'وضعیت تسویه با موفقیت ثبت شد')) return;
     if (paid) {
       await NotifyService.I.cancelCreditRow(row['id'] as int);
     } else {
@@ -243,7 +249,8 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (_) => _ChequeForm(total: _total, others: _othersSum(_cheque, null)),
     );
     if (row == null) return;
-    final id = await AppDb.I.addChequeInst(_paymentId!, row);
+    int? id;
+    if (!await saveConfirmed(context, () async { id = await AppDb.I.addChequeInst(_paymentId!, row); }, successMsg: 'چک پرداخت با موفقیت ثبت شد')) return;
     if (id != null) {
       await NotifyService.I.scheduleChequeRow({...row, 'id': id});
     }
@@ -257,7 +264,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
       builder: (_) => _ChequeForm(existing: existing, total: _total, others: _othersSum(_cheque, existing['id'] as int?)),
     );
     if (row == null) return;
-    await AppDb.I.updateChequeInst(existing['id'] as int, row);
+    if (!await saveConfirmed(context, () => AppDb.I.updateChequeInst(existing['id'] as int, row), successMsg: 'ویرایش با موفقیت ثبت شد')) return;
     if (row['paid'] == 1) {
       await NotifyService.I.cancelChequeRow(existing['id'] as int);
     } else {
@@ -269,7 +276,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
   Future<void> _toggleChequePaid(Map<String, dynamic> row, bool paid) async {
     final updated = Map<String, dynamic>.from(row)..remove('id')..remove('payment_id');
     updated['paid'] = paid ? 1 : 0;
-    await AppDb.I.updateChequeInst(row['id'] as int, updated);
+    if (!await saveConfirmed(context, () => AppDb.I.updateChequeInst(row['id'] as int, updated), successMsg: 'وضعیت تسویه با موفقیت ثبت شد')) return;
     if (paid) {
       await NotifyService.I.cancelChequeRow(row['id'] as int);
     } else {
@@ -383,7 +390,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               icon: const Icon(Icons.delete_outline),
               onPressed: () async {
                 if (await confirm(context, 'این تراکنش حذف شود؟')) {
-                  await AppDb.I.deleteLumpTx(r['id'] as int);
+                  await saveConfirmed(context, () => AppDb.I.deleteLumpTx(r['id'] as int), successMsg: 'حذف شد');
                   await _load();
                 }
               },
@@ -417,7 +424,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               onPressed: () async {
                 if (await confirm(context, 'این قسط حذف شود؟')) {
                   await NotifyService.I.cancelCreditRow(r['id'] as int);
-                  await AppDb.I.deleteCreditInst(r['id'] as int);
+                  await saveConfirmed(context, () => AppDb.I.deleteCreditInst(r['id'] as int), successMsg: 'حذف شد');
                   await _load();
                 }
               },
@@ -452,7 +459,7 @@ class _PaymentScreenState extends State<PaymentScreen> {
               onPressed: () async {
                 if (await confirm(context, 'این چک حذف شود؟')) {
                   await NotifyService.I.cancelChequeRow(r['id'] as int);
-                  await AppDb.I.deleteChequeInst(r['id'] as int);
+                  await saveConfirmed(context, () => AppDb.I.deleteChequeInst(r['id'] as int), successMsg: 'حذف شد');
                   await _load();
                 }
               },

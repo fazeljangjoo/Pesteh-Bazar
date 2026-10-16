@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'charts.dart';
 import 'db.dart';
 import 'mix_form.dart';
 import 'pdf_service.dart';
@@ -18,6 +19,8 @@ class InventoryScreen extends StatefulWidget {
 class _InventoryScreenState extends State<InventoryScreen> {
   String _query = '';
   bool _showSold = false; // false = موجود | true = فروش رفته (مثل وب)
+  bool _showMixed = false; // false = پسته‌های خریداری‌شده | true = مخلوط/جداسازی (ساخته‌شده از انبار خودمان)
+  bool _byValue = false; // نمودار موجودی: false = بر اساس وزن (کیلو) | true = بر اساس ارزش خرید (تومان)
 
   Future<void> _showMixDetails(BuildContext context, Map<String, dynamic> l) async {
     final sources = await AppDb.I.mixSourcesOf(l['id'] as int);
@@ -39,7 +42,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   style: Theme.of(ctx).textTheme.titleMedium),
                 infoRow('کد پسته', l['code'] as String? ?? '-'),
               const SizedBox(height: 4),
-              const Text('این جنس از ترکیب چند بار انبار ساخته شده:',
+              const Text('اجناس مصرف‌شده در این مخلوط/جداسازی:',
                   style: TextStyle(color: Colors.black54)),
               const SizedBox(height: 8),
               for (final s in sources)
@@ -47,12 +50,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   child: ListTile(
                     dense: true,
                     title: Text('${s['category_name']} - ${s['type_name']}'),
-                    subtitle: Text('${faNum(s['weight'] as num)} کیلو  •  '
-                        '${jalaliDate(s['source_date'] as String)}'),
+                    subtitle: Text('کد ${s['code'] ?? '-'}  •  ${faNum(s['weight'] as num)} کیلو  •  '
+                        '${jalaliDate(s['source_date'] as String)}'
+                        '${(((s['small_sacks'] as num?) ?? 0) > 0 || ((s['large_sacks'] as num?) ?? 0) > 0) ? '\nگونی مصرفی: کوچک ${faNum((s['small_sacks'] as num?) ?? 0)} / بزرگ ${faNum((s['large_sacks'] as num?) ?? 0)}' : ''}'),
+                    isThreeLine: ((s['small_sacks'] as num?) ?? 0) > 0 || ((s['large_sacks'] as num?) ?? 0) > 0,
                   ),
                 ),
               const SizedBox(height: 8),
-              infoRow('وزن خالص این مخلوط', '${faNum(net)} کیلو'),
+              infoRow('وزن خالص این قلم', '${faNum(net)} کیلو'),
+              if (l['waste'] != null && (l['waste'] as num) > 0)
+                infoRow('ضایعات/خاک', '${faNum(l['waste'] as num)} کیلو'),
               infoRow('مانده فعلی', '${faNum(rem)} کیلو'),
               infoRow('گونی مانده: کوچک / بزرگ',
                   '${faNum((l['small_left'] as num?) ?? 0)} / ${faNum((l['large_left'] as num?) ?? 0)}'),
@@ -69,7 +76,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                         MaterialPageRoute(builder: (_) => MixForm(existing: l)));
                   },
                   icon: const Icon(Icons.edit_outlined),
-                  label: const Text('ویرایش مخلوط'),
+                  label: const Text('ویرایش مخلوط/جداسازی'),
                 ),
               OutlinedButton.icon(
                 onPressed: () async {
@@ -89,26 +96,63 @@ class _InventoryScreenState extends State<InventoryScreen> {
                 OutlinedButton.icon(
                   onPressed: () async {
                     final ok = await confirm(ctx,
-                        'این مخلوط حذف شود و وزن/گونیِ برداشته‌شده به بارهای مبدأ برگردد؟');
+                        'این مخلوط/جداسازی حذف شود و وزن/گونیِ برداشته‌شده به بارهای مبدأ برگردد؟');
                     if (!ok) return;
                     final done = await AppDb.I.deleteMix(l['id'] as int);
                     if (ctx.mounted) {
                       Navigator.pop(ctx);
                       if (!done) {
-                        snack(context, 'از این مخلوط فروش انجام شده؛ حذف امکان‌پذیر نیست');
+                        snack(context, 'از این مخلوط/جداسازی فروش انجام شده؛ حذف امکان‌پذیر نیست');
                       }
                     }
                   },
                   icon: const Icon(Icons.undo),
-                  label: const Text('حذف مخلوط و بازگرداندن به انبار'),
+                  label: const Text('حذف مخلوط/جداسازی و بازگرداندن به انبار'),
                 )
               else
-                const Text('چون بخشی از این مخلوط فروخته شده، دیگر قابل حذف نیست.',
+                const Text('چون بخشی از این قلم فروخته شده، دیگر قابل حذف نیست.',
                     style: TextStyle(color: Colors.black54)),
             ],
           ),
         ),
       ),
+    );
+  }
+
+  /// نمودار کروی «تفکیک موجودی بر اساس نوع پسته» (فقط اجناس موجود)
+  Widget _stockChart(BuildContext context, List<Map<String, dynamic>> items) {
+    final data = <String, double>{};
+    for (final l in items) {
+      final rem = (l['remaining'] as num).toDouble();
+      if (rem <= 1e-6) continue;
+      final key = '${l['type_name']}';
+      data[key] = (data[key] ?? 0) + (_byValue ? rem * (l['price'] as num).toDouble() : rem);
+    }
+    return ChartCard(
+      title: 'تفکیک موجودی بر اساس نوع پسته',
+      subtitle: _showMixed ? 'مخلوط / جداسازی' : 'خریداری‌شده',
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SegmentedButton<bool>(
+          segments: const <ButtonSegment<bool>>[
+            ButtonSegment<bool>(value: false, label: Text('بر اساس وزن'), icon: Icon(Icons.scale_outlined)),
+            ButtonSegment<bool>(value: true, label: Text('بر اساس ارزش'), icon: Icon(Icons.payments_outlined)),
+          ],
+          selected: <bool>{_byValue},
+          showSelectedIcon: false,
+          onSelectionChanged: (v) => setState(() => _byValue = v.first),
+        ),
+        const SizedBox(height: 14),
+        if (data.isEmpty)
+          const ChartEmpty('موجودی‌ای برای نمایش نیست')
+        else
+          Center(
+            child: DonutChart(
+              slices: topSlices(data, maxSlices: 5),
+              centerTitle: _byValue ? 'جمع ارزش خرید' : 'جمع موجودی',
+              format: (v) => _byValue ? '${faCompact(v)} تومان' : '${faNum(v)} کیلو',
+            ),
+          ),
+      ]),
     );
   }
 
@@ -120,7 +164,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
         onPressed: () =>
             Navigator.push(context, MaterialPageRoute(builder: (_) => const MixForm())),
         icon: const Icon(Icons.merge_type),
-        label: const Text('ساخت مخلوط'),
+        label: const Text('مخلوط / جداسازی'),
       ),
       body: ValueListenableBuilder<int>(
         valueListenable: AppDb.I.version,
@@ -131,9 +175,16 @@ class _InventoryScreenState extends State<InventoryScreen> {
             final all = s.data!;
             if (all.isEmpty) return const Center(child: Text('انبار خالی است'));
 
+            // انبار دو دسته است: پسته‌های خریداری‌شده | مخلوط/جداسازی‌شده (ساخته‌شده از انبار خودمان)
+            bool isMixRow(Map<String, dynamic> p) => ((p['is_mix'] as num?) ?? 0) == 1;
+            final boughtAll = all.where((p) => !isMixRow(p)).toList();
+            final mixedAll = all.where(isMixRow).toList();
+            final kindItems = _showMixed ? mixedAll : boughtAll;
+            final otherKindItems = _showMixed ? boughtAll : mixedAll;
+
             // «موجود» مثل وب: هنوز وزنی از خودش مانده، یا مقداری از آن داخل مخلوطِ فروش‌نرفته است
-            final available = all.where(AppDb.isAvailable).toList();
-            final soldOut = all.where((p) => !AppDb.isAvailable(p)).toList();
+            final available = kindItems.where(AppDb.isAvailable).toList();
+            final soldOut = kindItems.where((p) => !AppDb.isAvailable(p)).toList();
             final q = _norm(_query);
             bool match(Map<String, dynamic> p) =>
                 q.isEmpty ||
@@ -142,7 +193,22 @@ class _InventoryScreenState extends State<InventoryScreen> {
             final other = _showSold ? available : soldOut;
             final lots = base.where(match).toList();
 
+            final totalWaste = mixedAll.fold<double>(0, (a, p) => a + ((p['waste'] as num?) ?? 0).toDouble());
             final children = <Widget>[
+              SegmentedButton<bool>(
+                segments: <ButtonSegment<bool>>[
+                  ButtonSegment<bool>(
+                      value: false,
+                      label: Text('خریداری‌شده (${faNum(boughtAll.where(AppDb.isAvailable).length, dec: 0)})')),
+                  ButtonSegment<bool>(
+                      value: true,
+                      label: Text('مخلوط/جداسازی (${faNum(mixedAll.where(AppDb.isAvailable).length, dec: 0)})')),
+                ],
+                selected: <bool>{_showMixed},
+                showSelectedIcon: false,
+                onSelectionChanged: (v) => setState(() => _showMixed = v.first),
+              ),
+              const SizedBox(height: 8),
               SegmentedButton<bool>(
                 segments: <ButtonSegment<bool>>[
                   ButtonSegment<bool>(
@@ -175,9 +241,13 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     infoRow('ارزش خرید موجودی', '${faNum(totalValue, dec: 0)} تومان'),
                     infoRow('تعداد گونی کل', '${faNum(totalSmall + totalLarge)} عدد'),
                     infoRow('گونی کوچک / بزرگ', '${faNum(totalSmall)} / ${faNum(totalLarge)}'),
+                    if (_showMixed && totalWaste > 0.0005)
+                      infoRow('مجموع ضایعات ثبت‌شده', '${faNum(totalWaste)} کیلو'),
                   ]),
                 ),
               ));
+              children.add(const SizedBox(height: 4));
+              children.add(_stockChart(context, available));
             } else {
               double soldKg = 0, soldValue = 0;
               for (final p in soldOut) {
@@ -192,6 +262,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
                     infoRow('تعداد خریدهای فروش‌رفته', '${faNum(soldOut.length, dec: 0)} بار'),
                     infoRow('مجموع وزن فروش‌رفته', '${faNum(soldKg)} کیلو'),
                     infoRow('ارزش خرید آن‌ها', '${faNum(soldValue, dec: 0)} تومان'),
+                    if (_showMixed && totalWaste > 0.0005)
+                      infoRow('مجموع ضایعات ثبت‌شده', '${faNum(totalWaste)} کیلو'),
                   ]),
                 ),
               ));
@@ -211,20 +283,32 @@ class _InventoryScreenState extends State<InventoryScreen> {
 
             if (lots.isEmpty) {
               final otherHits = q.isEmpty ? 0 : other.where(match).length;
+              final otherKindHits = q.isEmpty ? 0 : otherKindItems.where(match).length;
               children.add(Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24),
                 child: Center(
                     child: Text(q.isNotEmpty
                         ? 'نتیجه‌ای پیدا نشد'
                         : (_showSold
-                            ? 'هنوز هیچ خریدی به‌طور کامل فروش نرفته است'
-                            : 'هیچ جنسی در انبار موجود نیست'))),
+                            ? (_showMixed
+                                ? 'هنوز هیچ مخلوط/جداسازی‌ای به‌طور کامل فروش نرفته است'
+                                : 'هنوز هیچ خریدی به‌طور کامل فروش نرفته است')
+                            : (_showMixed
+                                ? 'هیچ مخلوط/جداسازی‌ای در انبار موجود نیست'
+                                : 'هیچ جنسی در انبار موجود نیست')))),
               ));
               if (otherHits > 0) {
                 children.add(OutlinedButton(
                   onPressed: () => setState(() => _showSold = !_showSold),
                   child: Text(
                       '${faNum(otherHits, dec: 0)} مورد در بخش «${_showSold ? 'موجود' : 'فروش رفته'}» پیدا شد — نمایش'),
+                ));
+              }
+              if (otherKindHits > 0) {
+                children.add(OutlinedButton(
+                  onPressed: () => setState(() => _showMixed = !_showMixed),
+                  child: Text(
+                      '${faNum(otherKindHits, dec: 0)} مورد در دستهٔ «${_showMixed ? 'خریداری‌شده' : 'مخلوط/جداسازی'}» پیدا شد — نمایش'),
                 ));
               }
             } else {
@@ -246,7 +330,7 @@ class _InventoryScreenState extends State<InventoryScreen> {
                   children.add(Card(
                     child: ExpansionTile(
                       // هنگام جستجو نتیجه‌ها باز نمایش داده می‌شوند
-                      key: PageStorageKey('${_showSold}/${catEntry.key}/${e.key}/${q.isNotEmpty}'),
+                      key: PageStorageKey('${_showMixed}/${_showSold}/${catEntry.key}/${e.key}/${q.isNotEmpty}'),
                       initiallyExpanded: q.isNotEmpty,
                       title: Text(e.key),
                       subtitle: Text(
@@ -277,7 +361,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
       'خرید ${jalaliDate(l['date'] as String)}  •  فی ${faNum(l['price'] as num, dec: 0)}',
       if (!sold && soldW > 1e-6) 'از ${faNum(net)} کیلو خریداری‌شده، ${faNum(soldW)} کیلو فروخته/مصرف شده',
       if (codes.isNotEmpty)
-        '🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط ${codes.join('، ')} است (هنوز کامل فروش نرفته)',
+        '🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط/جداسازی ${codes.join('، ')} است (هنوز کامل فروش نرفته)',
+      if (isMix && ((l['waste'] as num?) ?? 0) > 0.0005) 'ضایعات/خاک: ${faNum(l['waste'] as num)} کیلو',
       if (!sold)
         'گونی مانده: کوچک ${faNum(l['small_left'] as num)} / بزرگ ${faNum(l['large_left'] as num)}'
             '${l['ounce'] != null ? '  •  انس ${faNum(l['ounce'] as num)}' : ''}'
@@ -288,11 +373,11 @@ class _InventoryScreenState extends State<InventoryScreen> {
       onTap: isMix ? () => _showMixDetails(context, l) : null,
       leading: isMix
           ? const Tooltip(
-              message: 'مخلوط (کوت‌ریزی) — از چند جنس ساخته شده', child: Icon(Icons.merge_type))
+              message: 'مخلوط/جداسازی — از جنس‌های خودِ انبار ساخته شده', child: Icon(Icons.merge_type))
           : null,
       title: Text(sold
-          ? '${faNum(net)} کیلو  •  فروش رفت${isMix ? '  •  مخلوط' : ''}'
-          : '${faNum(rem)} کیلو مانده${isMix ? '  •  مخلوط' : ''}'),
+          ? '${faNum(net)} کیلو  •  فروش رفت${isMix ? '  •  مخلوط/جداسازی' : ''}'
+          : '${faNum(rem)} کیلو مانده${isMix ? '  •  مخلوط/جداسازی' : ''}'),
       subtitle: Text(lines.join('\n')),
       isThreeLine: lines.length >= 3,
     );

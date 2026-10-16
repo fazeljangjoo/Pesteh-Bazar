@@ -44,7 +44,7 @@ class PestehApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'بازار پسته',
+      title: 'پسته بازار',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(colorSchemeSeed: const Color(0xFF5B7F2A), useMaterial3: true),
       builder: (context, child) =>
@@ -90,7 +90,7 @@ class _HomeShellState extends State<HomeShell> {
             children: [
               const Padding(
                 padding: EdgeInsets.all(16),
-                child: Text('بازار پسته', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                child: Text('پسته بازار', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ),
               const Divider(height: 1),
               ListTile(

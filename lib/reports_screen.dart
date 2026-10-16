@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'charts.dart';
 import 'db.dart';
+import 'license_service.dart';
 import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -16,6 +18,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   DateTime? _from;
   DateTime? _to;
   String _q = ''; // جستجوی کد پسته در گزارش سود
+  int _chartMode = 0; // 0 = میله‌ای (سود در طول زمان) | 1 = کروی (سهم هر نوع پسته از سود)
 
   /// بازهٔ مؤثر گزارش سود: اگر کاربر تاریخی انتخاب نکرده باشد، ماه جاری شمسی
   (DateTime?, DateTime?) _effectiveRange() {
@@ -69,6 +72,66 @@ class _ReportsScreenState extends State<ReportsScreen> {
     }
   }
 
+  /// کارت نمودار سود و زیان: یک نمودار در هر لحظه (میله‌ای یا کروی) تا شلوغ نشود
+  Widget _chartCard(BuildContext context, List<TimeBucket> buckets, List<double> bucketProfit,
+      Map<String, double> byType) {
+    final groups = <BarGroup>[
+      for (var i = 0; i < buckets.length; i++) BarGroup(buckets[i].label, buckets[i].fullLabel, [bucketProfit[i]]),
+    ];
+    final hasBarData = bucketProfit.any((v) => v != 0);
+    final positive = <String, double>{
+      for (final e in byType.entries)
+        if (e.value > 0) e.key: e.value,
+    };
+    final losers = byType.entries.where((e) => e.value < 0).toList()..sort((a, b) => a.value.compareTo(b.value));
+    final Widget body;
+    if (_chartMode == 0) {
+      body = hasBarData
+          ? GroupedBarChart(
+              groups: groups,
+              series: const [BarSeries('سود / زیان', kGainColor, negativeColor: kLossColor)],
+              format: (v) => '${faCompact(v)} تومان',
+            )
+          : const ChartEmpty('در این بازه سود یا زیانی ثبت نشده');
+    } else {
+      body = Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (positive.isEmpty)
+          const ChartEmpty('در این بازه نوعی سود نکرده است')
+        else
+          Center(
+            child: DonutChart(
+              slices: topSlices(positive),
+              centerTitle: 'جمع سود انواع سودده',
+              format: (v) => faCompact(v),
+            ),
+          ),
+        if (losers.isNotEmpty) ...[
+          const SizedBox(height: 10),
+          for (final e in losers.take(3))
+            Text('زیان‌ده: ${e.key}  ${faCompact(e.value)} تومان',
+                style: const TextStyle(color: kLossColor, fontSize: 12.5)),
+        ],
+      ]);
+    }
+    return ChartCard(
+      title: 'نمودار سود و زیان',
+      subtitle: _profitPeriodLabel(),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        SegmentedButton<int>(
+          segments: const <ButtonSegment<int>>[
+            ButtonSegment<int>(value: 0, label: Text('میله‌ای'), icon: Icon(Icons.bar_chart)),
+            ButtonSegment<int>(value: 1, label: Text('کروی'), icon: Icon(Icons.donut_large)),
+          ],
+          selected: <int>{_chartMode},
+          showSelectedIcon: false,
+          onSelectionChanged: (v) => setState(() => _chartMode = v.first),
+        ),
+        const SizedBox(height: 14),
+        body,
+      ]),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -96,6 +159,9 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }).toList();
 
             double totalRevenue = 0, totalCost = 0;
+            final fx = LicenseService.I.isFx.value;
+            double usdRevenue = 0, usdCost = 0;
+            var usdMissing = 0; // فروش‌هایی که سود دلاری‌شان قابل محاسبه نیست
             final Map<String, double> byType = {}; // "دسته - نوع" -> سود
             final rows = <Widget>[];
             for (final sale in list) {
@@ -115,6 +181,15 @@ class _ReportsScreenState extends State<ReportsScreen> {
               final profit = revenue - cost;
               totalRevenue += revenue;
               totalCost += cost;
+              final usd = fx ? saleUsd(sale) : null;
+              if (fx) {
+                if (usd == null) {
+                  usdMissing++;
+                } else {
+                  usdRevenue += usd.revenue;
+                  usdCost += usd.cost;
+                }
+              }
               final comp = items
                   .map((it) => '${it['type_name']}${it['code'] != null ? ' (کد ${it['code']})' : ''} ${faNum(it['weight'] as num)}')
                   .join(' + ');
@@ -134,6 +209,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       infoRow('مبلغ فروش', '${faNum(revenue, dec: 0)} تومان'),
                       infoRow('بهای خرید', '${faNum(cost, dec: 0)} تومان'),
                       infoRow('سود / زیان', '${faNum(profit, dec: 0)} تومان'),
+                      if (fx && usd != null) ...[
+                        infoRow('مبلغ فروش (دلار)', faUsd(usd.revenue)),
+                        infoRow('بهای خرید (دلار)', faUsd(usd.cost)),
+                        infoRow('سود / زیان دلاری', faUsd(usd.profit),
+                            valueColor: usd.profit >= 0 ? Colors.green.shade800 : scheme.error),
+                      ] else if (fx)
+                        const Text('سود دلاری: قیمت دلار یا فی دلاریِ خرید ثبت نشده',
+                            style: TextStyle(fontSize: 12, color: Colors.black54)),
                     ],
                   ),
                 ),
@@ -141,6 +224,29 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }
 
             final totalProfit = totalRevenue - totalCost;
+
+            // ---- داده‌ی نمودار: سود هر روز (بازه تا ۳۱ روز) یا هر ماه شمسی ----
+            DateTime? cFrom = range.$1;
+            DateTime? cTo = range.$2;
+            if (list.isNotEmpty) {
+              DateTime dtOf(Map<String, dynamic> x) => DateTime.parse(x['date'] as String);
+              cFrom ??= list.map(dtOf).reduce((a, b) => a.isBefore(b) ? a : b);
+              cTo ??= list.map(dtOf).reduce((a, b) => a.isAfter(b) ? a : b);
+            }
+            final buckets = (cFrom != null && cTo != null) ? buildBuckets(cFrom, cTo) : <TimeBucket>[];
+            final bucketProfit = List<double>.filled(buckets.length, 0);
+            for (final sale in list) {
+              final dt = DateTime.parse(sale['date'] as String);
+              final its = sale['items'] as List;
+              final rev = (sale['net_weight'] as num).toDouble() * (sale['price'] as num).toDouble();
+              final cst = its.fold<double>(0, (a, it) => a + (it['weight'] as num) * (it['cost_price'] as num));
+              for (var i = 0; i < buckets.length; i++) {
+                if (buckets[i].contains(dt)) {
+                  bucketProfit[i] += rev - cst;
+                  break;
+                }
+              }
+            }
             return ListView(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
               children: [
@@ -166,9 +272,21 @@ class _ReportsScreenState extends State<ReportsScreen> {
                       infoRow('مجموع فروش', '${faNum(totalRevenue, dec: 0)} تومان'),
                       infoRow('مجموع بهای خرید', '${faNum(totalCost, dec: 0)} تومان'),
                       infoRow('مجموع سود / زیان', '${faNum(totalProfit, dec: 0)} تومان'),
+                      if (fx) ...[
+                        const Divider(),
+                        infoRow('مجموع فروش (دلار)', faUsd(usdRevenue)),
+                        infoRow('مجموع بهای خرید (دلار)', faUsd(usdCost)),
+                        infoRow('مجموع سود / زیان دلاری', faUsd(usdRevenue - usdCost),
+                            valueColor: (usdRevenue - usdCost) >= 0 ? Colors.green.shade800 : scheme.error),
+                        if (usdMissing > 0)
+                          Text('${faNum(usdMissing, dec: 0)} فروش به‌دلیل نبودنِ قیمت دلار یا فی دلاریِ خرید در جمع دلاری نیامده است',
+                              style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      ],
                     ]),
                   ),
                 ),
+                const SizedBox(height: 12),
+                _chartCard(context, buckets, bucketProfit, byType),
                 if (byType.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Card(

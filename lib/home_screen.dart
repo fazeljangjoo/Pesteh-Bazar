@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'sync_screen.dart';
 import 'sync_service.dart';
 import 'db.dart';
+import 'license_service.dart';
 import 'dues_screen.dart';
 import 'ledger.dart';
 import 'purchase_form.dart';
@@ -21,7 +22,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('بازار پسته')),
+      appBar: AppBar(title: const Text('پسته بازار')),
       body: ValueListenableBuilder<int>(
         valueListenable: AppDb.I.version,
         builder: (_, __, ___) => FutureBuilder(
@@ -48,7 +49,8 @@ class HomeScreen extends StatelessWidget {
               invValue += rem * (l['price'] as num).toDouble();
             }
 
-            double todayRevenue = 0, monthRevenue = 0, monthProfit = 0;
+            double todayRevenue = 0, monthRevenue = 0, monthProfit = 0, monthProfitUsd = 0;
+            final fx = LicenseService.I.isFx.value;
             int todayCount = 0;
             for (final s in sales) {
               final date = DateTime.parse(s['date'] as String);
@@ -65,6 +67,8 @@ class HomeScreen extends StatelessWidget {
               if (!date.isBefore(startOfMonth)) {
                 monthRevenue += revenue;
                 monthProfit += revenue - cost;
+                final u = fx ? saleUsd(s) : null;
+                if (u != null) monthProfitUsd += u.profit;
               }
             }
 
@@ -100,6 +104,9 @@ class HomeScreen extends StatelessWidget {
                       infoRow('سود ماه', '${faNum(monthProfit, dec: 0)} تومان',
                           valueColor:
                               monthProfit >= 0 ? Colors.green.shade800 : scheme.error),
+                      if (fx)
+                        infoRow('سود دلاری ماه', faUsd(monthProfitUsd),
+                            valueColor: monthProfitUsd >= 0 ? Colors.green.shade800 : scheme.error),
                     ]),
                   ),
                 ),

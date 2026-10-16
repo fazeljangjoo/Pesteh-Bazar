@@ -47,7 +47,11 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) refresh();
+    if (state == AppLifecycleState.resumed) {
+      // بعد از تماس تلفن/قفل صفحه: مطمئن شو دیتابیس باز و سالم است تا ثبت بعدی ناموفق نشود
+      AppDb.I.ensureHealthy();
+      refresh();
+    }
   }
 
   /// دیتابیس حساب را باز می‌کند؛ اگر این دستگاه هنوز داده‌های حساب را نگرفته (ورود اول /
@@ -148,7 +152,7 @@ class ContactButtons extends StatelessWidget {
         ),
         OutlinedButton.icon(
           onPressed: () {
-            final base = 'سلام، برای فعال‌سازی/تمدید اشتراک بازار پسته تماس می‌گیرم.';
+            final base = 'سلام، برای فعال‌سازی/تمدید اشتراک پسته بازار تماس می‌گیرم.';
             final withPhone = (phoneForMessage != null && phoneForMessage!.trim().isNotEmpty)
                 ? '$base شماره من: ${phoneForMessage!}'
                 : base;
@@ -163,7 +167,7 @@ class ContactButtons extends StatelessWidget {
   }
 }
 
-enum _LoginStep { phone, code, name, pass }
+enum _LoginStep { phone, code, name, newpass, pass }
 
 /// ورود با شماره موبایل: پیش‌فرض «کد پیامکی» (شماره ← کد ← [نام، فقط کاربر جدید])
 /// و با یک لینک زیر دکمه «ورود با رمز عبور» (شماره + رمز؛ فقط برای حساب‌هایی که رمز دارند)
@@ -179,6 +183,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _code = TextEditingController();
   final _name = TextEditingController();
   final _pass = TextEditingController();
+  final _newPass = TextEditingController();
+  final _newPass2 = TextEditingController();
   bool _showPass = false;
   _LoginStep _step = _LoginStep.phone;
   String _verifiedCode = ''; // کدی که درست بود ولی منتظر نام هستیم
@@ -194,6 +200,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _code.dispose();
     _name.dispose();
     _pass.dispose();
+    _newPass.dispose();
+    _newPass2.dispose();
     super.dispose();
   }
 
@@ -221,6 +229,8 @@ class _LoginScreenState extends State<LoginScreen> {
       _cooldown = 0;
       _code.clear();
       _verifiedCode = '';
+      _newPass.clear();
+      _newPass2.clear();
     }
     if (s == _LoginStep.pass) _pass.clear();
   }
@@ -277,13 +287,28 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   Future<void> _verify() async {
-    final isNameStep = _step == _LoginStep.name;
-    final code = isNameStep ? _verifiedCode : _code.text;
-    String? name;
-    if (isNameStep) {
-      name = _name.text.trim();
-      if (name.length < 2) {
+    // مرحلهٔ نام (کاربر جدید): فقط نام را می‌گیریم و به مرحلهٔ تعیین رمز می‌رویم
+    if (_step == _LoginStep.name) {
+      if (_name.text.trim().length < 2) {
         setState(() => _error = 'نام خود را وارد کنید');
+        return;
+      }
+      _goStep(_LoginStep.newpass);
+      return;
+    }
+    final isNewPassStep = _step == _LoginStep.newpass;
+    final code = isNewPassStep ? _verifiedCode : _code.text;
+    String? name;
+    String? password;
+    if (isNewPassStep) {
+      name = _name.text.trim();
+      password = _newPass.text;
+      if (password.length < LicenseService.passwordMinLen) {
+        setState(() => _error = 'رمز عبور باید حداقل ۶ کاراکتر باشد');
+        return;
+      }
+      if (password != _newPass2.text) {
+        setState(() => _error = 'تکرار رمز با رمز عبور یکسان نیست');
         return;
       }
     } else if (code.trim().isEmpty) {
@@ -294,11 +319,11 @@ class _LoginScreenState extends State<LoginScreen> {
       _loading = true;
       _error = null;
     });
-    final r = await LicenseService.I.verifyOtp(_phone.text, code, name: name);
+    final r = await LicenseService.I.verifyOtp(_phone.text, code, name: name, password: password);
     if (!mounted) return;
     setState(() => _loading = false);
     if (r.needName) {
-      // کاربر جدید: کد درست است ولی هنوز مصرف نشده؛ نام را می‌پرسیم
+      // کاربر جدید: کد درست است ولی هنوز مصرف نشده؛ نام و بعد رمز را می‌پرسیم
       _verifiedCode = code;
       _goStep(_LoginStep.name);
       return;
@@ -325,7 +350,8 @@ class _LoginScreenState extends State<LoginScreen> {
   String get _buttonLabel => switch (_step) {
         _LoginStep.phone => 'دریافت کد ورود',
         _LoginStep.code => 'ورود',
-        _LoginStep.name => 'ثبت‌نام و ورود',
+        _LoginStep.name => 'ادامه',
+        _LoginStep.newpass => 'ثبت‌نام و ورود',
         _LoginStep.pass => 'ورود',
       };
 
@@ -340,7 +366,7 @@ class _LoginScreenState extends State<LoginScreen> {
             child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Icon(Icons.storefront_outlined, size: 64),
               const SizedBox(height: 12),
-              Text('بازار پسته', style: Theme.of(context).textTheme.headlineSmall),
+              Text('پسته بازار', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
               Text(
                   _step == _LoginStep.pass
@@ -429,7 +455,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ]),
               ],
               if (_step == _LoginStep.name) ...[
-                const Text('به بازار پسته خوش آمدید! برای ساخت حساب جدید، نام خود را وارد کنید.',
+                const Text('به پسته بازار خوش آمدید! برای ساخت حساب جدید، نام خود را وارد کنید.',
                     textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
                 const SizedBox(height: 12),
                 TextField(
@@ -456,6 +482,60 @@ class _LoginScreenState extends State<LoginScreen> {
                   child: TextButton(
                     onPressed: _loading ? null : () => _goStep(_LoginStep.phone),
                     child: const Text('تغییر شماره'),
+                  ),
+                ),
+              ],
+              if (_step == _LoginStep.newpass) ...[
+                const Text('یک رمز عبور برای حساب خود تعیین کنید (حداقل ۶ کاراکتر)',
+                    textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('login_newpass'),
+                  controller: _newPass,
+                  obscureText: !_showPass,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  maxLength: 72,
+                  autofocus: true,
+                  textDirection: TextDirection.ltr,
+                  autofillHints: const [AutofillHints.newPassword],
+                  textInputAction: TextInputAction.next,
+                  decoration: InputDecoration(
+                    labelText: 'رمز عبور',
+                    counterText: '',
+                    border: const OutlineInputBorder(),
+                    prefixIcon: const Icon(Icons.lock_outline),
+                    suffixIcon: IconButton(
+                      tooltip: _showPass ? 'پنهان‌کردن رمز' : 'نمایش رمز',
+                      icon: Icon(_showPass ? Icons.visibility_off_outlined : Icons.visibility_outlined),
+                      onPressed: () => setState(() => _showPass = !_showPass),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  key: const ValueKey('login_newpass2'),
+                  controller: _newPass2,
+                  obscureText: !_showPass,
+                  autocorrect: false,
+                  enableSuggestions: false,
+                  maxLength: 72,
+                  textDirection: TextDirection.ltr,
+                  autofillHints: const [AutofillHints.newPassword],
+                  textInputAction: TextInputAction.done,
+                  onSubmitted: (_) => _submit(),
+                  decoration: const InputDecoration(
+                    labelText: 'تکرار رمز عبور',
+                    counterText: '',
+                    border: OutlineInputBorder(),
+                    prefixIcon: Icon(Icons.lock_outline),
+                  ),
+                ),
+                Align(
+                  alignment: AlignmentDirectional.centerStart,
+                  child: TextButton(
+                    onPressed: _loading ? null : () => _goStep(_LoginStep.name),
+                    child: const Text('بازگشت'),
                   ),
                 ),
               ],
