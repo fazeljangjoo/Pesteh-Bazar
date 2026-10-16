@@ -69,6 +69,19 @@ jobs:
               f.write(content)
           PYEOF
 
+      - name: Set launcher app name
+        run: |
+          python3 - <<'PYEOF'
+          import re
+          path = "android/app/src/main/AndroidManifest.xml"
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          content, n = re.subn(r'android:label="[^"]*"', 'android:label="پسته بازار"', content, count=1)
+          assert n == 1, "android:label not found in manifest"
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          PYEOF
+
       - name: Enable core library desugaring
         run: |
           python3 - <<'PYEOF'
