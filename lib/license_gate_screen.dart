@@ -24,6 +24,10 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   bool _loading = true;
   LicenseResult? _result;
   String? _dataError;
+  String _stage = 'شروع';
+  void _setStage(String t) {
+    if (mounted) setState(() => _stage = t);
+  }
 
   @override
   void initState() {
@@ -60,9 +64,12 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   Future<String?> _prepareData(String phone) async {
     try {
       // سقف زمانی: اگر باز کردن دیتابیس/همگام‌سازی گیر کرد، اسپینر بی‌پایان نمی‌ماند
+      _setStage('باز کردن دیتابیس گوشی');
       await AppDb.I.useAccount(phone).timeout(const Duration(seconds: 25),
           onTimeout: () => throw TimeoutException('باز کردن دیتابیس گوشی بیش از حد طول کشید'));
+      _setStage('بررسی همگام‌سازی اولیه');
       if (await AppDb.I.metaGet('initial_done') == null) {
+        _setStage('دریافت اطلاعات از سرور (اولین بار)');
         final err = await SyncService.I.initialSync().timeout(const Duration(seconds: 170),
             onTimeout: () => 'دریافت اطلاعات از سرور بیش از حد طول کشید. اینترنت/VPN را بررسی کنید.');
         if (err != null) return err;
@@ -81,7 +88,14 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   Future<void> refresh() async {
     // در بازگشت به برنامه، اگر قبلاً وارد شده بود، صفحهٔ فعلی با اسپینر عوض نشود
     if (_result == null || _result!.state != LicenseState.valid) setState(() => _loading = true);
-    final r = await LicenseService.I.check();
+    _setStage('بررسی اشتراک از سرور');
+    LicenseResult r;
+    try {
+      r = await LicenseService.I.check().timeout(const Duration(seconds: 25));
+    } catch (e) {
+      debugPrint('check error: $e');
+      r = LicenseResult(LicenseState.needsInternet);
+    }
     String? dataErr;
     if (r.state == LicenseState.valid && r.phone != null) {
       dataErr = await _prepareData(r.phone!);
@@ -109,14 +123,16 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(
+      return Scaffold(
         body: Center(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              CircularProgressIndicator(),
-              SizedBox(height: 16),
+              const CircularProgressIndicator(),
+              const SizedBox(height: 16),
               Text('در حال آماده‌سازی…'),
+              const SizedBox(height: 8),
+              Text(_stage, style: const TextStyle(fontSize: 12)),
             ],
           ),
         ),
