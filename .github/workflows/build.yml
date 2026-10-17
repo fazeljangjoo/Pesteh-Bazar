@@ -171,3 +171,34 @@ jobs:
         run: |
           python3 - <<'PYEOF'
           path = "android/app/build.gradle.kts"
+          with open(path, encoding="utf-8") as f:
+              content = f.read()
+          if "isMinifyEnabled" not in content:
+              assert "        release {" in content, "release block not found"
+              content = content.replace(
+                  "        release {",
+                  "        release {\n            isMinifyEnabled = false\n            isShrinkResources = false",
+                  1,
+              )
+          assert "isMinifyEnabled = false" in content, "failed to disable minify"
+          with open(path, "w", encoding="utf-8") as f:
+              f.write(content)
+          PYEOF
+
+      - run: flutter build apk --release --obfuscate --split-debug-info=build/debug-symbols
+
+      - name: Show APK signing certificate (SHA-256 must be identical on every build)
+        run: |
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -n1)
+          "$APKSIGNER" verify --print-certs build/app/outputs/flutter-apk/app-release.apk | grep -E "SHA-256|DN"
+
+      - name: Verify INTERNET permission is inside the built APK
+        run: |
+          AAPT=$(ls "$ANDROID_HOME"/build-tools/*/aapt | sort -V | tail -n1)
+          "$AAPT" dump permissions build/app/outputs/flutter-apk/app-release.apk | tee perms.txt
+          grep -q "android.permission.INTERNET" perms.txt || { echo "::error::INTERNET permission is missing from the APK"; exit 1; }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pesteh-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
