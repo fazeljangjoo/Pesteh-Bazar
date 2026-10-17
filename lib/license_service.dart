@@ -452,7 +452,11 @@ class LicenseService {
   /// وضعیت اشتراک را برمی‌گرداند. اول تلاش می‌کند از سرور (آنلاین) بخواند؛
   /// اگر اینترنت نبود، بر اساس آخرین وضعیتِ تاییدشده‌ای که روی گوشی ذخیره شده
   /// تصمیم می‌گیرد (چون تاریخ انقضا ثابت است، با آفلاین‌ماندن قابل دور زدن نیست).
+  /// آخرین خطای بررسی اشتراک (برای نمایش روی صفحه و پیدا کردن علت)
+  String? lastCheckError;
+
   Future<LicenseResult> check() async {
+    lastCheckError = null;
     await _restoreSignedInFlag();
     if (!isSignedIn) return LicenseResult(LicenseState.loggedOut);
     final phone = await savedPhone();
@@ -501,7 +505,9 @@ class LicenseService {
               .isBefore(DateTime(expiry.year, expiry.month, expiry.day, 23, 59, 59));
       return LicenseResult(valid ? LicenseState.valid : LicenseState.blocked,
           phone: phone, name: name, expiry: expiry);
-    } catch (_) {
+    } catch (e, st) {
+      lastCheckError = '${e.runtimeType}: $e';
+      debugPrint('check() failed: $e\n$st');
       final (active, expiry) = await _loadCache();
       await _loadPlan();
       final name = await savedName();
