@@ -114,6 +114,15 @@ class ChartSlice {
   const ChartSlice(this.label, this.value, this.color, {this.negative = false});
 }
 
+/// عدد کوتاه‌شدهٔ دلاری (برای نمودار پلن ارزی): ۱٫۲ میلیون / ۴٫۵ هزار / ۱۲۰ / ۵٫۲۵
+String faCompactUsd(double v) {
+  final a = v.abs();
+  final sign = v < 0 ? '-' : '';
+  if (a >= 1e6) return '$sign${faNum(a / 1e6, dec: 2)} میلیون';
+  if (a >= 1e3) return '$sign${faNum(a / 1e3, dec: 1)} هزار';
+  return '$sign${faNum(a, dec: a >= 100 ? 0 : 2)}';
+}
+
 /// بیشترین [maxSlices] تکه را نگه می‌دارد و بقیه را در «سایر» جمع می‌کند.
 List<ChartSlice> topSlices(Map<String, double> data, {int maxSlices = 5}) {
   final entries = data.entries.where((e) => e.value > 0).toList()..sort((a, b) => b.value.compareTo(a.value));
@@ -321,11 +330,13 @@ class GroupedBarChart extends StatefulWidget {
   final List<BarSeries> series;
   final double height;
   final String Function(double) format;
+  final String Function(double)? compact; // برچسب کوتاه بالای میله (پیش‌فرض: تومان)
   const GroupedBarChart({
     super.key,
     required this.groups,
     required this.series,
     required this.format,
+    this.compact,
     this.height = 210,
   });
 
@@ -366,6 +377,7 @@ class _GroupedBarChartState extends State<GroupedBarChart> {
                   selected: sel,
                   progress: t,
                   format: widget.format,
+                  compact: widget.compact,
                 ),
               ),
             ),
@@ -422,7 +434,9 @@ class _BarPainter extends CustomPainter {
   final int? selected;
   final double progress;
   final String Function(double) format;
+  final String Function(double)? compact;
   _BarPainter({
+    this.compact,
     required this.groups,
     required this.series,
     required this.selected,
@@ -507,7 +521,7 @@ class _BarPainter extends CustomPainter {
         }
         if (showValues && raw != 0 && progress > 0.95) {
           final ty = raw >= 0 ? top - 8 : bottom + 8;
-          _text(canvas, faCompact(raw), Offset((l + r) / 2, ty), size: 9.5, color: paint.color, bold: true, maxW: slot);
+          _text(canvas, (compact ?? faCompact)(raw), Offset((l + r) / 2, ty), size: 9.5, color: paint.color, bold: true, maxW: slot);
         }
       }
       if (i % labelEvery == 0 || selected == i) {

@@ -19,6 +19,7 @@ class _ReportsScreenState extends State<ReportsScreen> {
   DateTime? _from;
   DateTime? _to;
   String _q = ''; // جستجوی کد پسته در گزارش سود
+  bool _chartUsd = false; // نمایش نمودار به دلار (فقط پلن ارزی)
   int _chartMode = 0; // 0 = میله‌ای (سود در طول زمان) | 1 = کروی (سهم هر نوع پسته از سود)
 
   /// بازهٔ مؤثر گزارش سود: اگر کاربر تاریخی انتخاب نکرده باشد، ماه جاری شمسی
@@ -74,8 +75,16 @@ class _ReportsScreenState extends State<ReportsScreen> {
   }
 
   /// کارت نمودار سود و زیان: سود (سبز) و زیان (قرمز) جدا از هم نشان داده می‌شوند
-  Widget _chartCard(BuildContext context, List<TimeBucket> buckets, List<double> gains, List<double> losses,
-      Map<String, double> byType) {
+  Widget _chartCard(BuildContext context, List<TimeBucket> buckets, List<double> gainsT, List<double> lossesT,
+      Map<String, double> byTypeT,
+      {({List<double> gains, List<double> losses, Map<String, double> byType})? usdData}) {
+    // پلن ارزی: کاربر می‌تواند نمودار را به دلار ببیند (سود/زیان دلاری فروش‌هایی که قیمت دلار و فی دلاریِ خرید دارند)
+    final useUsd = usdData != null && _chartUsd;
+    final gains = useUsd ? usdData!.gains : gainsT;
+    final losses = useUsd ? usdData!.losses : lossesT;
+    final byType = useUsd ? usdData!.byType : byTypeT;
+    String fmtFull(double v) => useUsd ? '${faCompactUsd(v)} دلار' : '${faCompact(v)} تومان';
+    String fmtShort(double v) => useUsd ? faCompactUsd(v) : faCompact(v);
     final groups = <BarGroup>[
       for (var i = 0; i < buckets.length; i++)
         BarGroup(buckets[i].label, buckets[i].fullLabel, [gains[i], losses[i]]),
@@ -99,25 +108,42 @@ class _ReportsScreenState extends State<ReportsScreen> {
           ? GroupedBarChart(
               groups: groups,
               series: const [BarSeries('سود', kGainColor), BarSeries('زیان', kLossColor)],
-              format: (v) => '${faCompact(v)} تومان',
+              format: fmtFull,
+              compact: fmtShort,
             )
-          : const ChartEmpty('در این بازه سود یا زیانی ثبت نشده');
+          : ChartEmpty(useUsd
+              ? 'برای فروش‌های این بازه قیمت دلار یا فی دلاریِ خرید ثبت نشده'
+              : 'در این بازه سود یا زیانی ثبت نشده');
     } else {
       body = slices.isEmpty
-          ? const ChartEmpty('در این بازه سود یا زیانی ثبت نشده')
+          ? ChartEmpty(useUsd
+              ? 'برای فروش‌های این بازه قیمت دلار یا فی دلاریِ خرید ثبت نشده'
+              : 'در این بازه سود یا زیانی ثبت نشده')
           : Center(
               child: DonutChart(
                 slices: slices,
                 centerTitle: net >= 0 ? 'خالص سود' : 'خالص زیان',
                 centerValue: net,
-                format: (v) => faCompact(v),
+                format: fmtShort,
               ),
             );
     }
     return ChartCard(
-      title: 'نمودار سود و زیان',
+      title: useUsd ? 'نمودار سود و زیان (دلاری)' : 'نمودار سود و زیان',
       subtitle: _profitPeriodLabel(),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        if (usdData != null) ...[
+          SegmentedButton<bool>(
+            segments: const <ButtonSegment<bool>>[
+              ButtonSegment<bool>(value: false, label: Text('تومان')),
+              ButtonSegment<bool>(value: true, label: Text('دلار')),
+            ],
+            selected: <bool>{_chartUsd},
+            showSelectedIcon: false,
+            onSelectionChanged: (v) => setState(() => _chartUsd = v.first),
+          ),
+          const SizedBox(height: 8),
+        ],
         SegmentedButton<int>(
           segments: const <ButtonSegment<int>>[
             ButtonSegment<int>(value: 0, label: Text('میله‌ای'), icon: Icon(Icons.bar_chart)),
@@ -169,6 +195,10 @@ class _ReportsScreenState extends State<ReportsScreen> {
             }
             final buckets = (cFrom != null && cTo != null) ? buildBuckets(cFrom, cTo) : <TimeBucket>[];
             final bucketTypes = List<Map<String, double>>.generate(buckets.length, (_) => <String, double>{});
+            // نمودار دلاری (فقط پلن ارزی): همان منطق، با سود دلاری هر قلم
+            final fxChart = LicenseService.I.isFx.value;
+            final bucketTypesUsd = List<Map<String, double>>.generate(buckets.length, (_) => <String, double>{});
+            final byTypeUsd = <String, double>{};
 
             double totalRevenue = 0, totalCost = 0;
             final fx = LicenseService.I.isFx.value;
@@ -178,6 +208,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
             final rows = <Widget>[];
             for (final sale in list) {
               final items = sale['items'] as List;
+              final saleU = fxChart ? saleUsd(sale) : null; // null = قیمت دلار یا فی دلاریِ خرید ثبت نشده
+              final saleRate = (sale['usd_rate'] as num?)?.toDouble() ?? 0;
               for (final it in items) {
                 // قلم‌های مخلوط/جداسازی بر اساس «نوع زیردسته»شان حساب می‌شوند
                 final baseT = (it['base_type'] as String?)?.trim() ?? '';
@@ -187,9 +219,14 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 final cost = w * (it['cost_price'] as num).toDouble();
                 byType[key] = (byType[key] ?? 0) + (rev - cost);
                 final sdt = DateTime.parse(sale['date'] as String);
+                final double? profitU = (saleU != null && saleRate > 0)
+                    ? (rev / saleRate) - w * (it['cost_price_usd'] as num).toDouble()
+                    : null;
+                if (profitU != null) byTypeUsd[key] = (byTypeUsd[key] ?? 0) + profitU;
                 for (var bi = 0; bi < buckets.length; bi++) {
                   if (buckets[bi].contains(sdt)) {
                     bucketTypes[bi][key] = (bucketTypes[bi][key] ?? 0) + (rev - cost);
+                    if (profitU != null) bucketTypesUsd[bi][key] = (bucketTypesUsd[bi][key] ?? 0) + profitU;
                     break;
                   }
                 }
@@ -256,6 +293,17 @@ class _ReportsScreenState extends State<ReportsScreen> {
               bucketGain.add(g);
               bucketLoss.add(l);
             }
+            final bucketGainUsd = <double>[];
+            final bucketLossUsd = <double>[];
+            for (final m in bucketTypesUsd) {
+              double g = 0, l = 0;
+              for (final v in m.values) {
+                if (v > 0) g += v;
+                if (v < 0) l += v;
+              }
+              bucketGainUsd.add(g);
+              bucketLossUsd.add(l);
+            }
             double totalGain = 0, totalLoss = 0; // جمعِ نوع‌های سودده / زیان‌ده (منفی)
             for (final v in byType.values) {
               if (v > 0) totalGain += v;
@@ -308,7 +356,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                _chartCard(context, buckets, bucketGain, bucketLoss, byType),
+                _chartCard(context, buckets, bucketGain, bucketLoss, byType,
+                    usdData: fxChart ? (gains: bucketGainUsd, losses: bucketLossUsd, byType: byTypeUsd) : null),
                 if (byType.isNotEmpty) ...[
                   const SizedBox(height: 12),
                   Card(
