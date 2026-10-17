@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -58,16 +59,20 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   /// نصب مجدد)، همه را از سرور می‌آورد. بعد از آن برنامه بدون اینترنت هم کار می‌کند.
   Future<String?> _prepareData(String phone) async {
     try {
-      await AppDb.I.useAccount(phone);
+      // سقف زمانی: اگر باز کردن دیتابیس/همگام‌سازی گیر کرد، اسپینر بی‌پایان نمی‌ماند
+      await AppDb.I.useAccount(phone).timeout(const Duration(seconds: 25),
+          onTimeout: () => throw TimeoutException('باز کردن دیتابیس گوشی بیش از حد طول کشید'));
       if (await AppDb.I.metaGet('initial_done') == null) {
-        final err = await SyncService.I.initialSync();
+        final err = await SyncService.I.initialSync().timeout(const Duration(seconds: 170),
+            onTimeout: () => 'دریافت اطلاعات از سرور بیش از حد طول کشید. اینترنت/VPN را بررسی کنید.');
         if (err != null) return err;
       }
       // ignore: unawaited_futures
       NotifyService.I.rescheduleAll();
       // ignore: unawaited_futures
       SyncService.I.syncNow();
-    } catch (e) {
+    } catch (e, st) {
+      debugPrint('prepareData error: $e\n$st');
       return 'خطا در باز کردن اطلاعات حساب: $e';
     }
     return null;
@@ -104,7 +109,18 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CircularProgressIndicator(),
+              SizedBox(height: 16),
+              Text('در حال آماده‌سازی…'),
+            ],
+          ),
+        ),
+      );
     }
     final r = _result!;
     switch (r.state) {
