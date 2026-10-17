@@ -94,6 +94,7 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
       r = await LicenseService.I.check().timeout(const Duration(seconds: 25));
     } catch (e) {
       debugPrint('check error: $e');
+      LicenseService.I.lastCheckError = '${e.runtimeType}: $e';
       r = LicenseResult(LicenseState.needsInternet);
     }
     String? dataErr;
@@ -146,7 +147,8 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
         return MessageScreen(
           icon: Icons.wifi_off_outlined,
           title: 'نیاز به اتصال اینترنت',
-          message: 'برای اولین بررسیِ اشتراک، یک‌بار باید اینترنت داشته باشید.',
+          message: 'برای اولین بررسیِ اشتراک، یک‌بار باید اینترنت داشته باشید.'
+              '${LicenseService.I.lastCheckError == null ? '' : '\n\nعلت فنی:\n${LicenseService.I.lastCheckError}'}',
           onRetry: refresh,
         );
       case LicenseState.blocked:
@@ -638,7 +640,11 @@ class MessageScreen extends StatelessWidget {
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () async {
-                  await LicenseService.I.signOut();
+                  try {
+                    await LicenseService.I.signOut().timeout(const Duration(seconds: 5));
+                  } catch (e) {
+                    debugPrint('signOut error: $e');
+                  }
                   onRetry();
                 },
                 child: const Text('خروج از حساب'),
@@ -684,7 +690,11 @@ class BlockedScreen extends StatelessWidget {
               const SizedBox(height: 8),
               TextButton(
                 onPressed: () async {
-                  await LicenseService.I.signOut();
+                  try {
+                    await LicenseService.I.signOut().timeout(const Duration(seconds: 5));
+                  } catch (e) {
+                    debugPrint('signOut error: $e');
+                  }
                   onRetry();
                 },
                 child: const Text('خروج از حساب'),
