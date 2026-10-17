@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'db.dart';
@@ -147,8 +148,8 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
         return MessageScreen(
           icon: Icons.wifi_off_outlined,
           title: 'نیاز به اتصال اینترنت',
-          message: 'برای اولین بررسیِ اشتراک، یک‌بار باید اینترنت داشته باشید.'
-              '${LicenseService.I.lastCheckError == null ? '' : '\n\nعلت فنی:\n${LicenseService.I.lastCheckError}'}',
+          message: 'برای اولین بررسیِ اشتراک، یک‌بار باید اینترنت داشته باشید.',
+          details: LicenseService.I.lastCheckError,
           onRetry: refresh,
         );
       case LicenseState.blocked:
@@ -158,7 +159,8 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
           return MessageScreen(
             icon: Icons.cloud_download_outlined,
             title: 'دریافت اطلاعات حساب',
-            message: _dataError!,
+            message: 'دریافت اطلاعات حساب انجام نشد. اتصال اینترنت را بررسی کنید و دوباره تلاش کنید.',
+            details: _dataError,
             onRetry: refresh,
           );
         }
@@ -619,8 +621,40 @@ class MessageScreen extends StatelessWidget {
   final String title;
   final String message;
   final VoidCallback onRetry;
+
+  /// متن فنی خطا؛ فقط پشت دکمهٔ «جزئیات» دیده می‌شود (برای ارسال به پشتیبانی)
+  final String? details;
   const MessageScreen(
-      {super.key, required this.icon, required this.title, required this.message, required this.onRetry});
+      {super.key,
+      required this.icon,
+      required this.title,
+      required this.message,
+      required this.onRetry,
+      this.details});
+
+  void _showDetails(BuildContext context) {
+    var d = details ?? '';
+    if (d.length > 600) d = '${d.substring(0, 600)}…';
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('جزئیات فنی'),
+        content: SingleChildScrollView(
+          child: Directionality(
+            textDirection: TextDirection.ltr,
+            child: SelectableText(d, style: const TextStyle(fontSize: 12)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Clipboard.setData(ClipboardData(text: d)),
+            child: const Text('کپی'),
+          ),
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('بستن')),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -638,6 +672,8 @@ class MessageScreen extends StatelessWidget {
               const SizedBox(height: 20),
               FilledButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: const Text('بررسی مجدد')),
               const SizedBox(height: 8),
+              if (details != null && details!.isNotEmpty)
+                TextButton(onPressed: () => _showDetails(context), child: const Text('جزئیات')),
               TextButton(
                 onPressed: () async {
                   try {
