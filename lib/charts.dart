@@ -108,9 +108,10 @@ class MiniStat extends StatelessWidget {
 // ----------------------------------------------------------------------------
 class ChartSlice {
   final String label;
-  final double value;
+  final double value; // همیشه مثبت (اندازهٔ تکه)
   final Color color;
-  const ChartSlice(this.label, this.value, this.color);
+  final bool negative; // مثلاً زیان: در فهرست با علامت منفی نشان داده می‌شود
+  const ChartSlice(this.label, this.value, this.color, {this.negative = false});
 }
 
 /// بیشترین [maxSlices] تکه را نگه می‌دارد و بقیه را در «سایر» جمع می‌کند.
@@ -134,12 +135,14 @@ class DonutChart extends StatefulWidget {
   final String centerTitle;
   final String Function(double) format;
   final double size;
+  final double? centerValue; // اگر داده شود به‌جای جمع تکه‌ها در مرکز نشان داده می‌شود (مثلاً سود خالص)
   const DonutChart({
     super.key,
     required this.slices,
     required this.centerTitle,
     required this.format,
     this.size = 180,
+    this.centerValue,
   });
 
   @override
@@ -179,7 +182,7 @@ class _DonutChartState extends State<DonutChart> {
     final total = slices.fold<double>(0, (a, s) => a + s.value);
     final sel = (_sel != null && _sel! < slices.length) ? _sel : null;
     final centerLabel = sel == null ? widget.centerTitle : slices[sel].label;
-    final centerValue = sel == null ? total : slices[sel].value;
+    final centerValue = sel == null ? (widget.centerValue ?? total) : (slices[sel].negative ? -slices[sel].value : slices[sel].value);
 
     return Column(children: [
       SizedBox(
@@ -235,7 +238,8 @@ class _DonutChartState extends State<DonutChart> {
               ),
               const SizedBox(width: 8),
               Expanded(child: Text(slices[i].label, overflow: TextOverflow.ellipsis)),
-              Text(widget.format(slices[i].value), style: const TextStyle(fontWeight: FontWeight.w600)),
+              Text('${slices[i].negative ? '-' : ''}${widget.format(slices[i].value)}',
+                  style: TextStyle(fontWeight: FontWeight.w600, color: slices[i].negative ? kLossColor : null)),
               const SizedBox(width: 8),
               SizedBox(
                 width: 44,

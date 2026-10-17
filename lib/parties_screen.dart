@@ -8,7 +8,7 @@ import 'receipt_screen.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
-/// حساب طرف‌ها: برای هر فروشنده/خریدار، جمع خرید و فروش و بدهی/طلب باقی‌مانده
+/// طرف‌حساب‌ها: برای هر فروشنده/خریدار، جمع خرید و فروش و بدهی/طلب باقی‌مانده
 class PartiesScreen extends StatefulWidget {
   const PartiesScreen({super.key});
   @override
@@ -21,7 +21,7 @@ class _PartiesScreenState extends State<PartiesScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('حساب طرف‌ها')),
+      appBar: AppBar(title: const Text('طرف‌حساب‌ها')),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showNewPartyDialog(context),
         icon: const Icon(Icons.person_add_alt_1),
@@ -73,6 +73,15 @@ class _PartiesScreenState extends State<PartiesScreen> {
                         infoRow('مانده بدهی قرضی', '${faNum(loanPay, dec: 0)} تومان',
                             valueColor: Colors.red.shade800),
                       ],
+                      if (all.any((a) => a.hasLoans))
+                        Align(
+                          alignment: AlignmentDirectional.centerStart,
+                          child: TextButton.icon(
+                            onPressed: () => exportLoanPdf(context, all: all),
+                            icon: const Icon(Icons.picture_as_pdf_outlined),
+                            label: const Text('PDF دفتر قرض همهٔ طرف‌حساب‌ها'),
+                          ),
+                        ),
                     ]),
                   ),
                 ),
@@ -256,12 +265,27 @@ class PartyDetailScreen extends StatelessWidget {
               icon: const Icon(Icons.south_west),
               label: const Text('دریافت قرض'),
             ),
+            OutlinedButton.icon(
+              onPressed: () {
+                // بازپرداخت فقط وقتی معنی دارد که بدهی/طلب قرضی باز داشته باشیم
+                if (a.loanReceivable <= 0.5 && a.loanPayable <= 0.5) {
+                  snack(context, 'بدهی برای بازپرداخت وجود ندارد. برای قرض تازه از «اعطای قرض» یا «دریافت قرض» استفاده کنید.');
+                  return;
+                }
+                showLoanSheet(context,
+                    party: a.name,
+                    kind: a.loanReceivable > 0.5 ? 'repay_in' : 'repay_out',
+                    maxIn: a.loanReceivable > 0.5 ? a.loanReceivable : 0,
+                    maxOut: a.loanPayable > 0.5 ? a.loanPayable : 0);
+              },
+              icon: const Icon(Icons.swap_horiz),
+              label: const Text('ثبت بازپرداخت'),
+            ),
             if (a.hasLoans)
               OutlinedButton.icon(
-                onPressed: () =>
-                    showLoanSheet(context, party: a.name, kind: net >= 0 ? 'repay_in' : 'repay_out'),
-                icon: const Icon(Icons.swap_horiz),
-                label: const Text('ثبت بازپرداخت'),
+                onPressed: () => exportLoanPdf(context, party: a),
+                icon: const Icon(Icons.picture_as_pdf_outlined),
+                label: const Text('PDF دفتر قرض'),
               ),
           ]),
           if (a.hasLoans) ...[
@@ -312,7 +336,7 @@ class PartyDetailScreen extends StatelessWidget {
       key: ValueKey('${e.isPurchase}${e.id}'),
       child: ListTile(
         leading: Icon(e.isPurchase ? Icons.shopping_cart_outlined : Icons.sell_outlined),
-        title: Text('${e.isPurchase ? 'خرید' : 'فروش'} ${e.label} • ${faNum(e.weight)} کیلو'),
+        title: Text('${e.isPurchase ? 'خرید' : 'فروش'} ${e.label} • ${faNum(e.weight)} کیلو (خالص)'),
         subtitle: Text(
           '${jalaliDateFromDt(e.date)}\n'
           'مبلغ ${faNum(e.total, dec: 0)} • تسویه‌شده ${faNum(e.settled, dec: 0)}'

@@ -3,6 +3,9 @@ import 'package:flutter/material.dart';
 import 'charts.dart';
 import 'db.dart';
 import 'ledger.dart';
+import 'notify_service.dart';
+import 'pdf_output.dart';
+import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -136,18 +139,36 @@ class _CashFlowCardState extends State<CashFlowCard> {
 // ============================================================================
 // ثبت قرض / بازپرداخت
 // ============================================================================
-Future<void> showLoanSheet(BuildContext context, {required String party, required String kind}) {
+
+/// [maxIn]: مانده‌ای که هنوز می‌تواند از او پس بگیرد (طلب قرضی)، [maxOut]: مانده‌ای که هنوز باید پس بدهد (بدهی قرضی).
+/// فقط برای بازپرداخت استفاده می‌شود.
+Future<void> showLoanSheet(BuildContext context,
+    {required String party, required String kind, double maxIn = 0, double maxOut = 0}) {
   return showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (_) => _LoanSheet(party: party, kind: kind),
+    builder: (_) => _LoanSheet(party: party, kind: kind, maxIn: maxIn, maxOut: maxOut),
   );
+}
+
+/// یک ردیف سررسید در فرم قرض
+class _DueRow {
+  final amount = TextEditingController();
+  final note = TextEditingController();
+  DateTime date;
+  _DueRow(this.date);
+  void dispose() {
+    amount.dispose();
+    note.dispose();
+  }
 }
 
 class _LoanSheet extends StatefulWidget {
   final String party;
   final String kind;
-  const _LoanSheet({required this.party, required this.kind});
+  final double maxIn;
+  final double maxOut;
+  const _LoanSheet({required this.party, required this.kind, required this.maxIn, required this.maxOut});
   @override
   State<_LoanSheet> createState() => _LoanSheetState();
 }
@@ -158,6 +179,7 @@ class _LoanSheetState extends State<_LoanSheet> with EditGuard<_LoanSheet> {
   DateTime _date = DateTime.now();
   late String _kind;
   bool _busy = false;
+  final List<_DueRow> _dues = [];
 
   bool get _isRepay => widget.kind == 'repay_in' || widget.kind == 'repay_out';
 
@@ -165,12 +187,16 @@ class _LoanSheetState extends State<_LoanSheet> with EditGuard<_LoanSheet> {
   void initState() {
     super.initState();
     _kind = widget.kind;
+    if (!_isRepay) _dues.add(_DueRow(DateTime.now().add(const Duration(days: 30))));
   }
 
   @override
   void dispose() {
     _amount.dispose();
     _note.dispose();
+    for (final d in _dues) {
+      d.dispose();
+    }
     super.dispose();
   }
 
@@ -183,11 +209,43 @@ class _LoanSheetState extends State<_LoanSheet> with EditGuard<_LoanSheet> {
         _ => 'پولی که شما به ${widget.party} پس می‌دهید',
       };
 
+  double get _dueSum => _dues.fold<double>(0, (a, d) => a + (parseNum(d.amount.text) ?? 0));
+
+  double get _repayMax => _kind == 'repay_in' ? widget.maxIn : widget.maxOut;
+
   Future<void> _save() async {
     final amt = parseNum(_amount.text) ?? 0;
     if (amt <= 0) {
       snack(context, 'مبلغ را وارد کنید');
       return;
+    }
+    if (_isRepay && _repayMax <= 0.5) {
+      snack(context, 'بدهی برای بازپرداخت وجود ندارد');
+      return;
+    }
+    if (_isRepay && amt > _repayMax + 0.5) {
+      snack(context, 'مبلغ بازپرداخت از مانده (${faNum(_repayMax, dec: 0)} تومان) بیشتر است');
+      return;
+    }
+    final dueList = <Map<String, dynamic>>[];
+    if (!_isRepay) {
+      // یک سررسید با مبلغ خالی = کل مبلغ قرض
+      if (_dues.length == 1 && (parseNum(_dues.first.amount.text) ?? 0) <= 0) {
+        _dues.first.amount.text = _amount.text;
+      }
+      for (var i = 0; i < _dues.length; i++) {
+        final a = parseNum(_dues[i].amount.text) ?? 0;
+        if (a <= 0) {
+          snack(context, 'مبلغ سررسید ${faNum(i + 1, dec: 0)} را وارد کنید');
+          return;
+        }
+        final n = _dues[i].note.text.trim();
+        dueList.add({'amount': a, 'due_date': _dues[i].date.toIso8601String(), 'note': n.isEmpty ? null : n});
+      }
+      if ((_dueSum - amt).abs() > 0.5) {
+        snack(context, 'جمع مبلغ سررسیدها (${faNum(_dueSum, dec: 0)}) باید برابر مبلغ قرض (${faNum(amt, dec: 0)}) باشد');
+        return;
+      }
     }
     setState(() => _busy = true);
     final note = _note.text.trim();
@@ -199,16 +257,47 @@ class _LoanSheetState extends State<_LoanSheet> with EditGuard<_LoanSheet> {
         amount: amt,
         date: _date,
         note: note.isEmpty ? null : note,
+        dues: dueList,
       ),
       successMsg: '${kLoanKindLabel[_kind]} با موفقیت ثبت شد',
     );
     if (!mounted) return;
     setState(() => _busy = false);
-    if (ok) Navigator.pop(context);
+    if (ok) {
+      NotifyService.I.rescheduleAll(); // یادآوری سررسیدهای تازه
+      Navigator.pop(context);
+    }
+  }
+
+  Widget _dueCard(int i) {
+    final d = _dues[i];
+    return Card(
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Row(children: [
+            Expanded(child: Text('سررسید ${faNum(i + 1, dec: 0)}', style: const TextStyle(fontWeight: FontWeight.w700))),
+            if (_dues.length > 1)
+              IconButton(
+                tooltip: 'حذف این سررسید',
+                icon: const Icon(Icons.close),
+                onPressed: () => setState(() {
+                  _dues.removeAt(i).dispose();
+                }),
+              ),
+          ]),
+          numField(d.amount, 'مبلغ سررسید (تومان)', required: true, thousands: true, onChanged: () => setState(() {})),
+          dateField(context, 'تاریخ سررسید', d.date, (v) => setState(() => d.date = v)),
+          textField(d.note, 'جزئیات (اختیاری)'),
+        ]),
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
+    final amt = parseNum(_amount.text) ?? 0;
     return Padding(
       padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: SafeArea(
@@ -221,21 +310,52 @@ class _LoanSheetState extends State<_LoanSheet> with EditGuard<_LoanSheet> {
             const SizedBox(height: 12),
             if (_isRepay) ...[
               SegmentedButton<String>(
-                segments: const <ButtonSegment<String>>[
-                  ButtonSegment<String>(value: 'repay_in', label: Text('او به ما پس داد')),
-                  ButtonSegment<String>(value: 'repay_out', label: Text('ما به او پس دادیم')),
+                segments: <ButtonSegment<String>>[
+                  ButtonSegment<String>(
+                      value: 'repay_in', label: const Text('او به ما پس داد'), enabled: widget.maxIn > 0.5),
+                  ButtonSegment<String>(
+                      value: 'repay_out', label: const Text('ما به او پس دادیم'), enabled: widget.maxOut > 0.5),
                 ],
                 selected: <String>{_kind},
                 showSelectedIcon: false,
                 onSelectionChanged: (v) => setState(() => _kind = v.first),
               ),
-              const SizedBox(height: 12),
+              const SizedBox(height: 6),
+              Text('مانده قابل بازپرداخت: ${faNum(_repayMax, dec: 0)} تومان',
+                  style: const TextStyle(fontSize: 12.5, color: Colors.black54)),
+              const SizedBox(height: 10),
             ],
-            numField(_amount, 'مبلغ (تومان)', required: true, thousands: true, hint: _hint),
-            dateField(context, 'تاریخ', _date, (d) => setState(() => _date = d)),
+            numField(_amount, 'مبلغ (تومان)', required: true, thousands: true, hint: _hint, onChanged: () => setState(() {})),
+            dateField(context, _isRepay ? 'تاریخ بازپرداخت' : (_kind == 'given' ? 'تاریخ اعطای قرض' : 'تاریخ دریافت قرض'), _date,
+                (d) => setState(() => _date = d)),
             textField(_note, 'توضیحات (اختیاری)'),
-            const Text('این مبلغ در سود و زیان حساب نمی‌شود.',
-                style: TextStyle(fontSize: 12, color: Colors.black54)),
+            if (!_isRepay) ...[
+              const SizedBox(height: 4),
+              Text('سررسیدها (حداکثر ۲۰ مورد)', style: Theme.of(context).textTheme.titleSmall),
+              const SizedBox(height: 2),
+              const Text('در هر سررسید یادآوری می‌شود و از صفحهٔ «سررسیدها» می‌توانید «انجام شد» را بزنید.',
+                  style: TextStyle(fontSize: 12, color: Colors.black54)),
+              const SizedBox(height: 8),
+              for (var i = 0; i < _dues.length; i++) _dueCard(i),
+              Row(children: [
+                Expanded(
+                  child: Text(
+                    'جمع سررسیدها: ${faNum(_dueSum, dec: 0)} از ${faNum(amt, dec: 0)} تومان',
+                    style: TextStyle(
+                        fontSize: 12.5,
+                        color: (_dueSum - amt).abs() <= 0.5 ? Colors.green.shade800 : Colors.deepOrange.shade800),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _dues.length >= 20
+                      ? null
+                      : () => setState(() => _dues.add(_DueRow(_dues.last.date.add(const Duration(days: 30))))),
+                  icon: const Icon(Icons.add),
+                  label: const Text('افزودن سررسید'),
+                ),
+              ]),
+            ],
+            const Text('این مبلغ در سود و زیان حساب نمی‌شود.', style: TextStyle(fontSize: 12, color: Colors.black54)),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: _busy ? null : _save,
@@ -248,6 +368,72 @@ class _LoanSheetState extends State<_LoanSheet> with EditGuard<_LoanSheet> {
         ),
       ),
     );
+  }
+}
+
+// ============================================================================
+// PDF دفتر قرض و وام (یک طرف‌حساب یا همهٔ طرف‌حساب‌ها)
+// ============================================================================
+Future<void> exportLoanPdf(BuildContext context, {PartyAccount? party, List<PartyAccount>? all}) async {
+  try {
+    final accounts = party != null ? [party] : (all ?? <PartyAccount>[]);
+    final withLoans = accounts.where((a) => a.hasLoans).toList();
+    if (withLoans.isEmpty) {
+      snack(context, 'هنوز قرض یا وامی ثبت نشده است');
+      return;
+    }
+    final keys = withLoans.map((a) => a.key).toSet();
+    double recv = 0, pay = 0;
+    for (final a in withLoans) {
+      if (a.loanReceivable > 0) recv += a.loanReceivable;
+      if (a.loanPayable > 0) pay += a.loanPayable;
+    }
+    final single = withLoans.length == 1;
+    final entries = <List<String>>[
+      [if (!single) 'طرف‌حساب', 'نوع', 'مبلغ (تومان)', 'تاریخ', 'توضیحات'],
+    ];
+    for (final a in withLoans) {
+      for (final l in a.loans) {
+        entries.add([
+          if (!single) a.name,
+          l.label,
+          faNum(l.amount, dec: 0),
+          jalaliDateFromDt(l.date),
+          l.note ?? '',
+        ]);
+      }
+    }
+    final dueRows = <List<String>>[
+      [if (!single) 'طرف‌حساب', 'نوع', 'مبلغ (تومان)', 'سررسید', 'وضعیت', 'جزئیات'],
+    ];
+    for (final r in await AppDb.I.loanDueRows(includePaid: true)) {
+      if (!keys.contains(partyKey(r['party'] as String?))) continue;
+      final given = r['kind'] == 'given';
+      final paid = ((r['paid'] as num?) ?? 0) == 1;
+      dueRows.add([
+        if (!single) partyKey(r['party'] as String?),
+        given ? 'قرض اعطایی' : 'قرض دریافتی',
+        faNum((r['amount'] as num).toDouble(), dec: 0),
+        jalaliDateFromDt(DateTime.parse(r['due_date'] as String)),
+        paid ? (given ? 'دریافت شد' : 'پرداخت شد') : 'در انتظار',
+        (r['note'] as String?) ?? '',
+      ]);
+    }
+    final file = await PdfService.buildLoanLedger(
+      title: single ? 'دفتر قرض و وام — ${withLoans.first.name}' : 'دفتر قرض و وام — همهٔ طرف‌حساب‌ها',
+      subtitle: '',
+      summary: [
+        ('مانده طلب قرضی', '${faNum(recv, dec: 0)} تومان'),
+        ('مانده بدهی قرضی', '${faNum(pay, dec: 0)} تومان'),
+      ],
+      sections: [
+        (heading: 'تراکنش‌های قرض و بازپرداخت', rows: entries),
+        (heading: 'سررسیدها', rows: dueRows),
+      ],
+    );
+    if (context.mounted) await PdfOutput.show(context, file);
+  } catch (e) {
+    if (context.mounted) snack(context, 'خطا در ساخت PDF: $e');
   }
 }
 

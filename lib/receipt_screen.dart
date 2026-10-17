@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'db.dart';
 import 'notify_service.dart';
+import 'pdf_output.dart';
 import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -153,7 +154,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> with EditGuard<ReceiptScr
           toName: 'دریافت‌کننده'
         ),
       );
-      await PdfService.share(file);
+      await PdfOutput.show(context, file);
     } catch (e) {
       if (mounted) snack(context, 'خطا در ساخت PDF: $e');
     }

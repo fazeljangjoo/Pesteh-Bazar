@@ -119,6 +119,24 @@ Future<List<DueItem>> loadDues({bool includePaid = false}) async {
       true,
       'چک');
 
+  // ---- سررسید قرض و وام (اعطای قرض = دریافتی ما، دریافت قرض = پرداختیِ ما) ----
+  for (final r in await AppDb.I.loanDueRows(includePaid: includePaid)) {
+    final given = r['kind'] == 'given';
+    out.add(DueItem(
+      table: 'loan_dues',
+      id: r['id'] as int,
+      receivable: given,
+      kind: 'قرض',
+      party: partyKey(r['party'] as String?),
+      label: given ? 'قرض اعطایی' : 'قرض دریافتی',
+      ref: null,
+      bank: null,
+      amount: (r['amount'] as num).toDouble(),
+      date: DateTime.parse(r['due_date'] as String),
+      paid: ((r['paid'] as num?) ?? 0) == 1,
+    ));
+  }
+
   out.sort((a, b) => a.date.compareTo(b.date));
   return out;
 }

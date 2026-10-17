@@ -45,6 +45,9 @@ class _DuesScreenState extends State<DuesScreen> {
         case 'receipt_cheque_inst':
           await NotifyService.I.cancelReceiptChequeRow(i.id);
           break;
+        case 'loan_dues':
+          await NotifyService.I.cancelLoanRow(i.id);
+          break;
       }
     } catch (_) {}
   }

@@ -314,7 +314,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       }
     }
     if (_net <= 0) {
-      snack(context, 'وزن خالص باید بیشتر از صفر باشد');
+      snack(context, 'وزن (خالص) باید بیشتر از صفر باشد');
       return;
     }
     if ((parseNum(_price.text) ?? 0) <= 0) {
@@ -329,7 +329,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     // اگر تعداد گونی وارد نشده باشد، قبل از ثبت تأیید می‌گیریم
     if (((parseNum(_smallSack.text) ?? 0) + (parseNum(_largeSack.text) ?? 0)) <= 0) {
       final ok = await confirm(context,
-          'شما تعداد را وارد نکردید؛ گونیِ انبار برای این خرید اضافه نخواهد شد و فقط وزن خالص به انبار اضافه می‌شود. مطمئنید؟');
+          'شما تعداد را وارد نکردید؛ گونیِ انبار برای این خرید اضافه نخواهد شد و فقط وزن (خالص) به انبار اضافه می‌شود. مطمئنید؟');
       if (!ok || !mounted) return;
     }
 
@@ -486,7 +486,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                         required: !_locked, thousands: true, onChanged: () => setState(() {}))
                   else
                     fxLockedField('قیمت دلار در زمان خرید (تومان)'),
-                  numField(_total, 'وزن کل (کیلو)', required: true, onChanged: () => setState(() {})),
+                  numField(_total, 'وزن کل (ناخالص) به کیلو', required: true, onChanged: () => setState(() {})),
                   Row(children: [
                     Expanded(
                         child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
@@ -500,7 +500,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                       padding: const EdgeInsets.all(12),
                       child: Column(children: [
                         infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
-                        infoRow('وزن خالص', '${faNum(_net)} کیلو'),
+                        infoRow('وزن پسته (خالص)', '${faNum(_net)} کیلو'),
                         infoRow('ارزش کل', '${faNum(_net * (parseNum(_price.text) ?? 0), dec: 0)} تومان'),
                         if (_fx && _usdPerKg != null) ...[
                           infoRow('فی خرید به دلار (هر کیلو)', faUsd(_usdPerKg!, dec: 4)),
