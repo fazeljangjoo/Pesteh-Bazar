@@ -5,8 +5,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'contract_screen.dart';
 import 'db.dart';
 import 'notify_service.dart';
+import 'pay_service.dart';
+import 'renewal_screen.dart';
 import 'sync_service.dart';
 import 'license_service.dart';
 import 'utils.dart';
@@ -25,6 +28,7 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   bool _loading = true;
   LicenseResult? _result;
   String? _dataError;
+  Map<String, dynamic>? _contract; // قرارداد نپذیرفته‌شده: تا پذیرش، برنامه باز نمی‌شود
   String _stage = 'شروع';
   void _setStage(String t) {
     if (mounted) setState(() => _stage = t);
@@ -99,13 +103,16 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
       r = LicenseResult(LicenseState.needsInternet);
     }
     String? dataErr;
+    Map<String, dynamic>? contract;
     if (r.state == LicenseState.valid && r.phone != null) {
-      dataErr = await _prepareData(r.phone!);
+      contract = await _fetchPendingContract();
+      if (contract == null) dataErr = await _prepareData(r.phone!);
     }
     if (!mounted) return;
     setState(() {
       _result = r;
       _dataError = dataErr;
+      _contract = contract;
       _loading = false;
     });
     // خوش‌آمدگویی کاربر جدیدی که همین الان ثبت‌نام کرده
@@ -119,6 +126,17 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
             ..showSnackBar(SnackBar(content: Text(welcome), duration: const Duration(seconds: 6)));
         });
       }
+    }
+  }
+
+  /// قرارداد نپذیرفته‌شده را برمی‌گرداند. خطای شبکه کاربر را نمی‌بندد (برنامهٔ آفلاین کار کند)
+  /// و تا اتصال بعدی بررسی می‌شود.
+  Future<Map<String, dynamic>?> _fetchPendingContract() async {
+    try {
+      return await PayService.I.pendingContract().timeout(const Duration(seconds: 15));
+    } catch (e) {
+      debugPrint('contract check skipped: $e');
+      return null;
     }
   }
 
@@ -155,6 +173,20 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
       case LicenseState.blocked:
         return BlockedScreen(phone: r.phone, onRetry: refresh);
       case LicenseState.valid:
+        if (_contract != null) {
+          return ContractAcceptScreen(
+            item: _contract!,
+            onAccepted: refresh,
+            onLogout: () async {
+              try {
+                await LicenseService.I.signOut().timeout(const Duration(seconds: 5));
+              } catch (e) {
+                debugPrint('signOut error: $e');
+              }
+              refresh();
+            },
+          );
+        }
         if (_dataError != null) {
           return MessageScreen(
             icon: Icons.cloud_download_outlined,
@@ -720,6 +752,15 @@ class BlockedScreen extends StatelessWidget {
                 Text('شماره حساب شما: ${toFaDigits(phone!)}', style: const TextStyle(fontWeight: FontWeight.w600)),
               ],
               const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => RenewalScreen(onDone: onRetry)),
+                ),
+                icon: const Icon(Icons.payments_outlined),
+                label: const Text('تمدید اشتراک'),
+              ),
+              const SizedBox(height: 12),
               ContactButtons(phoneForMessage: phone),
               const SizedBox(height: 20),
               OutlinedButton.icon(onPressed: onRetry, icon: const Icon(Icons.refresh), label: const Text('بررسی مجدد')),
