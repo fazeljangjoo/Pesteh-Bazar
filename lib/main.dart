@@ -1,3 +1,4 @@
+import 'pay_deeplink.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -33,6 +34,7 @@ void main() {
     // نکته: یادآوری‌های سررسید بعد از ورود/باز شدن دیتابیس حساب در LicenseGate زمان‌بندی می‌شود.
     SyncService.I.start();
     runApp(const PestehApp());
+    initPayDeepLinks();
   }, (error, stack) {
     debugPrint('Uncaught zone error: $error\n$stack');
   });
@@ -49,6 +51,7 @@ class PestehApp extends StatelessWidget {
       theme: ThemeData(colorSchemeSeed: const Color(0xFF5B7F2A), useMaterial3: true),
       builder: (context, child) =>
           Directionality(textDirection: TextDirection.rtl, child: child!),
+      navigatorKey: payNavigatorKey,
       home: const LicenseGate(child: RenewBannerHost(child: HomeShell())),
     );
   }
