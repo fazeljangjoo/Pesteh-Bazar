@@ -202,3 +202,4 @@ jobs:
         with:
           name: pesteh-apk
           path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 1
