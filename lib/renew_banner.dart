@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
+import 'license_guard.dart';
 import 'license_service.dart';
 import 'utils.dart';
 
@@ -23,12 +23,14 @@ class _RenewBannerHostState extends State<RenewBannerHost> with WidgetsBindingOb
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     LicenseService.I.expiry.addListener(_onExpiry);
+    LicenseGuard.I.daysToOnlineCheck.addListener(_onExpiry);
     _loadDismissed();
   }
 
   @override
   void dispose() {
     LicenseService.I.expiry.removeListener(_onExpiry);
+    LicenseGuard.I.daysToOnlineCheck.removeListener(_onExpiry);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -75,6 +77,33 @@ class _RenewBannerHostState extends State<RenewBannerHost> with WidgetsBindingOb
     final int left = expiry == null ? -1 : _daysLeft(expiry);
     final show = left >= 0 && left <= 3 && _dismissedOn != _todayKey();
 
+    // ویندوز: نزدیک شدن به سقف کار آفلاین (برای اعمال تمدید/لغو، گهگاه اینترنت لازم است)
+    final off = kStrictLicense ? LicenseGuard.I.daysToOnlineCheck.value : null;
+    final showOff = off != null && off <= 7;
+    Widget offBanner = const SizedBox.shrink();
+    if (showOff) {
+      final msg = off! == 0
+          ? '📶 برای ادامهٔ کار، همین حالا یک‌بار به اینترنت وصل شوید تا اشتراک تأیید شود.'
+          : '📶 تا ${faNum(off, dec: 0)} روز دیگر باید یک‌بار به اینترنت وصل شوید تا اشتراک تأیید شود (اطلاعات شما سالم است).';
+      offBanner = Material(
+        color: Colors.transparent,
+        child: SafeArea(
+          top: !show,
+          bottom: false,
+          child: Container(
+            margin: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFFF4E0),
+              border: Border.all(color: const Color(0xFFF0C987)),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(msg, style: const TextStyle(color: Color(0xFF7A4B00), fontSize: 13.5, height: 1.7)),
+          ),
+        ),
+      );
+    }
+
     Widget banner = const SizedBox.shrink();
     if (show) {
       final urgent = left <= 1;
@@ -107,7 +136,7 @@ class _RenewBannerHostState extends State<RenewBannerHost> with WidgetsBindingOb
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                     ),
-                    onPressed: () => launchUrl(Uri.parse('tel:${SupportContact.callNumber}')),
+                    onPressed: () => callSupport(context, SupportContact.callNumber, SupportContact.displayPhone),
                     icon: const Icon(Icons.call_outlined, size: 18),
                     label: Text('تماس: ${SupportContact.displayPhone}'),
                   ),
@@ -129,7 +158,8 @@ class _RenewBannerHostState extends State<RenewBannerHost> with WidgetsBindingOb
     // خودِ بنر رعایت می‌کند و از محتوای زیرین کم می‌شود.
     return Column(children: [
       banner,
-      Expanded(child: MediaQuery.removePadding(context: context, removeTop: show, child: widget.child)),
+      offBanner,
+      Expanded(child: MediaQuery.removePadding(context: context, removeTop: show || showOff, child: widget.child)),
     ]);
   }
 }

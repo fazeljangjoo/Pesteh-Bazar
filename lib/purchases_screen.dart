@@ -1,21 +1,34 @@
+import 'broker_ui.dart';
 import 'package:flutter/material.dart';
 
 import 'db.dart';
+import 'vouchers_links.dart';
+import 'live_query.dart';
+import 'invoice_service.dart';
+import 'license_service.dart';
 import 'payment_screen.dart';
+import 'pdf_output.dart';
 import 'pdf_service.dart';
 import 'purchase_form.dart';
+import 'returns_ui.dart';
+import 'perms.dart';
 import 'notify_service.dart';
+import 'barcode_utils.dart';
 import 'utils.dart';
 import 'widgets.dart';
 
 class PurchasesScreen extends StatefulWidget {
-  const PurchasesScreen({super.key});
+  /// اگر از اسکن آمده باشیم، جزئیات همین کد یک‌بار باز می‌شود
+  const PurchasesScreen({super.key, this.openCode});
+
+  final String? openCode;
   @override
   State<PurchasesScreen> createState() => _PurchasesScreenState();
 }
 
 class _PurchasesScreenState extends State<PurchasesScreen> {
   String _query = '';
+  bool _openedCode = false;
 
   void _details(BuildContext context, Map<String, dynamic> p) {
     String? pct(String k) => p[k] == null ? null : '${faNum(p[k] as num)}٪';
@@ -26,15 +39,19 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
       if (p['seller'] != null) ['فروشنده', p['seller']],
       if (p['ounce'] != null) ['انس', faNum(p['ounce'] as num)],
       ['فی خرید', '${faNum(p['price'] as num, dec: 0)} تومان'],
-      ['وزن کل', '${faNum(p['total_weight'] as num)} کیلو'],
-      ['گونی کوچک (۱۰۰گ) / بزرگ (۲۰۰گ)',
-          '${faNum(p['small_sack_count'] as num)} / ${faNum(p['large_sack_count'] as num)}'],
-      ['وزن خالص', '${faNum(p['net_weight'] as num)} کیلو'],
-      ['مانده در انبار', '${faNum(p['remaining'] as num)} کیلو'],
-      ['گونی مانده: کوچک / بزرگ',
-          '${faNum((p['small_sacks_remaining'] as num?) ?? 0)} / ${faNum((p['large_sacks_remaining'] as num?) ?? 0)}'],
+      if (LicenseService.I.isFx.value && p['usd_rate'] != null) ['قیمت دلار روز خرید', '${faNum(p['usd_rate'] as num, dec: 0)} تومان'],
+      if (LicenseService.I.isFx.value && p['price_usd'] != null) ['فی خرید به دلار (هر کیلو)', faUsd(p['price_usd'] as num, dec: 4)],
+      ['وزن کل (ناخالص)', '${faNum(p['total_weight'] as num)} کیلو'],
+      ['گونی کوچک (۱۰۰گ)', faNum(p['small_sack_count'] as num)],
+      ['گونی بزرگ (۲۰۰گ)', faNum(p['large_sack_count'] as num)],
+      ['وزن پسته (خالص)', '${faNum(p['net_weight'] as num)} کیلو'],
+      ['مانده در انبار (خالص)', '${faNum(p['remaining'] as num)} کیلو'],
+      ['گونی کوچک مانده', faNum((p['small_sacks_remaining'] as num?) ?? 0)],
+      ['گونی بزرگ مانده', faNum((p['large_sacks_remaining'] as num?) ?? 0)],
+      if (p['labor_cost'] != null) ['هزینه کارگر', '${faNum(p['labor_cost'] as num, dec: 0)} تومان'],
+      if (p['transport_cost'] != null) ['هزینه حمل‌ونقل / باسکول', '${faNum(p['transport_cost'] as num, dec: 0)} تومان'],
       if (((p['in_mix_codes'] as List?) ?? const []).isNotEmpty)
-        ['داخل مخلوط (هنوز فروش نرفته)', ((p['in_mix_codes'] as List).cast<String>()).join('، ')],
+        ['داخل مخلوط/جداسازی (هنوز فروش نرفته)', ((p['in_mix_codes'] as List).cast<String>()).join('، ')],
       if (preset == 'dombest' && p['gram'] != null) ['گرم', faNum(p['gram'] as num)],
       if (preset == 'dombest' && pct('pct_khandan') != null) ['درصد خندان در دنبست', pct('pct_khandan')!],
       if (preset == 'khandan' && pct('pct_dombest') != null) ['درصد دنبست در خندان', pct('pct_dombest')!],
@@ -58,6 +75,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                   style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
                     infoRow('کد پسته', p['code'] as String? ?? '-'),
+              BarcodeBox(p['code'] as String? ?? ''),
               if (((p['has_photo'] as num?) ?? 0) == 1)
                 FutureBuilder<String?>(
                   future: AppDb.I.localPhoto(p['id'] as int),
@@ -73,6 +91,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                 ),
               const SizedBox(height: 8),
               for (final r in rows) infoRow(r[0], r[1]),
+              LocalDocVoucherLinks(mapKind: 'pur', localId: p['id'] as int, sourceType: 'purchase'),
               const SizedBox(height: 12),
               FilledButton.icon(
                 onPressed: () {
@@ -100,11 +119,33 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                     smallSacks: (p['small_sack_count'] as num).toDouble(),
                     largeSacks: (p['large_sack_count'] as num).toDouble(),
                   );
-                  await PdfService.share(file);
+                  await PdfOutput.show(context, file);
                 },
                 icon: const Icon(Icons.picture_as_pdf_outlined),
                 label: const Text('دریافت کارتکس A6'),
               ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(
+                onPressed: () => InvoiceService.forPurchase(context, p),
+                icon: const Icon(Icons.receipt_long_outlined),
+                label: const Text('فاکتور خرید'),
+              ),
+              if (StaffPerms.I.can('purchases.create') && p['is_mix'] != true && '${p['is_mix']}' != '1') ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => openBrokerDialog(context, isSale: false, doc: p),
+                  icon: const Icon(Icons.handshake_outlined),
+                  label: const Text('دلال / کمیسیون'),
+                ),
+              ],
+              if (StaffPerms.I.can('purchases.return') && p['is_mix'] != true && '${p['is_mix']}' != '1') ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  onPressed: () => openPurchaseReturn(context, p),
+                  icon: const Icon(Icons.assignment_return_outlined),
+                  label: const Text('برگشت از خرید'),
+                ),
+              ],
             ],
           ),
         ),
@@ -123,7 +164,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
     final codes = ((p['in_mix_codes'] as List?) ?? const []).cast<String>();
     if (codes.isEmpty) return '';
     final rem = (p['remaining'] as num).toDouble();
-    return '\n🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط ${codes.join('، ')} است (هنوز کامل فروش نرفته)';
+    return '\n🔀 ${rem <= 1e-6 ? 'کل موجودی آن' : 'بخشی از آن'} داخل مخلوط/جداسازی ${codes.join('، ')} است (هنوز کامل فروش نرفته)';
   }
 
   Widget _card(BuildContext context, Map<String, dynamic> p) {
@@ -135,8 +176,9 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         leading: CircleAvatar(child: Icon(hasPhoto ? Icons.photo_camera_outlined : Icons.grass)),
         title: Text('${p['category_name']} - ${p['type_name']}'),
         subtitle: Text(
-            'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو خالص\n'
-            '${sold ? 'فروخته‌شده' : 'مانده ${faNum(p['remaining'] as num)} کیلو'}  •  فی ${faNum(p['price'] as num, dec: 0)} تومان'
+            'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو (خالص)\n'
+            '${sold ? 'فروخته‌شده' : 'مانده ${faNum(p['remaining'] as num)} کیلو (خالص)'}  •  فی ${faNum(p['price'] as num, dec: 0)} تومان'
+            '${LicenseService.I.isFx.value && p['price_usd'] != null ? ' (${faUsd(p['price_usd'] as num, dec: 3)})' : ''}'
             '${_inMixLine(p)}'),
         isThreeLine: true,
         trailing: PopupMenuButton<String>(
@@ -200,13 +242,22 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
           icon: const Icon(Icons.add),
           label: const Text('خرید جدید'),
         ),
-        body: ValueListenableBuilder<int>(
-          valueListenable: AppDb.I.version,
-          builder: (_, __, ___) => FutureBuilder<List<Map<String, dynamic>>>(
-            future: AppDb.I.purchases(),
-            builder: (context, s) {
+        body: LiveQuery<List<Map<String, dynamic>>>(
+          tab: 1,
+          load: AppDb.I.purchases,
+          builder: (context, s) {
               if (!s.hasData) return const Center(child: CircularProgressIndicator());
               final all = s.data!;
+              // اسکن موفق: جزئیات همان پسته یک‌بار باز شود
+              if (widget.openCode != null && !_openedCode) {
+                _openedCode = true;
+                final hit = all.where((p) => p['code'] == widget.openCode).toList();
+                if (hit.isNotEmpty) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (mounted) _details(context, hit.first);
+                  });
+                }
+              }
               final q = _norm(_query);
               final filtered = q.isEmpty
                   ? all
@@ -235,7 +286,6 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                 ),
               ]);
             },
-          ),
         ),
       ),
     );

@@ -7,6 +7,10 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'db.dart';
+import 'edition.dart';
+import 'perms.dart';
+import 'dpapi.dart';
+import 'license_guard.dart';
 import 'sync_service.dart';
 import 'utils.dart';
 
@@ -101,7 +105,13 @@ class LicenseResult {
   final String? phone;
   final String? name;
   final DateTime? expiry;
-  LicenseResult(this.state, {this.phone, this.name, this.expiry});
+
+  /// پیام توضیحی برای کاربر (نسخهٔ ویندوز: دلیل نیاز به اتصال/مسدودی)
+  final String? message;
+  /// S22.T22.2: طلایی منقضی — فقط خروجی
+  final bool readOnlyExport;
+
+  LicenseResult(this.state, {this.phone, this.name, this.expiry, this.message, this.readOnlyExport = false});
 
   int get remainingDays {
     if (expiry == null) return 0;
@@ -131,6 +141,24 @@ class LicenseService {
   static const _kActiveKey = 'license_active';
   static const _kExpiryKey = 'license_expiry';
   static const _kNameKey = 'license_name';
+  static const _kPlanKey = 'license_plan';
+
+  /// آیا اشتراک این کاربر «پلن ارزی» است؟ (فقط وقتی true است قیمت دلار، سود دلاری و فاکتور ارزی دیده می‌شود)
+  /// مرجع تصمیم سرور است؛ آخرین مقدار روی گوشی ذخیره می‌شود تا آفلاین هم کار کند.
+  final ValueNotifier<bool> isFx = ValueNotifier<bool>(false);
+
+  Future<void> _setPlan(dynamic raw) async {
+    final fx = raw == 'fx';
+    final sp = await SharedPreferences.getInstance();
+    await sp.setString(_kPlanKey, fx ? 'fx' : 'rial');
+    if (isFx.value != fx) isFx.value = fx;
+  }
+
+  Future<void> _loadPlan() async {
+    final sp = await SharedPreferences.getInstance();
+    final fx = sp.getString(_kPlanKey) == 'fx';
+    if (isFx.value != fx) isFx.value = fx;
+  }
 
   /// پیام خوش‌آمدگویی کاربر جدید؛ یک‌بار توسط LicenseGate نمایش داده می‌شود
   String? _pendingWelcome;
@@ -182,7 +210,9 @@ class LicenseService {
 
   Future<String?> _savedToken() async {
     final sp = await SharedPreferences.getInstance();
-    return sp.getString(_kTokenKey);
+    final raw = sp.getString(_kTokenKey);
+    if (raw == null) return null;
+    return kStrictLicense ? TokenVault.open(raw) : raw;
   }
 
   /// برای پشتیبان‌گیری: شماره و توکن ذخیره‌شده (اگر کاربر وارد شده باشد)
@@ -253,7 +283,7 @@ class LicenseService {
 
   /// مرحلهٔ ۲ ورود: تأیید کد. برای کاربر جدید ابتدا بدون [name] صدا زده می‌شود؛
   /// اگر needName برگشت، نام گرفته می‌شود و دوباره با همان کد و نام صدا زده می‌شود.
-  Future<OtpVerifyResult> verifyOtp(String phone, String code, {String? name}) async {
+  Future<OtpVerifyResult> verifyOtp(String phone, String code, {String? name, String? password}) async {
     if (!isValidPhone(phone)) return const OtpVerifyResult(error: 'شماره موبایل را درست وارد کنید');
     final cleanCode = toEnDigits(code.trim()).replaceAll(RegExp(r'[^0-9]'), '');
     if (cleanCode.isEmpty) return const OtpVerifyResult(error: 'کد پیامکی را وارد کنید');
@@ -262,6 +292,8 @@ class LicenseService {
 
     final body = <String, dynamic>{'phone': n, 'code': cleanCode};
     if (cleanName != null && cleanName.isNotEmpty) body['name'] = cleanName;
+    if (password != null && password.isNotEmpty) body['password'] = password; // فقط برای ثبت‌نام کاربر جدید
+    if (kStrictLicense) body['device'] = await LicenseGuard.I.deviceId();
     final r = await _post('otp_verify.php', body);
     if (r.netError != null) return OtpVerifyResult(error: r.netError);
     if (r.status != 200) {
@@ -285,9 +317,16 @@ class LicenseService {
   Future<String?> _finishLogin(String normalizedPhone, Map<String, dynamic> data) async {
     final token = data['token'];
     if (token is! String || token.isEmpty) return 'پاسخ نامعتبر از سرور.';
+    if (kStrictLicense) {
+      // نسخهٔ ویندوز: بدون مجوز امضادارِ معتبر وارد نمی‌شویم
+      final lic = data['lic'];
+      if (lic is! String || !await LicenseGuard.I.accept(normalizedPhone, lic)) {
+        return 'مجوز اشتراک از سرور دریافت نشد یا معتبر نیست. اگر این پیام تکرار شد با پشتیبانی تماس بگیرید.';
+      }
+    }
     final sp = await SharedPreferences.getInstance();
     await sp.setString(_kPhoneKey, normalizedPhone);
-    await sp.setString(_kTokenKey, token);
+    await sp.setString(_kTokenKey, kStrictLicense ? TokenVault.seal(token) : token);
     final srvName = data['name'];
     if (srvName is String && srvName.trim().isNotEmpty) {
       await sp.setString(_kNameKey, srvName.trim());
@@ -295,6 +334,14 @@ class LicenseService {
       await sp.remove(_kNameKey);
     }
     await _saveCache(data['active'] == true, _parseDate(data['expiry_date']));
+    await _setPlan(data['plan']);
+    await EditionService.I.apply(data['edition'], data['plan']);
+    if (kStrictLicense) {
+      // S22.T22.2: سطح از مجوز امضادار؛ JSON سرور نمی‌تواند طلایی را جای آن بنشاند
+      final se = await LicenseGuard.I.signedEdition(normalizedPhone);
+      if (se != null) await _applySigned(se);
+    }
+    await StaffPerms.I.apply(data['staff']); // T02.2: کارکن → مجوزها؛ مالک → null
     _signedInCache = true;
     return null;
   }
@@ -307,10 +354,29 @@ class LicenseService {
     if (!isValidPhone(phone)) return 'شماره موبایل را درست وارد کنید (مثال: 09123456789)';
     if (password.isEmpty) return 'رمز عبور را وارد کنید';
     final n = normalizePhone(phone);
-    final r = await _post('login.php', {'phone': n, 'password': password});
+    final loginBody = <String, dynamic>{'phone': n, 'password': password};
+    if (kStrictLicense) loginBody['device'] = await LicenseGuard.I.deviceId();
+    final r = await _post('login.php', loginBody);
     if (r.netError != null) return r.netError;
     if (r.status != 200) {
       return (r.data['error'] as String?) ?? 'ورود ناموفق بود؛ دوباره تلاش کنید.';
+    }
+    return _finishLogin(n, r.data);
+  }
+
+  /// ورود کارکن: شمارهٔ مالک + نام کاربری + رمز (staff_login.php). نتیجه: null = موفق، وگرنه متن خطا.
+  Future<String?> signInStaff(String ownerPhone, String username, String password) async {
+    if (ownerPhone.trim().isEmpty) return 'شماره موبایل مالک را وارد کنید';
+    if (!isValidPhone(ownerPhone)) return 'شماره موبایل مالک را درست وارد کنید (مثال: 09123456789)';
+    if (username.trim().isEmpty) return 'نام کاربری کارکن را وارد کنید';
+    if (password.isEmpty) return 'رمز عبور را وارد کنید';
+    final n = normalizePhone(ownerPhone);
+    final body = <String, dynamic>{'phone': n, 'username': username.trim(), 'password': password};
+    if (kStrictLicense) body['device'] = await LicenseGuard.I.deviceId();
+    final r = await _post('staff_login.php', body);
+    if (r.netError != null) return r.netError;
+    if (r.status != 200) {
+      return (r.data['error'] as String?) ?? 'ورود کارکن ناموفق بود؛ دوباره تلاش کنید.';
     }
     return _finishLogin(n, r.data);
   }
@@ -341,6 +407,7 @@ class LicenseService {
     } else {
       await sp.remove(_kNameKey);
     }
+    await StaffPerms.I.apply(item['staff']); // T02.2: مجوزهای تازه (کارکن) یا پاک‌کردن (مالک)
     return AccountInfo(name: n, hasPassword: item['has_password'] == true);
   }
 
@@ -379,7 +446,7 @@ class LicenseService {
       final newToken = r.data['new_token'];
       if (newToken is String && newToken.isNotEmpty) {
         final sp = await SharedPreferences.getInstance();
-        await sp.setString(_kTokenKey, newToken);
+        await sp.setString(_kTokenKey, kStrictLicense ? TokenVault.seal(newToken) : newToken);
       }
       return const AccountOpResult();
     } finally {
@@ -394,8 +461,13 @@ class LicenseService {
     await sp.remove(_kActiveKey);
     await sp.remove(_kExpiryKey);
     await sp.remove(_kNameKey);
+    await sp.remove(_kPlanKey);
+    isFx.value = false;
+    await EditionService.I.clear();
+    await StaffPerms.I.clear();
     _signedInCache = false;
     expiry.value = null;
+    if (kStrictLicense) await LicenseGuard.I.clear();
     // دیتابیس هر حساب جداست و روی گوشی می‌ماند؛ فقط بسته می‌شود. اگر عملیات ارسال‌نشده
     // داشته باشد، با ورود دوباره به همان حساب ارسال می‌شود.
     SyncService.I.stop();
@@ -427,6 +499,123 @@ class LicenseService {
     return null;
   }
 
+  // ======================= نسخهٔ ویندوز: مجوز امضادار =======================
+
+  /// آخرین زمانی که در دیتابیس محلی ثبت شده (ضد برگرداندن ساعت)؛ خطا = null
+  Future<DateTime?> _dbFloor(String phone) async {
+    try {
+      await AppDb.I.useAccount(phone);
+      final v = await AppDb.I.metaGet('clock_floor');
+      return v == null ? null : DateTime.tryParse(v);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _bumpDbFloor() async {
+    try {
+      if (!AppDb.I.hasAccount) return;
+      final v = await AppDb.I.metaGet('clock_floor');
+      final prev = v == null ? null : DateTime.tryParse(v);
+      final now = DateTime.now().toUtc();
+      if (prev == null || now.difference(prev).inMinutes >= 5) {
+        await AppDb.I.metaSet('clock_floor', now.toIso8601String());
+      }
+    } catch (_) {}
+  }
+
+  Future<LicenseResult> _checkStrict(String phone, String token) async {
+    final device = await LicenseGuard.I.deviceId();
+    try {
+      final resp = await http
+          .post(
+            Uri.parse('${ApiConfig.baseUrl}/check.php'),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'phone': phone, 'token': token, 'device': device}),
+          )
+          .timeout(const Duration(seconds: 10));
+
+      if (resp.statusCode == 401) {
+        if (!_tokenChanging) {
+          await signOut();
+          return LicenseResult(LicenseState.loggedOut);
+        }
+      } else if (resp.statusCode == 200) {
+        final data = jsonDecode(utf8.decode(resp.bodyBytes)) as Map<String, dynamic>;
+        final lic = data['lic'];
+        if (lic is! String || !await LicenseGuard.I.accept(phone, lic)) {
+          return LicenseResult(LicenseState.needsInternet,
+              phone: phone,
+              message: 'مجوز اشتراک از سرور دریافت نشد (سرور هنوز برای نسخهٔ ویندوز به‌روز نشده است). '
+                  'با پشتیبانی تماس بگیرید.');
+        }
+        final sp = await SharedPreferences.getInstance();
+        final srvName = data['name'];
+        if (srvName is String && srvName.trim().isNotEmpty) {
+          await sp.setString(_kNameKey, srvName.trim());
+        }
+      }
+      // سایر کدها (۵۰۰ و ...) مثل آفلاین رفتار می‌کنند و از مجوز ذخیره‌شده استفاده می‌شود
+    } catch (_) {
+      // آفلاین: فقط با مجوز امضادار ذخیره‌شده
+    }
+    return _strictFromGuard(phone);
+  }
+
+  /// S22.T22.2: سطح و قابلیت‌ها فقط از مجوز امضادار
+  Future<void> _applySigned(GuardResult g) async {
+    await EditionService.I.applySigned(
+      tier: g.tier ?? 'green',
+      plan: g.plan ?? 'rial',
+      features: g.features,
+      exportOnly: g.exportOnly,
+    );
+  }
+
+  Future<LicenseResult> _strictFromGuard(String phone) async {
+    final g = await LicenseGuard.I.evaluate(phone, dbFloor: await _dbFloor(phone));
+    final name = await savedName();
+    if (g.expiry != null) {
+      final sp = await SharedPreferences.getInstance();
+      await sp.setString(_kExpiryKey, g.expiry!.toIso8601String());
+    }
+    if (g.plan != null) await _setPlan(g.plan);
+    if (g.tier != null) await _applySigned(g);
+    expiry.value = g.verdict == GuardVerdict.ok ? g.expiry : null;
+    switch (g.verdict) {
+      case GuardVerdict.ok:
+        await _bumpDbFloor();
+        return LicenseResult(LicenseState.valid, phone: phone, name: name, expiry: g.expiry);
+      case GuardVerdict.noLicense:
+        return LicenseResult(LicenseState.needsInternet,
+            phone: phone,
+            name: name,
+            message: 'برای تأیید اشتراک روی این کامپیوتر، یک‌بار باید به اینترنت وصل شوید.');
+      case GuardVerdict.invalid:
+        return LicenseResult(LicenseState.needsInternet,
+            phone: phone,
+            name: name,
+            message: 'مجوز ذخیره‌شده روی این کامپیوتر معتبر نیست. برای دریافت دوبارهٔ آن به اینترنت وصل شوید.');
+      case GuardVerdict.clockBack:
+        return LicenseResult(LicenseState.needsInternet,
+            phone: phone,
+            name: name,
+            message: 'تاریخ/ساعت کامپیوتر نادرست است (به عقب برگشته). ساعت را درست کنید و به اینترنت وصل شوید.');
+      case GuardVerdict.offlineTooLong:
+        return LicenseResult(LicenseState.needsInternet,
+            phone: phone,
+            name: name,
+            message: 'بیش از $kMaxOfflineDays روز است اشتراک آنلاین تأیید نشده. یک‌بار به اینترنت وصل شوید '
+                '(اطلاعات شما سالم است).');
+      case GuardVerdict.inactive:
+        return LicenseResult(LicenseState.blocked, phone: phone, name: name, expiry: g.expiry);
+      case GuardVerdict.expired:
+        // طلایی منقضی: فقط حالت خروجی (Q3)؛ بقیهٔ نسخه‌ها مثل قبل مسدود
+        return LicenseResult(LicenseState.blocked,
+            phone: phone, name: name, expiry: g.expiry, readOnlyExport: g.exportOnly);
+    }
+  }
+
   /// وضعیت اشتراک را برمی‌گرداند. اول تلاش می‌کند از سرور (آنلاین) بخواند؛
   /// اگر اینترنت نبود، بر اساس آخرین وضعیتِ تاییدشده‌ای که روی گوشی ذخیره شده
   /// تصمیم می‌گیرد (چون تاریخ انقضا ثابت است، با آفلاین‌ماندن قابل دور زدن نیست).
@@ -436,6 +625,7 @@ class LicenseService {
     final phone = await savedPhone();
     final token = await _savedToken();
     if (phone == null || token == null) return LicenseResult(LicenseState.loggedOut);
+    if (kStrictLicense) return _checkStrict(phone, token);
 
     try {
       final resp = await http
@@ -463,6 +653,8 @@ class LicenseService {
       final expiry = _parseDate(data['expiry_date']);
 
       await _saveCache(active, expiry);
+      await _setPlan(data['plan']);
+      await EditionService.I.apply(data['edition'], data['plan']);
       // نام کاربر (برای نمایش در صفحهٔ اشتراک) هر بار از سرور تازه می‌شود
       final srvName = data['name'];
       final sp = await SharedPreferences.getInstance();
@@ -480,6 +672,8 @@ class LicenseService {
           phone: phone, name: name, expiry: expiry);
     } catch (_) {
       final (active, expiry) = await _loadCache();
+      await _loadPlan();
+      await EditionService.I.load();
       final name = await savedName();
       this.expiry.value = (active && expiry != null) ? expiry : null;
       if (expiry == null) {

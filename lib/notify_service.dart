@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/data/latest_all.dart' as tzdata;
 import 'package:timezone/timezone.dart' as tz;
 
 import 'db.dart';
+import 'entity_store.dart';
 import 'utils.dart';
 
 /// شناسه پایه برای اقساط اعتباری و چک‌ها را از هم جدا نگه می‌دارد تا تداخل نداشته باشند
@@ -10,16 +13,21 @@ const int _creditBase = 1000000;
 const int _chequeBase = 2000000;
 const int _receiptCreditBase = 3000000;
 const int _receiptChequeBase = 4000000;
+const int _loanBase = 6000000;
+const int _crmBase = 7000000; // T03.4: due CRM follow-ups (id = base + stable hash of uid)
 
 class NotifyService {
   NotifyService._();
   static final NotifyService I = NotifyService._();
 
-  final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  // lazy: روی ویندوز اصلاً ساخته نمی‌شود (اعلان سیستمی فقط روی گوشی است؛ در ویندوز DueAlertHost هشدار می‌دهد)
+  late final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
   bool _ready = false;
 
+  bool get _supported => Platform.isAndroid || Platform.isIOS;
+
   Future<void> init() async {
-    if (_ready) return;
+    if (_ready || !_supported) return;
     try {
       tzdata.initializeTimeZones();
       try {
@@ -38,6 +46,7 @@ class NotifyService {
   }
 
   Future<void> _schedule(int id, String title, String body, DateTime when) async {
+    if (!_supported) return;
     if (when.isBefore(DateTime.now())) return;
     try {
       await _plugin.zonedSchedule(
@@ -61,6 +70,7 @@ class NotifyService {
   }
 
   Future<void> _cancel(int id) async {
+    if (!_supported) return;
     try {
       await _plugin.cancel(id);
     } catch (_) {}
@@ -120,6 +130,42 @@ class NotifyService {
 
   Future<void> cancelReceiptChequeRow(int id) => cancelDueByBase(_receiptChequeBase + id);
 
+  /// سررسید قرض: اعطای قرض = وصول طلب، دریافت قرض = بازپرداخت بدهی
+  Future<void> scheduleLoanRow(Map<String, dynamic> row) async {
+    final id = (row['id'] as int).abs() % 900000;
+    final dueDate = DateTime.parse(row['due_date'] as String);
+    final amount = (row['amount'] as num).toDouble();
+    final given = row['kind'] == 'given';
+    final party = (row['party'] as String?) ?? '';
+    await _scheduleDue(_loanBase + id, given ? 'سررسید وصول قرض' : 'سررسید بازپرداخت قرض',
+        '${faNum(amount, dec: 0)} تومان ${given ? 'از' : 'به'} $party', dueDate);
+  }
+
+  Future<void> cancelLoanRow(int id) => cancelDueByBase(_loanBase + id.abs() % 900000);
+
+  int _crmId(String uid) {
+    int h = 0;
+    for (final int c in uid.codeUnits) {
+      h = (h * 31 + c) % 900000;
+    }
+    return _crmBase + h;
+  }
+
+  /// یادآوری پیگیری CRM: فقط در لحظهٔ موعد (اگر موعد گذشته یا انجام‌شده باشد، چیزی زمان‌بندی نمی‌شود)
+  Future<void> scheduleCrmTask(Map<String, dynamic> row) async {
+    final String uid = (row['uid'] ?? '').toString();
+    if (uid.isEmpty) return;
+    await _cancel(_crmId(uid));
+    if (row['done'] == true || row['done'] == 1) return;
+    final String due = (row['due_at'] ?? '').toString().trim();
+    if (due.isEmpty) return;
+    final DateTime? when = DateTime.tryParse(due.replaceFirst(' ', 'T'));
+    if (when == null) return;
+    await _schedule(_crmId(uid), 'پیگیری ${(row['party'] ?? '').toString()}', (row['text'] ?? '').toString(), when);
+  }
+
+  Future<void> cancelCrmTask(String uid) => _cancel(_crmId(uid));
+
   /// هنگام باز شدن برنامه همه یادآوری‌های پرداخت‌نشده را دوباره زمان‌بندی می‌کند
   Future<void> rescheduleAll() async {
     if (!_ready) return;
@@ -135,6 +181,12 @@ class NotifyService {
       }
       for (final row in await AppDb.I.unpaidReceiptChequeInst()) {
         await scheduleReceiptChequeRow(row);
+      }
+      for (final row in await AppDb.I.unpaidLoanDues()) {
+        await scheduleLoanRow(row);
+      }
+      for (final Map<String, dynamic> row in await EntityStore.I.list('crm_tasks')) {
+        await scheduleCrmTask(row);
       }
     } catch (_) {}
   }

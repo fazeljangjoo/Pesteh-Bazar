@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'renewal_screen.dart';
 import 'sync_screen.dart';
 import 'license_gate_screen.dart' show ContactButtons;
+import 'edition.dart';
 import 'license_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -242,6 +244,7 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                       if (r?.name != null) infoRow('نام', r!.name!),
                       infoRow('شماره حساب', r?.phone != null ? toFaDigits(r!.phone!) : '-'),
+                      infoRow('نوع اشتراک', EditionService.I.edition.nameFa),
                       if (r?.expiry != null) infoRow('تاریخ انقضا', jalaliDateFromDt(r!.expiry!)),
                       infoRow(
                         'وضعیت',
@@ -251,11 +254,35 @@ class _SubscriptionScreenState extends State<SubscriptionScreen> {
                     ]),
                   ),
                 ),
+                ValueListenableBuilder<Edition>(
+                  valueListenable: EditionService.I.current,
+                  builder: (BuildContext ctx, Edition e, Widget? _) {
+                    if (e.isGold) return const SizedBox.shrink();
+                    // placeholder: the real upgrade flow is wired in S20 (Green only)
+                    return Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.workspace_premium_outlined),
+                        label: const Text('ارتقا به طلایی'),
+                        onPressed: () => snack(ctx, 'ارتقا به نسخهٔ طلایی به‌زودی فعال می‌شود؛ فعلاً با پشتیبانی تماس بگیرید'),
+                      ),
+                    );
+                  },
+                ),
                 const SizedBox(height: 20),
                 const Text('برای تمدید یا تغییر اشتراک با پشتیبانی تماس بگیرید:',
                     textAlign: TextAlign.center),
                 const SizedBox(height: 12),
                 ContactButtons(phoneForMessage: r?.phone),
+                const SizedBox(height: 12),
+                FilledButton.icon(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => RenewalScreen(onDone: _refresh)),
+                  ),
+                  icon: const Icon(Icons.payments_outlined),
+                  label: const Text('تمدید / خرید اشتراک'),
+                ),
                 const SizedBox(height: 24),
                 sectionTitle(context, 'نام و رمز عبور'),
                 _accountCard(),

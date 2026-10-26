@@ -1,11 +1,17 @@
 import 'dart:convert';
+import 'dart:io' show Platform;
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
 import 'db.dart';
+import 'license_service.dart';
 import 'party_field.dart';
+import 'tax_choice.dart';
 import 'utils.dart';
+import 'warehouse_ui.dart';
 import 'widgets.dart';
 
 class PurchaseForm extends StatefulWidget {
@@ -20,7 +26,7 @@ class _CustomSpecRow {
   final TextEditingController value = TextEditingController();
 }
 
-class _PurchaseFormState extends State<PurchaseForm> {
+class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm> {
   final _form = GlobalKey<FormState>();
 
   List<Map<String, dynamic>> _categories = [];
@@ -33,10 +39,13 @@ class _PurchaseFormState extends State<PurchaseForm> {
   final _customTypeCtrl = TextEditingController();
 
   String? _photo; // data-URL (base64) مثل سرور/وب
+  String? _warehouseUid; // S01: انبار (null = پیش‌فرض)
+  String? _ounceUid; // S01: درجه‌بندی اونس
   bool _photoChanged = false;
 
   final _ounce = TextEditingController();
   final _price = TextEditingController();
+  final _usdRate = TextEditingController(); // قیمت دلار هنگام خرید (فقط پلن ارزی)
   final _total = TextEditingController();
   final _smallSack = TextEditingController();
   final _largeSack = TextEditingController();
@@ -51,8 +60,22 @@ class _PurchaseFormState extends State<PurchaseForm> {
 
   final _seller = TextEditingController();
   final _note = TextEditingController();
+  final _laborCost = TextEditingController(); // هزینه کارگر (اختیاری؛ از سود این پسته کم می‌شود)
+  String? _taxStatus; // S17.T17.1b (طلایی): null = طبق سال مالی
+  final _taxRate = TextEditingController();
+  final _transportCost = TextEditingController(); // هزینه حمل‌ونقل / باسکول (اختیاری)
 
   bool get _isEdit => widget.existing != null;
+
+  bool get _fx => LicenseService.I.isFx.value;
+
+  /// فی دلاری هر کیلو = فی تومانی ÷ قیمت دلار
+  double? get _usdPerKg {
+    final p = parseNum(_price.text);
+    final r = parseNum(_usdRate.text);
+    if (p == null || r == null || r <= 0) return null;
+    return p / r;
+  }
 
   /// اگر بخشی از این خرید قبلاً فروخته شده باشد، دسته/نوع/وزن قابل ویرایش نیست
   bool get _locked {
@@ -70,7 +93,10 @@ class _PurchaseFormState extends State<PurchaseForm> {
     if (e != null) {
       _loadExistingPhoto(e['id'] as int?);
       _ounce.text = e['ounce'] == null ? '' : plain(e['ounce'] as num);
+      _warehouseUid = e['warehouse_uid'] as String?;
+      _ounceUid = e['ounce_uid'] as String?;
       _price.text = plain(e['price'] as num);
+      _usdRate.text = e['usd_rate'] == null ? '' : plain(e['usd_rate'] as num);
       _total.text = plain(e['total_weight'] as num);
       final smallVal = (e['small_sack_count'] as num).toDouble();
       final largeVal = (e['large_sack_count'] as num).toDouble();
@@ -83,6 +109,10 @@ class _PurchaseFormState extends State<PurchaseForm> {
       _pctCrooked.text = e['pct_crooked'] == null ? '' : plain(e['pct_crooked'] as num);
       _seller.text = (e['seller'] as String?) ?? '';
       _note.text = (e['note'] as String?) ?? '';
+    _laborCost.text = e['labor_cost'] == null ? '' : plain(e['labor_cost'] as num);
+    _taxStatus = e['tax_status'] as String?;
+    _taxRate.text = taxRateTextFromMilli(e['tax_rate_milli']);
+    _transportCost.text = e['transport_cost'] == null ? '' : plain(e['transport_cost'] as num);
       final specs = AppDb.decodeCustomSpecs(e['custom_specs'] as String?);
       for (final s in specs) {
         final row = _CustomSpecRow();
@@ -201,11 +231,24 @@ class _PurchaseFormState extends State<PurchaseForm> {
     if (mounted && !_photoChanged && ph != null) setState(() => _photo = ph);
   }
 
+  Uint8List _downscale(Uint8List src) {
+    try {
+      final im = img.decodeImage(src);
+      if (im == null) return src;
+      final r = im.width > 1100 ? img.copyResize(im, width: 1100) : im;
+      return Uint8List.fromList(img.encodeJpg(r, quality: 72));
+    } catch (_) {
+      return src;
+    }
+  }
+
   Future<void> _pick(ImageSource src) async {
     // مثل وب: حداکثر ~۱۱۰۰ پیکسل و کیفیت ۷۲٪ تا حجم دیتابیس/سرور زیاد نشود
     final x = await ImagePicker().pickImage(source: src, maxWidth: 1100, imageQuality: 72);
     if (x == null) return;
-    final bytes = await x.readAsBytes();
+    var bytes = await x.readAsBytes();
+    // دسکتاپ، maxWidth/imageQuality را اعمال نمی‌کند؛ خودمان کوچک می‌کنیم
+    if (Platform.isWindows) bytes = _downscale(bytes);
     if (bytes.length > 6 * 1024 * 1024) {
       if (mounted) snack(context, 'حجم عکس زیاد است');
       return;
@@ -224,7 +267,8 @@ class _PurchaseFormState extends State<PurchaseForm> {
       context: context,
       builder: (ctx) => SafeArea(
         child: Wrap(children: [
-          ListTile(
+          if (!Platform.isWindows)
+            ListTile(
             leading: const Icon(Icons.photo_camera),
             title: const Text('گرفتن عکس'),
             onTap: () {
@@ -234,7 +278,7 @@ class _PurchaseFormState extends State<PurchaseForm> {
           ),
           ListTile(
             leading: const Icon(Icons.photo_library),
-            title: const Text('انتخاب از گالری'),
+            title: Text(Platform.isWindows ? 'انتخاب عکس از کامپیوتر' : 'انتخاب از گالری'),
             onTap: () {
               Navigator.pop(ctx);
               _pick(ImageSource.gallery);
@@ -264,21 +308,23 @@ class _PurchaseFormState extends State<PurchaseForm> {
     if (_locked) {
       // فقط فی، فروشنده، عکس و توضیحات قابل ویرایش است (چون بخشی از این خرید فروخته شده)
       setState(() => _saving = true);
-      try {
-        await AppDb.I.updatePurchase(widget.existing!['id'] as int, {
-          if (_photoChanged) 'photo': _photo,
-          'price': parseNum(_price.text),
-          'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
-          'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
-        });
-        if (mounted) Navigator.pop(context);
-      } catch (e) {
-        if (mounted) {
-          snack(context, 'ذخیره نشد: ${e.toString().replaceFirst('Exception: ', '')}');
-        }
-      } finally {
-        if (mounted) setState(() => _saving = false);
-      }
+      final lockedData = <String, dynamic>{
+        if (_photoChanged) 'photo': _photo,
+        'price': parseNum(_price.text),
+        if (_fx) 'usd_rate': parseNum(_usdRate.text),
+        'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
+        'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
+        'labor_cost': parseNum(_laborCost.text),
+        'transport_cost': parseNum(_transportCost.text),
+      };
+      final okLocked = await saveConfirmed(
+        context,
+        () => AppDb.I.updatePurchase(widget.existing!['id'] as int, lockedData),
+        successMsg: 'ویرایش خرید با موفقیت ثبت شد',
+      );
+      if (!mounted) return;
+      setState(() => _saving = false);
+      if (okLocked) Navigator.pop(context);
       return;
     }
 
@@ -301,18 +347,22 @@ class _PurchaseFormState extends State<PurchaseForm> {
       }
     }
     if (_net <= 0) {
-      snack(context, 'وزن خالص باید بیشتر از صفر باشد');
+      snack(context, 'وزن (خالص) باید بیشتر از صفر باشد');
       return;
     }
     if ((parseNum(_price.text) ?? 0) <= 0) {
       snack(context, 'فی خرید را وارد کنید');
       return;
     }
+    if (_fx && (parseNum(_usdRate.text) ?? 0) <= 0) {
+      snack(context, 'قیمت دلار روز خرید را وارد کنید');
+      return;
+    }
 
     // اگر تعداد گونی وارد نشده باشد، قبل از ثبت تأیید می‌گیریم
     if (((parseNum(_smallSack.text) ?? 0) + (parseNum(_largeSack.text) ?? 0)) <= 0) {
       final ok = await confirm(context,
-          'شما تعداد را وارد نکردید؛ گونیِ انبار برای این خرید اضافه نخواهد شد و فقط وزن خالص به انبار اضافه می‌شود. مطمئنید؟');
+          'شما تعداد را وارد نکردید؛ گونیِ انبار برای این خرید اضافه نخواهد شد و فقط وزن (خالص) به انبار اضافه می‌شود. مطمئنید؟');
       if (!ok || !mounted) return;
     }
 
@@ -330,7 +380,10 @@ class _PurchaseFormState extends State<PurchaseForm> {
       'type_name': typeName,
       'photo': _photo,
       'ounce': parseNum(_ounce.text),
+      'warehouse_uid': _warehouseUid,
+      'ounce_uid': _ounceUid,
       'price': parseNum(_price.text),
+      if (_fx) 'usd_rate': parseNum(_usdRate.text),
       'total_weight': parseNum(_total.text),
       'small_sack_count': parseNum(_smallSack.text) ?? 0,
       'large_sack_count': parseNum(_largeSack.text) ?? 0,
@@ -345,25 +398,32 @@ class _PurchaseFormState extends State<PurchaseForm> {
           : null,
       'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
       'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
+        'labor_cost': parseNum(_laborCost.text),
+        'transport_cost': parseNum(_transportCost.text),
+      if (taxChoiceAvailable()) 'tax_status': _taxStatus,
+      if (taxChoiceAvailable()) 'tax_rate_milli': _taxStatus == 'taxable' ? taxRateMilliFromText(_taxRate.text) : null,
     };
 
     setState(() => _saving = true);
-    try {
-      if (_isEdit) {
-        if (!_photoChanged) data.remove('photo');
-        await AppDb.I.updatePurchase(widget.existing!['id'] as int, data);
-      } else {
-        data['date'] = DateTime.now().toIso8601String();
-        await AppDb.I.insertPurchase(data);
-      }
-      if (mounted) Navigator.pop(context);
-    } catch (e) {
-      if (mounted) {
-        snack(context, 'ذخیره نشد: ${e.toString().replaceFirst('Exception: ', '')}');
-      }
-    } finally {
-      if (mounted) setState(() => _saving = false);
+    if (_isEdit) {
+      if (!_photoChanged) data.remove('photo');
+    } else {
+      data['date'] = DateTime.now().toIso8601String();
     }
+    final ok = await saveConfirmed(
+      context,
+      () async {
+        if (_isEdit) {
+          await AppDb.I.updatePurchase(widget.existing!['id'] as int, data);
+        } else {
+          await AppDb.I.insertPurchase(data);
+        }
+      },
+      successMsg: _isEdit ? 'ویرایش خرید با موفقیت ثبت شد' : 'خرید با موفقیت ثبت شد',
+    );
+    if (!mounted) return;
+    setState(() => _saving = false);
+    if (ok) Navigator.pop(context);
   }
 
   @override
@@ -455,11 +515,26 @@ class _PurchaseFormState extends State<PurchaseForm> {
               ignoring: _locked,
               child: Opacity(
                 opacity: _locked ? 0.5 : 1,
+                child: WarehousePicker(
+                    value: _warehouseUid, useLast: !_isEdit, onChanged: (String? v) => _warehouseUid = v),
+              ),
+            ),
+            OuncePicker(value: _ounceUid, onChanged: (String? v) => _ounceUid = v),
+            IgnorePointer(
+              ignoring: _locked,
+              child: Opacity(
+                opacity: _locked ? 0.5 : 1,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   sectionTitle(context, 'قیمت و وزن'),
                   numField(_ounce, 'انس پسته (اختیاری)'),
-                  numField(_price, 'فی خرید (تومان به ازای هر کیلو)', required: true, thousands: true),
-                  numField(_total, 'وزن کل (کیلو)', required: true, onChanged: () => setState(() {})),
+                  numField(_price, 'فی خرید (تومان به ازای هر کیلو)',
+                      required: true, thousands: true, onChanged: () => setState(() {})),
+                  if (_fx)
+                    numField(_usdRate, 'قیمت دلار در زمان خرید (تومان)',
+                        required: !_locked, thousands: true, onChanged: () => setState(() {}))
+                  else
+                    fxLockedField('قیمت دلار در زمان خرید (تومان)'),
+                  numField(_total, 'وزن کل (ناخالص) به کیلو', required: true, onChanged: () => setState(() {})),
                   Row(children: [
                     Expanded(
                         child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
@@ -473,8 +548,12 @@ class _PurchaseFormState extends State<PurchaseForm> {
                       padding: const EdgeInsets.all(12),
                       child: Column(children: [
                         infoRow('وزن گونی‌ها', '${faNum(_tare)} کیلو'),
-                        infoRow('وزن خالص', '${faNum(_net)} کیلو'),
+                        infoRow('وزن پسته (خالص)', '${faNum(_net)} کیلو'),
                         infoRow('ارزش کل', '${faNum(_net * (parseNum(_price.text) ?? 0), dec: 0)} تومان'),
+                        if (_fx && _usdPerKg != null) ...[
+                          infoRow('فی خرید به دلار (هر کیلو)', faUsd(_usdPerKg!, dec: 4)),
+                          infoRow('ارزش کل به دلار', faUsd(_net * _usdPerKg!)),
+                        ],
                       ]),
                     ),
                   ),
@@ -536,6 +615,9 @@ class _PurchaseFormState extends State<PurchaseForm> {
             sectionTitle(context, 'سایر'),
             PartyField(controller: _seller, label: 'فروشنده (اختیاری)'),
             textField(_note, 'توضیحات (اختیاری)', lines: 2),
+            numField(_laborCost, 'هزینه کارگر (تومان) — اختیاری', thousands: true, hint: 'اگر وارد شود از سود این پسته کم می‌شود'),
+            numField(_transportCost, 'هزینه حمل‌ونقل / باسکول (تومان) — اختیاری', thousands: true, hint: 'اگر وارد شود از سود این پسته کم می‌شود'),
+            TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v)),
             const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: _saving ? null : _save,

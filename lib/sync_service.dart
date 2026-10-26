@@ -6,7 +6,9 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import 'db.dart';
+import 'entity_store.dart';
 import 'license_service.dart';
+import 'local_backup.dart';
 
 /// وضعیت همگام‌سازی برای نمایش در صفحه‌ها
 class SyncInfo {
@@ -138,7 +140,8 @@ class SyncService {
     _emit(pending: p, failed: f);
     final due = DateTime.now().difference(_lastPullTry) >= _pullEvery;
     final settled = DateTime.now().difference(_lastActivity) >= _settle;
-    if (p == 0 && f == 0 && (pull == true || (pull == null && due && settled))) {
+    // تا وقتی فرم/صفحهٔ ثبتی باز است دریافت از سرور انجام نمی‌شود (شناسه‌ها زیر دست کاربر عوض نشوند)
+    if (p == 0 && f == 0 && !AppDb.I.isEditing && (pull == true || (pull == null && due && settled))) {
       _lastPullTry = DateTime.now();
       await _pull(cred.$1, cred.$2);
     }
@@ -198,9 +201,11 @@ class SyncService {
         break;
       case 'payments.save':
         await one('purchase_id', 'pur');
+        await _addSnap(o);
         break;
       case 'receipts.save':
         await one('sale_id', 'sale');
+        await _addSnap(o);
         break;
       case 'sales.create':
         await list('items', 'purchase_id', 'pur');
@@ -211,6 +216,32 @@ class SyncService {
         break;
       case 'sales.delete':
         await one('id', 'sale');
+        break;
+      // S04.T04.4b: برگشت‌ها و پیش‌فاکتورها
+      case 'sale_returns.create':
+        await list('items', 'sale_id', 'sale');
+        await list('items', 'lot_id', 'pur');
+        break;
+      case 'purchase_returns.create':
+        await list('items', 'lot_id', 'pur');
+        break;
+      case 'sale_returns.delete':
+        await one('id', 'sret');
+        break;
+      case 'purchase_returns.delete':
+        await one('id', 'pret');
+        break;
+      case 'proformas.save':
+        await one('id', 'pf');
+        await list('items', 'lot_id', 'pur');
+        break;
+      case 'proformas.link_sales':
+        await one('id', 'pf');
+        await list('links', 'sale_id', 'sale');
+        break;
+      case 'proformas.set_status':
+      case 'proformas.delete':
+        await one('id', 'pf');
         break;
     }
     return o;
@@ -229,6 +260,13 @@ class SyncService {
       if (j is Map<String, dynamic>) data = j;
     } catch (_) {}
     return _ApiResult(resp.statusCode, data);
+  }
+
+  /// STAGE12: آخرین snap_at (ساعت سرور در آخرین دریافتِ اعمال‌شده) را به ثبت پرداخت/دریافت می‌افزاید.
+  /// اگر نباشد (سرور قدیمی یا هنوز دریافت اعمال‌نشده) چیزی نمی‌فرستد ⇒ رفتار قبلی.
+  Future<void> _addSnap(Map<String, dynamic> o) async {
+    final s = await AppDb.I.metaGet('snap_at');
+    if (s != null && s.isNotEmpty) o['snap_at'] = s;
   }
 
   /// true = صف کاملاً پردازش شد (یا فقط موارد خطادار مانده)؛ false = باید بعداً دوباره تلاش شود
@@ -272,11 +310,15 @@ class SyncService {
               'mixes.create' => 'mixes.delete',
               'sales.create' => 'sales.delete',
               'purchases.create' => 'purchases.delete',
+              'sale_returns.create' => 'sale_returns.delete',
+              'purchase_returns.create' => 'purchase_returns.delete',
+              'proformas.save' => 'proformas.delete',
               _ => null,
             };
             if (del != null) await AppDb.I.enqueueServerDelete(del, sid);
           }
         }
+        if (action == 'entity.save') await EntityStore.I.onSaved(payload, r.data);
         await AppDb.I.finishOp(seq, rev);
         _lastActivity = DateTime.now();
         if (action == 'receipts.save' || action == 'payments.save') {
@@ -289,6 +331,19 @@ class SyncService {
         // LicenseGate وضعیت را دوباره بررسی می‌کند و اگر توکن واقعاً نامعتبر باشد، صفحهٔ ورود را نشان می‌دهد
         LicenseService.I.sessionInvalid.value++;
         return false;
+      }
+      if (action == 'entity.delete' && r.code == 404) {
+        // already gone on the server
+        await AppDb.I.finishOp(seq, rev);
+        continue;
+      }
+      if (r.code == 403 && action.startsWith('entity.')) {
+        final ec = (r.data?['error'] ?? '').toString();
+        if (ec == 'edition_required' || ec.contains('دسترسی')) {
+          // this entity is not allowed for the account: park the op so it does not block the whole queue
+          await AppDb.I.failOp(seq, r.error);
+          continue;
+        }
       }
       if (r.code == 403) {
         _error = r.error;
@@ -316,7 +371,17 @@ class SyncService {
     if (r.code != 200 || r.data == null) throw _ServerError(r.error, r.code);
     final tables = r.data!['tables'];
     if (tables is! Map) throw _ServerError('پاسخ نامعتبر از سرور', r.code);
-    return AppDb.I.replaceAllFromServer(Map<String, dynamic>.from(tables), discardQueue: discardQueue);
+    // ویندوز: قبل از جایگزینی داده‌های محلی با داده‌های سرور یک نسخهٔ محلی می‌گیریم (برگشت‌پذیری)
+    await LocalBackup.I.snapshot(discardQueue ? 'pre-reload' : 'pre-sync',
+        minGap: discardQueue ? Duration.zero : const Duration(hours: 6));
+    // STAGE12: exported_at = ساعت سرور همین خروجی؛ فقط در صورت اعمال واقعی به‌عنوان snap_at ذخیره می‌شود
+    final exp = r.data!['exported_at'];
+    final ents = r.data!['entities'];
+    return AppDb.I.replaceAllFromServer(Map<String, dynamic>.from(tables),
+        discardQueue: discardQueue,
+        exportedAt: exp is String ? exp : null,
+        entities: ents is Map ? Map<String, dynamic>.from(ents) : null,
+        docs: r.data!['docs'] is Map ? Map<String, dynamic>.from(r.data!['docs'] as Map) : null);
   }
 
   /// ورود روی این دستگاه (یا نصب مجدد): همهٔ داده‌های حساب را از سرور می‌آورد.
@@ -349,6 +414,20 @@ class SyncService {
       _error = null;
       await _refreshCounts();
       return null;
+    } catch (e) {
+      return _friendly(e);
+    }
+  }
+
+  /// بازگردانی: کل داده‌های حساب روی سرور با [tables] جایگزین می‌شود (سرور قبل از حذف هر چیز اعتبارسنجی می‌کند)
+  /// و سپس همان داده از سرور به این دستگاه می‌آید. نیازمند اینترنت است. در موفقیت null.
+  Future<String?> importTables(Map<String, dynamic> tables) async {
+    final cred = await LicenseService.I.credentials();
+    if (cred == null) return 'ابتدا وارد حساب شوید';
+    try {
+      final r = await _call(cred.$1, cred.$2, 'backup.import', {'tables': tables}, timeoutSec: 180);
+      if (r.code != 200) return r.error;
+      return await reloadFromServer();
     } catch (e) {
       return _friendly(e);
     }
