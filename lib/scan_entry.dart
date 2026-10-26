@@ -3,12 +3,16 @@
 // امضای این فایل عیناً همان نسخهٔ اندروید است (scanBarcode(context) → String?)،
 // تا home_screen و بقیهٔ صفحه‌ها بدون تغییر کامپایل شوند. این فایل پکیج دوربین را ایمپورت نمی‌کند.
 
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 
 import 'barcode_utils.dart';
+import 'scan_camera.dart';
 
 /// دیالوگ اسکن. کد معتبر (قابل‌چاپ) را برمی‌گرداند؛ با انصراف یا بستن دیالوگ null.
 Future<String?> scanBarcode(BuildContext context) {
+  if (Platform.isAndroid) return scanBarcodeCamera(context); // Android: camera scan
   return showDialog<String>(
     context: context,
     barrierDismissible: true,

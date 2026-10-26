@@ -1,4 +1,5 @@
 import 'broker_ui.dart';
+import 'pay_deeplink.dart';
 import 'cheque_ui.dart';
 import 'payroll_ui.dart'; // T11.4
 import 'dart:async';
@@ -90,6 +91,7 @@ void main() {
     // همگام‌سازی خودکار با سرور (ارسال تغییرات آفلاین + دریافت تغییرات سایر دستگاه‌ها)
     // نکته: یادآوری‌های سررسید بعد از ورود/باز شدن دیتابیس حساب در LicenseGate زمان‌بندی می‌شود.
     SyncService.I.start();
+    if (Platform.isAndroid) initPayDeepLinks();
     runApp(const PestehApp());
   }, (error, stack) {
     debugPrint('Uncaught zone error: $error\n$stack');
@@ -135,6 +137,7 @@ class PestehApp extends StatelessWidget {
           child: Center(child: ConstrainedBox(constraints: const BoxConstraints(maxWidth: 1280), child: body)),
         );
       },
+      navigatorKey: payNavigatorKey,
       home: const LicenseGate(child: RenewBannerHost(child: DueAlertHost(child: AppLockHost(child: HomeShell())))),
     );
   }

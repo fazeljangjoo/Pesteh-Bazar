@@ -20,6 +20,8 @@ dependencies:
   http: ^1.2.2
   shared_preferences: ^2.3.2
   url_launcher: ^6.3.1
+  app_links: ^6.3.0            # Android: return from payment gateway (pestehbazar://pay)
+  mobile_scanner: ^7.4.2       # Android: camera barcode scan
   barcode_widget: ^2.0.4
   excel: ^4.0.6                # S13: Excel export/import (pure Dart)
   share_plus: ^10.1.4          # S13: share xlsx on Android
