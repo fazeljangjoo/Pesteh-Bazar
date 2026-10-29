@@ -72,11 +72,9 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   /// نصب مجدد)، همه را از سرور می‌آورد. بعد از آن برنامه بدون اینترنت هم کار می‌کند.
   Future<String?> _prepareData(String phone) async {
     try {
-      await AppDb.I.useAccount(phone).timeout(const Duration(seconds: 25),
-          onTimeout: () => throw TimeoutException('باز کردن دیتابیس بیش از حد طول کشید'));
+      await AppDb.I.useAccount(phone);
       if (await AppDb.I.metaGet('initial_done') == null) {
-        final err = await SyncService.I.initialSync().timeout(const Duration(seconds: 170),
-            onTimeout: () => 'دریافت اطلاعات از سرور بیش از حد طول کشید. اینترنت/VPN را بررسی کنید.');
+        final err = await SyncService.I.initialSync();
         if (err != null) return err;
       }
       LocalBackup.I.start(); // فقط ویندوز: پشتیبان‌گیری روزانهٔ محلی
@@ -93,12 +91,7 @@ class LicenseGateState extends State<LicenseGate> with WidgetsBindingObserver {
   Future<void> refresh() async {
     // در بازگشت به برنامه، اگر قبلاً وارد شده بود، صفحهٔ فعلی با اسپینر عوض نشود
     if (_result == null || _result!.state != LicenseState.valid) setState(() => _loading = true);
-    LicenseResult r;
-    try {
-      r = await LicenseService.I.check().timeout(const Duration(seconds: 25));
-    } catch (_) {
-      r = LicenseResult(LicenseState.needsInternet);
-    }
+    final r = await LicenseService.I.check();
     String? dataErr;
     Map<String, dynamic>? contract;
     if (r.state == LicenseState.valid && r.phone != null) {
