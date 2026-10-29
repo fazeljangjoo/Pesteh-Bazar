@@ -47,6 +47,14 @@ class _PaymentScreenState extends State<PaymentScreen> with EditGuard<PaymentScr
     } else if (_payType == 'staged' && _stagedType == 'cheque') {
       return _cheque.where((r) => (r['paid'] as int) == 1).fold<double>(
           0, (s, r) => s + (r['amount'] as num).toDouble());
+    } else if (_payType == 'mixed') {
+      double sum = 0;
+      for (final List<Map<String, dynamic>> rows in <List<Map<String, dynamic>>>[_lump, _credit, _cheque]) {
+        for (final Map<String, dynamic> r in rows) {
+          if ((r['paid'] as int? ?? 1) == 1) sum += (r['amount'] as num).toDouble();
+        }
+      }
+      return sum;
     }
     return 0;
   }
