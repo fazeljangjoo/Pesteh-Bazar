@@ -11,6 +11,7 @@ import 'db.dart';
 import 'live_query.dart';
 import 'license_service.dart';
 import 'assistant_screen.dart';
+import 'perms.dart';
 import 'messages_card.dart';
 import 'crm_ui.dart';
 import 'dues_screen.dart';
@@ -81,7 +82,7 @@ class HomeScreen extends StatelessWidget {
 
             final Widget assistant = ValueListenableBuilder<bool>(
               valueListenable: LicenseService.I.isFx,
-              builder: (context, fx, _) => !fx
+              builder: (context, fx, _) => (!fx || StaffPerms.I.isStaff) // دستیار فقط برای مالک
                   ? const SizedBox.shrink()
                   : Padding(
                       padding: const EdgeInsets.only(top: 12),
