@@ -14,6 +14,7 @@ import 'assistant_screen.dart';
 import 'perms.dart';
 import 'messages_card.dart';
 import 'crm_ui.dart';
+import 'feed_ui.dart' show FeedStockHomeCard; // مرحلهٔ ۵: کارت موجودی پستهٔ خرجی
 import 'dues_screen.dart';
 import 'fiscal_ui.dart';
 import 'ledger.dart';
@@ -258,6 +259,7 @@ class HomeScreen extends StatelessWidget {
                         PendingIntakesCard(), // S6.T4
                         MessagesCard(),
                         CrmHomeCard(),
+                        FeedStockHomeCard(), // مرحلهٔ ۵
                         InstantPnlCard(),
                       ]),
                     ),
@@ -282,6 +284,7 @@ class HomeScreen extends StatelessWidget {
                 const PendingIntakesCard(), // S6.T4
                 const MessagesCard(),
                 const CrmHomeCard(),
+                const FeedStockHomeCard(), // مرحلهٔ ۵
                 const InstantPnlCard(),
                 _quickActions(context),
                 const SizedBox(height: 8),
