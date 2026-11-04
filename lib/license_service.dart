@@ -524,6 +524,18 @@ class LicenseService {
     } catch (_) {}
   }
 
+  /// کارکن (پرسنل) با توکن مخصوص خودش وارد می‌شود؛ ممکن است check.php (که برای مالک نوشته شده)
+  /// آن توکن را نشناسد و ۴۰۱ بدهد، در حالی که app.php همان توکن را می‌پذیرد (همان مسیری که وب استفاده می‌کند).
+  /// پس برای نشست کارکن، قبل از خروج، با account.status دوباره می‌سنجیم؛ فقط اگر آنجا هم ۴۰۱ بود خارج می‌شود.
+  Future<bool> _staffSessionAlive(String phone, String token) async {
+    if (!StaffPerms.I.isStaff) return false;
+    final r = await _post('app.php', {'phone': phone, 'token': token, 'action': 'account.status', 'payload': {}});
+    if (r.netError != null || r.status != 200) return false;
+    final item = r.data['item'];
+    if (item is Map) await StaffPerms.I.apply(item['staff'] ?? StaffPerms.I.current.value);
+    return StaffPerms.I.isStaff;
+  }
+
   Future<LicenseResult> _checkStrict(String phone, String token) async {
     final device = await LicenseGuard.I.deviceId();
     try {
@@ -537,6 +549,7 @@ class LicenseService {
 
       if (resp.statusCode == 401) {
         if (!_tokenChanging) {
+          if (await _staffSessionAlive(phone, token)) return _strictFromGuard(phone);
           await signOut();
           return LicenseResult(LicenseState.loggedOut);
         }
@@ -642,6 +655,16 @@ class LicenseService {
           final (active, expiry) = await _loadCache();
           final valid = active && expiry != null && DateTime.now().isBefore(DateTime(expiry.year, expiry.month, expiry.day, 23, 59, 59));
           return LicenseResult(valid ? LicenseState.valid : LicenseState.blocked, phone: phone, name: await savedName(), expiry: expiry);
+        }
+        if (await _staffSessionAlive(phone, token)) {
+          // نشست کارکن معتبر است؛ وضعیت اشتراک مالک از آخرین ورود ذخیره شده است
+          final (active, expiry) = await _loadCache();
+          final valid = active &&
+              expiry != null &&
+              DateTime.now().isBefore(DateTime(expiry.year, expiry.month, expiry.day, 23, 59, 59));
+          this.expiry.value = valid ? expiry : null;
+          return LicenseResult(valid ? LicenseState.valid : LicenseState.blocked,
+              phone: phone, name: await savedName(), expiry: expiry);
         }
         // توکن دیگر معتبر نیست (مثلاً رمز از دستگاه دیگر عوض شده)؛ کاربر باید دوباره وارد شود.
         await signOut();
