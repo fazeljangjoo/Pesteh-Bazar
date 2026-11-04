@@ -11,6 +11,7 @@ import 'db_crypto.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'barcode_utils.dart';
+import 'code_kind.dart' show codeLetterForCategoryName, mixGroupKeys; // T2: حرف کد مثل سرور
 import 'entity_store.dart';
 import 'money_unit.dart'; // S29.T29.3
 import 'fmt.dart' show Fmt; // S35.T35.11
@@ -990,10 +991,22 @@ class AppDb {
       await t.insert('sync_idmap', {'kind': kind, 'local_id': localId, 'server_id': serverId},
           conflictAlgorithm: ConflictAlgorithm.replace);
       if (kind == 'pur') {
-        final r = await t.query('purchases', columns: ['is_mix'], where: 'id=?', whereArgs: [localId]);
+        final r = await t.query('purchases', columns: ['is_mix', 'category_id'], where: 'id=?', whereArgs: [localId]);
         if (r.isNotEmpty) {
           final isMix = ((r.first['is_mix'] as num?) ?? 0) == 1;
-          final code = '${isMix ? 'MX' : 'KH'}${serverId.toString().padLeft(5, '0')}';
+          // T2: مخلوط ⇒ M؛ خرید عادی ⇒ حرف از نام دسته (خندان→KH، دهنبست→D، غیر از این→G)؛ دستهٔ در دسترس نبود ⇒ KH.
+          // (نقشهٔ دستی lot_prefix_map فقط روی سرور است؛ با اولین همگام‌سازی کد سرور جایگزین می‌شود.)
+          var letter = 'KH';
+          if (isMix) {
+            letter = 'M';
+          } else {
+            final catId = (r.first['category_id'] as num?)?.toInt();
+            if (catId != null) {
+              final cat = await t.query('categories', columns: ['name'], where: 'id=?', whereArgs: [catId], limit: 1);
+              if (cat.isNotEmpty) letter = codeLetterForCategoryName('${cat.first['name'] ?? ''}');
+            }
+          }
+          final code = '$letter${serverId.toString().padLeft(5, '0')}';
           await t.update('purchases', {'code': code},
               where: 'id=?', whereArgs: [localId], conflictAlgorithm: ConflictAlgorithm.ignore);
         }
@@ -1920,7 +1933,19 @@ class AppDb {
         SELECT $_pSel, c.name AS category_name, c.preset_key AS category_preset
         FROM purchases p JOIN categories c ON c.id = p.category_id
         ORDER BY c.name, p.type_name, p.id''');
-    return _withMixInfo(d, await _withSacksLeft(d, rows));
+    final withInfo = await _withMixInfo(d, await _withSacksLeft(d, rows));
+    // T3a: فیلد افزایشی mix_group (همان نام و قاعدهٔ سرور) برای رنگ/راهنمای گروه مخلوط در انبار
+    final groups = await mixGroupKeyMap();
+    return [for (final r in withInfo) {...r, 'mix_group': groups[(r['id'] as num).toInt()]}];
+  }
+
+  /// T3a: نقشهٔ «شناسهٔ لات → کلید گروه مخلوط» از جدول‌های محلی purchases و mix_sources (بدون تغییر schema).
+  /// قواعد در [mixGroupKeys] (code_kind.dart): مخلوط = کلید خودش؛ منبعِ چند مخلوط = جدیدترین مخلوط؛ بقیه null.
+  Future<Map<int, int?>> mixGroupKeyMap() async {
+    final d = await db;
+    final lots = await d.rawQuery('SELECT id, is_mix FROM purchases');
+    final links = await d.rawQuery('SELECT mix_purchase_id, source_purchase_id FROM mix_sources');
+    return mixGroupKeys(lots.cast<Map<String, dynamic>>(), links.cast<Map<String, dynamic>>());
   }
 
   /// گونی باقی‌مانده‌ی هر خرید مستقیماً از دو ستون ذخیره‌شده خوانده می‌شود
