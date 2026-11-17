@@ -10,7 +10,7 @@ import 'perms.dart';
 import 'vouchers_links.dart';
 import 'fmt.dart' show MoneyField;
 import 'utils.dart';
-import 'warehouse_ui.dart' show StockApi;
+import 'warehouse_ui.dart' show StockApi, StockApiException;
 import 'widgets.dart';
 
 /// S11.T11.4 — payroll screens (حقوق و دستمزد).
@@ -24,6 +24,21 @@ bool _can(String key) => StaffPerms.I.can(key);
 String _m(num v) => faNum(v, dec: v == v.roundToDouble() ? 0 : 2);
 
 double _r2(double v) => (v * 100).round() / 100;
+
+/// «اکشن|مشخصات» ← uid؛ فقط بعد از خطای شبکه نگه داشته می‌شود (اجرای بی‌پاسخِ سرور دوباره با همان uid ارسال شود، نه رکورد تازه)
+final Map<String, String> _pendingUid = <String, String>{};
+
+String _uidFor(String fp) => _pendingUid[fp] ?? EntityStore.newUid();
+
+void _uidAfter(String fp, String uid, Object? err) {
+  if (err == null) {
+    _pendingUid.remove(fp);
+  } else if (err is StockApiException && err.network) {
+    _pendingUid[fp] = uid;
+  } else {
+    _pendingUid.remove(fp);
+  }
+}
 
 double _d(dynamic v) => v is num ? v.toDouble() : (double.tryParse('${v ?? ''}') ?? 0.0);
 
@@ -273,9 +288,11 @@ class _PayrollEmployeesState extends State<PayrollEmployeesScreen> {
       if (mounted) snack(context, 'نام الزامی است');
       return;
     }
+    final String fpEmp = 'emp|${name.text.trim()}|${pos.text.trim()}|${MoneyField.stored(base) ?? 0}|${ccy.text.trim()}|${bank.text.trim()}|${ins.text.trim()}|$active';
+    final String uidEmp = e == null ? _uidFor(fpEmp) : '';
     try {
       await StockApi.call('payroll.employee_save', <String, dynamic>{
-        if (e != null) 'id': e['id'] else 'uid': EntityStore.newUid(),
+        if (e != null) 'id': e['id'] else 'uid': uidEmp,
         'name': name.text.trim(),
         'position': pos.text.trim(),
         'base_salary': MoneyField.stored(base) ?? 0,
@@ -284,8 +301,10 @@ class _PayrollEmployeesState extends State<PayrollEmployeesScreen> {
         'insurance_no': ins.text.trim(),
         'active': active ? 1 : 0,
       });
+      if (e == null) _uidAfter(fpEmp, uidEmp, null);
       _load();
     } catch (err) {
+      if (e == null) _uidAfter(fpEmp, uidEmp, err);
       if (mounted) snack(context, friendlyError(err));
     }
   }
@@ -319,16 +338,20 @@ class _PayrollEmployeesState extends State<PayrollEmployeesScreen> {
       if (mounted) snack(context, 'مبلغ نامعتبر است');
       return;
     }
+    final String fpAdv = 'adv|${e['id']}|$a|${_iso(date)}|${note.text.trim()}';
+    final String uidAdv = _uidFor(fpAdv);
     try {
       await StockApi.call('payroll.advance_add', <String, dynamic>{
-        'uid': EntityStore.newUid(),
+        'uid': uidAdv,
         'employee_id': e['id'],
         'amount': a,
         'date': _iso(date),
         'note': note.text.trim(),
       });
+      _uidAfter(fpAdv, uidAdv, null);
       if (mounted) snack(context, 'مساعده ثبت شد؛ در تأیید دورهٔ حقوق کسر می‌شود.');
     } catch (err) {
+      _uidAfter(fpAdv, uidAdv, err);
       if (mounted) snack(context, friendlyError(err));
     }
   }
@@ -456,9 +479,11 @@ class _PayItemsState extends State<PayItemsScreen> {
       if (mounted) snack(context, 'عنوان الزامی است');
       return;
     }
+    final String fpItem = 'item|${name.text.trim()}|$kind|$formula|${val.text.trim()}|$taxable|$insurable';
+    final String uidItem = it == null ? _uidFor(fpItem) : '';
     try {
       await StockApi.call('payroll.item_save', <String, dynamic>{
-        if (it != null) 'id': it['id'] else 'uid': EntityStore.newUid(),
+        if (it != null) 'id': it['id'] else 'uid': uidItem,
         'name': name.text.trim(),
         'kind': kind,
         'formula': formula,
@@ -466,8 +491,10 @@ class _PayItemsState extends State<PayItemsScreen> {
         'taxable': kind == 'earning' && taxable ? 1 : 0,
         'insurable': kind == 'earning' && insurable ? 1 : 0,
       });
+      if (it == null) _uidAfter(fpItem, uidItem, null);
       _load();
     } catch (err) {
+      if (it == null) _uidAfter(fpItem, uidItem, err);
       if (mounted) snack(context, friendlyError(err));
     }
   }
@@ -1037,9 +1064,11 @@ class _PayLinesState extends State<PayLinesScreen> {
       if (mounted) snack(context, 'مبالغ نامعتبر است');
       return;
     }
+    final String fpPl = 'pl|${item['line_id']}|$c|$a|${c == runCcy ? a : n}|${_iso(due)}|$method|${chq.text.trim()}';
+    final String uidPl = _uidFor(fpPl);
     try {
       await StockApi.call('payroll.pay_line_add', <String, dynamic>{
-        'uid': EntityStore.newUid(),
+        'uid': uidPl,
         'line_id': item['line_id'],
         'ccy': c,
         'amount': a,
@@ -1048,8 +1077,10 @@ class _PayLinesState extends State<PayLinesScreen> {
         'method': method,
         if (method == 'cheque') 'cheque_ref': chq.text.trim(),
       });
+      _uidAfter(fpPl, uidPl, null);
       _load();
     } catch (e) {
+      _uidAfter(fpPl, uidPl, e);
       if (mounted) snack(context, friendlyError(e));
     }
   }

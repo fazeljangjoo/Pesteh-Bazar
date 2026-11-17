@@ -162,7 +162,54 @@ class ProcessingStore {
     return ProcWriteResult(false, data);
   }
 
-  /// Replays queued writes in order; stops at the first network failure, drops server-rejected ops and reports them.
+  static const String _kFailed = 'proc_failed_v1';
+
+  static Future<List<Map<String, dynamic>>> failedOps() async {
+    final SharedPreferences sp = await SharedPreferences.getInstance();
+    final String? raw = sp.getString(_kFailed);
+    if (raw == null) return <Map<String, dynamic>>[];
+    try {
+      return ReturnsHelp.maps(jsonDecode(raw));
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  static Future<void> _saveFailed(List<Map<String, dynamic>> f) async {
+    final SharedPreferences sp = await SharedPreferences.getInstance();
+    await sp.setString(_kFailed, jsonEncode(f));
+  }
+
+  /// دوباره در انتهای صف می‌گذارد (بعد از رفع علت رد شدن).
+  static Future<void> retryFailed(int i) async {
+    final List<Map<String, dynamic>> failed = await failedOps();
+    if (i < 0 || i >= failed.length) return;
+    final Map<String, dynamic> op = Map<String, dynamic>.from(failed.removeAt(i))
+      ..remove('error')
+      ..remove('tries');
+    await _saveFailed(failed);
+    final List<Map<String, dynamic>> ops = await pendingOps();
+    ops.add(op);
+    await _saveOps(ops);
+  }
+
+  static Future<void> dismissFailed(int i) async {
+    final List<Map<String, dynamic>> failed = await failedOps();
+    if (i < 0 || i >= failed.length) return;
+    failed.removeAt(i);
+    await _saveFailed(failed);
+  }
+
+  /// ۴۰۱ = نشست نامعتبر/منقضی (رد عملیات نیست): صف دست‌نخورده می‌ماند تا کاربر دوباره وارد شود.
+  /// (پیام ۴۰۱ سرور «دوباره وارد شوید» است و فقط «ورود مجدد» را نمی‌شناختیم ⇒ همهٔ صف دور ریخته می‌شد.)
+  static bool _keepQueue(StockApiException e) =>
+      e.network || e.code == 401 || e.message.contains('ورود مجدد') || e.message.contains('دوباره وارد شوید');
+
+  /// پاسخ بدون پیام JSON (۵۰۲/صفحهٔ خطای هاست …): چند بار دوباره، بعد «ناموفق» تا صف برای همیشه قفل نشود.
+  static bool _serverFault(StockApiException e) => e.message.startsWith('خطای سرور');
+
+  /// Replays queued writes in order. Stops at the first network/session failure; a definite server rejection is kept in the
+  /// «ناموفق» list (with the server message) instead of being dropped, so offline work is never lost silently.
   static Future<List<String>> flush() async {
     final List<String> errors = <String>[];
     List<Map<String, dynamic>> ops = await pendingOps();
@@ -174,8 +221,19 @@ class ProcessingStore {
         await StockApi.call('${op['action']}', payload is Map ? Map<String, dynamic>.from(payload) : <String, dynamic>{});
         sentAny = true;
       } on StockApiException catch (e) {
-        if (isNetworkError(e.message) || e.message.contains('ورود مجدد')) break;
+        if (_keepQueue(e)) break;
+        if (_serverFault(e)) {
+          final int tries = ((op['tries'] as num?) ?? 0).toInt() + 1;
+          if (tries < 5) {
+            ops[0] = <String, dynamic>{...op, 'tries': tries};
+            await _saveOps(ops);
+            break;
+          }
+        }
         errors.add('${op['label'] ?? ''}: ${e.message}');
+        final List<Map<String, dynamic>> failed = await failedOps();
+        failed.add(<String, dynamic>{...op, 'error': e.message});
+        await _saveFailed(failed);
       }
       ops = ops.sublist(1);
       await _saveOps(ops);
@@ -183,6 +241,21 @@ class ProcessingStore {
     if (sentAny) SyncService.I.syncNow(pull: true);
     return errors;
   }
+}
+
+Future<bool> _confirmDropFailed(BuildContext context) async {
+  final bool? ok = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext c) => AlertDialog(
+      title: const Text('حذف مورد ناموفق'),
+      content: const Text('این مورد هرگز به سرور ارسال نمی‌شود و اطلاعاتش از بین می‌رود. ادامه می‌دهید؟'),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
+        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('حذف')),
+      ],
+    ),
+  );
+  return ok == true;
 }
 
 // ---------------------------------------------------------------------------
@@ -202,6 +275,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
   String? _error;
   List<Map<String, dynamic>> _items = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _queued = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _failed = <Map<String, dynamic>>[];
 
   @override
   void initState() {
@@ -213,6 +287,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     if (mounted) setState(() => _loading = true);
     final List<String> flushErrors = await ProcessingStore.flush();
     _queued = await ProcessingStore.pendingOps();
+    _failed = await ProcessingStore.failedOps();
     String? error;
     List<Map<String, dynamic>> items;
     try {
@@ -294,6 +369,35 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
                 child: Padding(padding: const EdgeInsets.all(10), child: Text(_error!)),
               ),
             if (_loading) const Padding(padding: EdgeInsets.all(24), child: Center(child: CircularProgressIndicator())),
+            for (int i = 0; i < _failed.length; i++)
+              Card(
+                color: Theme.of(context).colorScheme.errorContainer,
+                child: ListTile(
+                  leading: const Icon(Icons.error_outline),
+                  title: Text('${_failed[i]['label'] ?? ''}'),
+                  subtitle: Text('رد شد و ارسال نشد: ${_failed[i]['error'] ?? ''}'),
+                  isThreeLine: true,
+                  trailing: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
+                    IconButton(
+                      tooltip: 'تلاش دوباره',
+                      icon: const Icon(Icons.refresh),
+                      onPressed: () async {
+                        await ProcessingStore.retryFailed(i);
+                        _load();
+                      },
+                    ),
+                    IconButton(
+                      tooltip: 'حذف',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () async {
+                        if (!await _confirmDropFailed(context)) return;
+                        await ProcessingStore.dismissFailed(i);
+                        _load();
+                      },
+                    ),
+                  ]),
+                ),
+              ),
             for (final Map<String, dynamic> o in queued)
               ListTile(
                 leading: const Icon(Icons.cloud_upload_outlined),

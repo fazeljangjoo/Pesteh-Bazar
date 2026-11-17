@@ -1007,6 +1007,15 @@ class AppDb {
     await t.delete('sync_ops', where: 'ref_kind=? AND ref_id=?', whereArgs: [refKind, refId]);
   }
 
+  /// آیا رکوردی که شناسهٔ موقت (منفی) دارد قبلاً به سرور رسیده؟ (نگاشتش ثبت شده ولی هنوز دریافت کامل انجام نشده)
+  /// شناسهٔ مثبت همیشه یعنی «روی سرور هست».
+  Future<bool> hasServerCopy(DatabaseExecutor t, String kind, int id) async {
+    if (id >= 0) return true;
+    final r = await t.query('sync_idmap',
+        columns: ['server_id'], where: 'kind=? AND local_id=?', whereArgs: [kind, id], limit: 1);
+    return r.isNotEmpty;
+  }
+
   /// شناسهٔ واقعی سرور برای یک شناسهٔ محلی (null = هنوز ارسال نشده)
   Future<int?> serverIdOf(String kind, int localId) async {
     if (localId >= 0) return localId;
@@ -1792,6 +1801,10 @@ class AppDb {
       cur.forEach((k, v) => merged[k] = v);
       p.forEach((k, v) => merged[k] = v);
       final v = _purchaseValues(merged);
+      // سرور در ویرایش «بدون انبار» را «بدون تغییر» می‌داند (فقط warehouse_uid رشته‌ای فرستاده می‌شود)؛ آینهٔ محلی هم همان‌طور
+      if (v.containsKey('warehouse_uid') && v['warehouse_uid'] == null && cur['warehouse_uid'] != null) {
+        v['warehouse_uid'] = cur['warehouse_uid'];
+      }
       final oldNet = (cur['net_weight'] as num).toDouble();
       final oldRem = (cur['remaining'] as num).toDouble();
       final sold = oldNet - oldRem;
@@ -1870,7 +1883,7 @@ class AppDb {
       }
       await t.delete('doc_grade_lines', where: 'doc_type=? AND doc_id=?', whereArgs: <Object?>['purchase', id]); // S35.T35.3b
       await t.delete('purchases', where: 'id=?', whereArgs: [id]);
-      if (id < 0) {
+      if (!await hasServerCopy(t, 'pur', id)) {
         await _purgeOps(t, 'pur', id); // هرگز به سرور نرسیده بود
       } else {
         await _enqueue(t, 'purchases.delete', {'id': id, if (reason != null && reason.isNotEmpty) 'reason': reason}, refKind: 'pur', refId: id);
@@ -2398,7 +2411,7 @@ class AppDb {
       }
       await t.delete('mix_sources', where: 'mix_purchase_id=?', whereArgs: [mixPurchaseId]);
       await t.delete('purchases', where: 'id=?', whereArgs: [mixPurchaseId]);
-      if (mixPurchaseId < 0) {
+      if (!await hasServerCopy(t, 'pur', mixPurchaseId)) {
         await _purgeOps(t, 'pur', mixPurchaseId);
       } else {
         await _enqueue(t, 'mixes.delete', {'id': mixPurchaseId}, refKind: 'pur', refId: mixPurchaseId);
@@ -2479,7 +2492,8 @@ class AppDb {
             'gram': _rn(gram, 2),
             'waste': wasteV,
             'note': nt,
-            if (uidsGiven) 'warehouse_uid': _uidOrNull(warehouseUid),
+            // سرور در ویرایش «بدون انبار» را «بدون تغییر» می‌داند (pb_wh_apply_lot)؛ آینهٔ محلی هم همان‌طور
+            if (uidsGiven && _uidOrNull(warehouseUid) != null) 'warehouse_uid': _uidOrNull(warehouseUid),
             if (uidsGiven) 'ounce_uid': _uidOrNull(ounceUid),
           },
           where: 'id=?',
@@ -3201,7 +3215,7 @@ class AppDb {
         await t.delete('receipt_cheque_inst', where: 'receipt_id=?', whereArgs: [rid]);
         await t.delete('receipts', where: 'id=?', whereArgs: [rid]);
       }
-      if (id < 0) {
+      if (!await hasServerCopy(t, 'sale', id)) {
         await _purgeOps(t, 'sale', id);
       } else {
         await _enqueue(t, 'sales.delete', {'id': id, if (reason != null && reason.isNotEmpty) 'reason': reason}, refKind: 'sale', refId: id);

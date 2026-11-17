@@ -272,7 +272,7 @@ class OfflineDocs {
         }
         await t.delete(itbl, where: 'return_id=?', whereArgs: <Object?>[id]);
         await t.delete(tbl, where: 'id=?', whereArgs: <Object?>[id]);
-        if (id < 0) {
+        if (!await AppDb.I.hasServerCopy(t, kind, id)) {
           await AppDb.I.docPurgeOps(t, kind, id);
         } else {
           await AppDb.I.docEnqueue(t, '$tbl.delete', <String, dynamic>{'id': id}, refKind: kind, refId: id);
@@ -608,7 +608,7 @@ class OfflineDocs {
         if (cur.first['status'] == 'converted') throw StockApiException('پیش‌فاکتور تبدیل‌شده حذف نمی‌شود (ابتدا فروش‌های آن را حذف کنید)');
         await t.delete('proforma_items', where: 'proforma_id=?', whereArgs: <Object?>[id]);
         await t.delete('proformas', where: 'id=?', whereArgs: <Object?>[id]);
-        if (id < 0) {
+        if (!await AppDb.I.hasServerCopy(t, 'pf', id)) {
           await AppDb.I.docPurgeOps(t, 'pf', id);
         } else {
           await AppDb.I.docEnqueue(t, 'proformas.delete', <String, dynamic>{'id': id}, refKind: 'pf', refId: id);

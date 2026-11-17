@@ -45,6 +45,8 @@ class _RenewalScreenState extends State<RenewalScreen> with WidgetsBindingObserv
   String? _loadErr;
 
   Map<String, dynamic> _info = {};
+  // STAGE10: واحد قیمت از سرور (PB_PRICE_UNIT)؛ پیش‌فرض تومان اگر سرور نفرستاد (سرور قدیمی)
+  String get _unitLabel => _info['price_unit'] == 'rial' ? 'ریال' : 'تومان';
   List<Map<String, dynamic>> _history = [];
 
   String _plan = 'rial';
@@ -109,7 +111,7 @@ class _RenewalScreenState extends State<RenewalScreen> with WidgetsBindingObserv
 
   String _money(dynamic v) {
     final n = _n(v);
-    return n < 0 ? '−${faNum(-n, dec: 0)} تومان' : '${faNum(n, dec: 0)} تومان';
+    return n < 0 ? '−${faNum(-n, dec: 0)} $_unitLabel' : '${faNum(n, dec: 0)} $_unitLabel';
   }
 
   String _defaultPlan() {
@@ -842,7 +844,7 @@ class _RenewalScreenState extends State<RenewalScreen> with WidgetsBindingObserv
           controller: _amountCtl,
           keyboardType: TextInputType.number,
           inputFormatters: [ThousandsInputFormatter()],
-          decoration: const InputDecoration(labelText: 'مبلغ واریزی (تومان)', border: OutlineInputBorder()),
+          decoration: InputDecoration(labelText: 'مبلغ واریزی ($_unitLabel)', border: const OutlineInputBorder()),
         ),
         const SizedBox(height: 8),
         TextField(controller: _trackCtl, maxLength: 40, decoration: const InputDecoration(labelText: 'شمارهٔ پیگیری (اختیاری)', border: OutlineInputBorder())),

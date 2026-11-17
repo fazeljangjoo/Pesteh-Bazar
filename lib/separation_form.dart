@@ -62,8 +62,58 @@ class SeparationStore {
 
   static bool isNetworkError(String m) => m.contains('اتصال به سرور') || m.contains('خطای سرور');
 
-  /// Replays queued jobs in order. Stops at the first network failure. Returns the messages of jobs the server rejected
-  /// (those are dropped from the queue so they cannot block the following ones).
+  static const String _kFailed = 'sep_failed_v1';
+
+  static Future<List<Map<String, dynamic>>> failedOps() async {
+    final SharedPreferences sp = await SharedPreferences.getInstance();
+    final String? raw = sp.getString(_kFailed);
+    if (raw == null) return <Map<String, dynamic>>[];
+    try {
+      return ReturnsHelp.maps(jsonDecode(raw));
+    } catch (_) {
+      return <Map<String, dynamic>>[];
+    }
+  }
+
+  static Future<void> _saveFailed(List<Map<String, dynamic>> f) async {
+    final SharedPreferences sp = await SharedPreferences.getInstance();
+    await sp.setString(_kFailed, jsonEncode(f));
+  }
+
+  /// دوباره در انتهای صف می‌گذارد (بعد از رفع علت رد شدن).
+  static Future<void> retryFailed(int i) async {
+    final List<Map<String, dynamic>> failed = await failedOps();
+    if (i < 0 || i >= failed.length) return;
+    final Map<String, dynamic> op = Map<String, dynamic>.from(failed.removeAt(i))
+      ..remove('error')
+      ..remove('tries');
+    await _saveFailed(failed);
+    await enqueue(op);
+  }
+
+  static Future<void> dismissFailed(int i) async {
+    final List<Map<String, dynamic>> failed = await failedOps();
+    if (i < 0 || i >= failed.length) return;
+    failed.removeAt(i);
+    await _saveFailed(failed);
+  }
+
+  /// فرم باز است و کاربر همان لحظه پیام رد شدن را دیده؛ نسخهٔ ناموفقِ همین ثبت نباید در فهرست بماند.
+  static Future<void> dismissFailedByUid(String uid) async {
+    final List<Map<String, dynamic>> failed = await failedOps();
+    failed.removeWhere((Map<String, dynamic> o) => '${o['uid']}' == uid);
+    await _saveFailed(failed);
+  }
+
+  /// ۴۰۱ = نشست نامعتبر/منقضی (رد عملیات نیست): صف دست‌نخورده می‌ماند تا کاربر دوباره وارد شود.
+  static bool _keepQueue(StockApiException e) =>
+      e.network || e.code == 401 || e.message.contains('ورود مجدد') || e.message.contains('دوباره وارد شوید');
+
+  /// پاسخ بدون پیام JSON (۵۰۲/صفحهٔ خطای هاست …): چند بار دوباره، بعد «ناموفق» تا صف برای همیشه قفل نشود.
+  static bool _serverFault(StockApiException e) => e.message.startsWith('خطای سرور');
+
+  /// Replays queued jobs in order. Stops at the first network/session failure. A definite server rejection is moved to the
+  /// «ناموفق» list (with the server message) so it cannot block the following jobs and is never lost silently.
   static Future<List<String>> flush() async {
     final List<String> errors = <String>[];
     List<Map<String, dynamic>> ops = await pendingOps();
@@ -75,8 +125,19 @@ class SeparationStore {
         await StockApi.call('separations.create', payload is Map ? Map<String, dynamic>.from(payload) : <String, dynamic>{});
         sentAny = true;
       } on StockApiException catch (e) {
-        if (isNetworkError(e.message) || e.message.contains('ورود مجدد')) break;
+        if (_keepQueue(e)) break;
+        if (_serverFault(e)) {
+          final int tries = ((op['tries'] as num?) ?? 0).toInt() + 1;
+          if (tries < 5) {
+            ops[0] = <String, dynamic>{...op, 'tries': tries};
+            await _saveOps(ops);
+            break;
+          }
+        }
         errors.add('جداسازی ${op['label'] ?? ''}: ${e.message}');
+        final List<Map<String, dynamic>> failed = await failedOps();
+        failed.add(<String, dynamic>{...op, 'error': e.message});
+        await _saveFailed(failed);
       }
       ops = ops.sublist(1);
       await _saveOps(ops);
@@ -399,6 +460,8 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
       final bool stillQueued = (await SeparationStore.pendingOps()).any((Map<String, dynamic> o) => '${o['uid']}' == uid);
       if (!mounted) return;
       if (errs.isNotEmpty) {
+        await SeparationStore.dismissFailedByUid(uid); // فرم باز و دادهٔ کاربر سالم است؛ بعد از اصلاح دوباره ثبت می‌کند
+        if (!mounted) return;
         snack(context, errs.first);
         setState(() => _saving = false);
         return;
@@ -617,6 +680,7 @@ class SeparationsScreen extends StatefulWidget {
 class _SeparationsScreenState extends State<SeparationsScreen> {
   List<Map<String, dynamic>> _items = <Map<String, dynamic>>[];
   List<Map<String, dynamic>> _pending = <Map<String, dynamic>>[];
+  List<Map<String, dynamic>> _failed = <Map<String, dynamic>>[];
   bool _loading = true;
   String? _note;
 
@@ -640,6 +704,7 @@ class _SeparationsScreenState extends State<SeparationsScreen> {
       _note = SeparationStore.isNetworkError(e.message) ? 'آفلاین: فهرست ذخیره‌شدهٔ قبلی نمایش داده می‌شود' : e.message;
     }
     _pending = await SeparationStore.pendingOps();
+    _failed = await SeparationStore.failedOps();
     if (mounted) setState(() {});
   }
 
@@ -669,6 +734,35 @@ class _SeparationsScreenState extends State<SeparationsScreen> {
               onRefresh: _refresh,
               child: ListView(padding: const EdgeInsets.all(12), children: <Widget>[
                 if (_note != null) Padding(padding: const EdgeInsets.only(bottom: 8), child: Text(_note!, style: const TextStyle(color: Colors.black54))),
+                for (int i = 0; i < _failed.length; i++)
+                  Card(
+                    color: Theme.of(context).colorScheme.errorContainer,
+                    child: ListTile(
+                      leading: const Icon(Icons.error_outline),
+                      title: Text('رد شد: ${_failed[i]['label'] ?? ''}'),
+                      subtitle: Text('${_failed[i]['error'] ?? ''}'),
+                      isThreeLine: true,
+                      trailing: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
+                        IconButton(
+                          tooltip: 'تلاش دوباره',
+                          icon: const Icon(Icons.refresh),
+                          onPressed: () async {
+                            await SeparationStore.retryFailed(i);
+                            await _refresh();
+                          },
+                        ),
+                        IconButton(
+                          tooltip: 'حذف',
+                          icon: const Icon(Icons.delete_outline),
+                          onPressed: () async {
+                            if (!await confirm(context, 'این مورد ناموفق حذف شود؟ اطلاعاتش از بین می‌رود.')) return;
+                            await SeparationStore.dismissFailed(i);
+                            await _refresh();
+                          },
+                        ),
+                      ]),
+                    ),
+                  ),
                 for (final Map<String, dynamic> op in _pending)
                   Card(
                     color: Colors.amber.shade50,
@@ -915,7 +1009,7 @@ class _LotLineageScreenState extends State<LotLineageScreen> {
             child: TextField(
               controller: _code,
               textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(labelText: 'کد پسته (KH… / MX… / K-…)', border: OutlineInputBorder(), isDense: true),
+              decoration: const InputDecoration(labelText: 'کد پسته (مثلاً KH… / D… / M… / S-…)', border: OutlineInputBorder(), isDense: true),
               onSubmitted: (_) => _lookup(),
             ),
           ),

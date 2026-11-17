@@ -2,7 +2,7 @@
 // ورودی = Map پاسخ سرور (lot, up, down, nodes, edges, summary, truncated). هیچ مبلغی در آن نیست.
 
 /// گره‌هایی که «مرحله»‌اند (در میانهٔ خط زمانی می‌آیند). باغ/خرید/امانی = مبدأ؛ فروش/ضایعات/برگشتی = مقصد.
-const Set<String> kChainStageKinds = <String>{'lot', 'mix', 'separation', 'workshop_internal', 'workshop_outside'};
+const Set<String> kChainStageKinds = <String>{'lot', 'mix', 'separation', 'crack', 'workshop_internal', 'workshop_outside'};
 
 String chainKindLabel(String kind) {
   switch (kind) {
@@ -18,6 +18,8 @@ String chainKindLabel(String kind) {
       return 'مخلوط';
     case 'separation':
       return 'جداسازی';
+    case 'crack':
+      return 'شکستن';
     case 'workshop_internal':
       return 'کارگاه داخلی';
     case 'workshop_outside':

@@ -468,3 +468,31 @@ mixin EditGuard<T extends StatefulWidget> on State<T> {
     super.dispose();
   }
 }
+
+/// فیلد تاریخ شمسی فشرده (بدون فاصلهٔ اضافهٔ پایین)؛ مقدار داخلی DateTime میلادی است و فقط نمایش شمسی است.
+/// برای ارسال به API از `ReturnsHelp.iso(value)` استفاده کنید.
+class JalaliDateField extends StatelessWidget {
+  const JalaliDateField({super.key, required this.label, required this.value, required this.onChanged});
+
+  final String label;
+  final DateTime value;
+  final ValueChanged<DateTime> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () async {
+        final DateTime? d = await pickDate(context, initial: value);
+        if (d != null) onChanged(d);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          suffixIcon: const Icon(Icons.calendar_month_outlined, size: 20),
+        ),
+        child: Text(jalaliDateFromDt(value)),
+      ),
+    );
+  }
+}

@@ -92,9 +92,19 @@ class ChequeStore {
     while (ops.isNotEmpty) {
       final Map<String, dynamic> op = ops.first;
       try {
-        await StockApi.call('cheques.transition', Map<String, dynamic>.from(op));
+        await StockApi.call('cheques.transition', Map<String, dynamic>.from(op)..remove('tries'));
       } on StockApiException catch (e) {
-        if (isNetworkError(e.message) || e.message.contains('ورود مجدد')) break; // keep the queue, retry later
+        // ۴۰۱ = نشست نامعتبر/منقضی (رد عملیات نیست): صف می‌ماند. پیام ۴۰۱ سرور «دوباره وارد شوید» است و قبلاً فقط «ورود مجدد» را می‌شناختیم
+        if (e.network || e.code == 401 || e.message.contains('ورود مجدد') || e.message.contains('دوباره وارد شوید')) break; // keep the queue, retry later
+        if (e.message.startsWith('خطای سرور')) {
+          // پاسخ بدون پیام JSON (۵۰۲/صفحهٔ خطای هاست …): چند بار دوباره، بعد گزارش شود تا صف برای همیشه قفل نشود
+          final int tries = ((op['tries'] as num?) ?? 0).toInt() + 1;
+          if (tries < 5) {
+            ops[0] = <String, dynamic>{...op, 'tries': tries};
+            await _saveOps(ops);
+            break;
+          }
+        }
         errors.add('چک ${op['label'] ?? op['id']}: ${e.message}'); // server rejected (illegal transition etc.)
       }
       ops = ops.sublist(1);

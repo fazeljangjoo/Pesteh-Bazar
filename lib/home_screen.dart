@@ -164,6 +164,7 @@ class HomeScreen extends StatelessWidget {
               child: ValueListenableBuilder<SyncInfo>(
                 valueListenable: SyncService.I.info,
                 builder: (context, info, _) => Card(
+                  color: info.failed > 0 ? Theme.of(context).colorScheme.errorContainer : null,
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Row(children: [
@@ -177,7 +178,7 @@ class HomeScreen extends StatelessWidget {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(info.failed > 0
-                            ? 'همگام‌سازی: ${faNum(info.failed)} مورد خطادار'
+                            ? '⚠ ${faNum(info.failed)} مورد خطادار — تا رفع آن، تغییرات دستگاه‌های دیگر دریافت نمی‌شود. برای بررسی بزنید'
                             : info.offline
                                 ? 'آفلاین — ${faNum(info.pending)} تغییر در صف ارسال'
                                 : info.pending > 0

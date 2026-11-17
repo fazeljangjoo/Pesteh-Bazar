@@ -30,7 +30,10 @@ class StockApiException implements Exception {
   final String message;
   /// true = no connection (the request never reached the server) → offline-capable callers may queue instead of failing.
   final bool network;
-  StockApiException(this.message, {this.network = false});
+  final int code; // کد HTTP (۰ = پاسخی نبوده)
+  /// بدنهٔ JSON پاسخِ خطا (اختیاری؛ مثلاً error/ccys/problems در تسعیر ارز). null = پاسخ JSON نبوده یا خالی بوده.
+  final Map<String, dynamic>? data;
+  StockApiException(this.message, {this.network = false, this.code = 0, this.data});
   @override
   String toString() => message;
 }
@@ -58,7 +61,10 @@ class StockApi {
       if (j is Map<String, dynamic>) data = j;
     } catch (_) {}
     if (resp.statusCode != 200) {
-      throw StockApiException((data['error'] ?? 'خطای سرور (کد ${resp.statusCode})').toString());
+      // STAGE11.3: سرور برای برخی خطاها هم کد (error) و هم پیام فارسی (message) می‌دهد (upgrade_blocked، rollback_blocked، tier_not_entitled، upgrade_required، unit_mismatch)؛ پیام فارسی اولویت دارد
+      final Object? m = data['message'];
+      final String shown = (m is String && m.trim().isNotEmpty) ? m : (data['error'] ?? 'خطای سرور (کد ${resp.statusCode})').toString();
+      throw StockApiException(shown, code: resp.statusCode, data: data.isEmpty ? null : data);
     }
     return data;
   }
@@ -356,6 +362,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
   String? _to;
   bool _busy = false;
   String? _err;
+  String? _pendingUid; // همان uid در تلاش دوباره بعد از قطع اتصال؛ وگرنه انتقالِ اجراشده‌ی بدون پاسخ دوبار ثبت می‌شد
 
   @override
   void initState() {
@@ -418,9 +425,10 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       return;
     }
     setState(() => _busy = true);
+    final String uid = _pendingUid ??= EntityStore.newUid();
     try {
       await StockApi.call('stock.transfer', <String, dynamic>{
-        'uid': EntityStore.newUid(),
+        'uid': uid,
         'lot_id': _lot,
         'from_warehouse_uid': _from,
         'to_warehouse_uid': _to,
@@ -429,6 +437,7 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
         'large_sacks': parseNum(_large.text) ?? 0,
         'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
       });
+      _pendingUid = null;
       _kg.clear();
       _small.clear();
       _large.clear();
@@ -437,6 +446,8 @@ class _StockTransferScreenState extends State<StockTransferScreen> {
       unawaited(SyncService.I.syncNow(pull: true));
       await _loadTransfers();
     } catch (e) {
+      // خطای شبکه: شاید سرور اجرا کرده باشد ⇒ uid می‌ماند؛ ردِ سرور (مثلاً موجودی کم): انتقال ثبت نشده ⇒ uid تازه
+      if (!(e is StockApiException && e.network)) _pendingUid = null;
       if (mounted) snack(context, e.toString());
     } finally {
       if (mounted) setState(() => _busy = false);

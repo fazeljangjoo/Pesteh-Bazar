@@ -22,7 +22,9 @@ import 'widgets.dart';
 /// No live API (DECISIONS Q9). Amounts: stored value × [kRialFactor] (DECISIONS Q1: official outputs in rial).
 /// The unique tax invoice ID (شماره مالیاتی / irtaxid) is a PLACEHOLDER: the tax memory ID + Verhoeff check digit
 /// are issued by the tax authority flow and are intentionally not generated here.
-const int kRialFactor = 10;
+/// ضریب تبدیل مبلغِ ذخیره‌شده به ریال برای خروجی رسمی: مشتریِ «ریال» ⇒ ۱، مشتریِ قدیمیِ «تومان» ⇒ ۱۰.
+/// (قبلاً همیشه ۱۰ بود؛ برای مشتری ریالی – پیش‌فرض بعد از S29 – مبالغ فاکتور رسمی ۱۰ برابر می‌شد.)
+int get kRialFactor => Fmt.storedUnit == 'rial' ? 1 : 10;
 
 class InvIssue {
   const InvIssue(this.error, this.text);
@@ -84,7 +86,7 @@ class OfficialInvoice {
     final String status = _s(sale['tax_status']);
     final int rate = _n(sale['tax_rate_milli']).round();
     final List<dynamic> items = (sale['items'] as List?) ?? <dynamic>[];
-    final int saleDisc = (_n(sale['discount']) * kRialFactor).round();
+    final int saleDisc = (_n(sale['discount_amount'] ?? sale['discount']) * kRialFactor).round(); // ستون محلی «discount» وجود ندارد؛ تخفیف سند در discount_amount است
     final List<OfficialLine> lines = <OfficialLine>[];
     int allocated = 0;
     final double sumAmt = items.fold<double>(0, (double a, dynamic it) => a + _n(it['weight']) * _n(it['item_price']));
@@ -291,7 +293,7 @@ String amountInWords(int n) {
   return groups.join(' و ');
 }
 
-String _m(num v) => Fmt.money(v, label: false);
+String _m(num v) => Fmt.money(v, label: false, from: 'rial', to: 'rial'); // مبالغ رسمی همیشه ریال‌اند (نه واحد نمایش کاربر)
 
 class OfficialInvoicePdf {
   OfficialInvoicePdf._();

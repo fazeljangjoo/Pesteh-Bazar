@@ -1,13 +1,16 @@
 // پسته‌بازار — ابزار بارکد مشترک (اندروید و ویندوز). بدون وابستگی به پلتفرم.
-// قرارداد: محتوای بارکد فقط خود «کد پسته» است (KH… / MX…)؛ هیچ داده‌ای دیگر داخلش نیست.
+// قرارداد: محتوای بارکد فقط خود «کد پسته» است (KH… / D… / G… / M… / S-… و ...)؛ هیچ داده‌ای دیگر داخلش نیست.
 // کد موقت آفلاین (N…) هرگز بارکد نمی‌شود.
 
 import 'package:barcode_widget/barcode_widget.dart' as bw;
 import 'package:flutter/material.dart';
 import 'package:pdf/widgets.dart' as pw;
 
-/// فقط کدهای واقعی انبار: KH / MX و حداقل ۳ رقم، یا کد خروجی جداسازی (K-…)
-final RegExp kPrintableCode = RegExp(r'^((KH|MX)\d{3,}|K-(KH|MX)\d{3,}(-\d+)+|K\d+-\d+)$'); // + separation output codes (K-KH00012-1, K-KH00012-1-2)
+/// فقط کدهای واقعی انبار (هر حرف نوعِ سرور + حداقل ۳ رقم، یا زنجیرهٔ خروجی‌ها)؛ کد موقت آفلاین (N…) چاپ/اسکن نمی‌شود
+final RegExp kPrintableCode = RegExp(
+    r'^(?!N\d)(?:[A-Z]{1,2}\d{3,}(?:-\d+)*|[A-Z]{1,2}-(?=[A-Z0-9-]*\d)[A-Z0-9]+(?:-[A-Z0-9]+)*|K\d+-\d+)$');
+// همهٔ شکل‌های کد سرور (code_kind.php): <حرف ۱–۲ لاتین><رقم‌ها> مثل KH/D/G/M/S/W/B/C/R/H/MX/OR، زنجیرهٔ خروجی‌ها (S-KH…-1-2، K-KH00012-1)
+// و کد قدیمی K12-1. کد موقت آفلاین (N<عدد>) عمداً خارج است.
 
 bool isPrintableCode(String? c) => c != null && kPrintableCode.hasMatch(c);
 

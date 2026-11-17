@@ -27,6 +27,9 @@ int brokerCalc(String basis, double value, double kg, double price) {
   return value.round();
 }
 
+/// «مشخصات پرداخت» ← uid؛ فقط بعد از خطای شبکه نگه داشته می‌شود (جلوگیری از ثبت دوبارهٔ پرداخت اجراشده‌ی بی‌پاسخ)
+final Map<String, String> _bpPendingUid = <String, String>{};
+
 double _d(dynamic v) => ReturnsHelp.d(v);
 
 /// Loads brokers (parties with id) as [{id, name}].
@@ -296,16 +299,26 @@ class _BrokerScreenState extends State<BrokerScreen> {
       if (mounted) snack(context, 'مبلغ نامعتبر است');
       return;
     }
+    // بعد از قطع اتصال، شاید سرور پرداخت را ثبت کرده باشد؛ تلاش دوبارهٔ همان پرداخت با همان uid ارسال شود تا دوبار ثبت نشود
+    final int bid = _d(broker['broker_id']).toInt();
+    final String fp = '$bid|$a|${note.text.trim()}';
+    final String uid = _bpPendingUid[fp] ?? ReturnsHelp.newUid('bp');
     try {
       await StockApi.call('broker_payments.save', <String, dynamic>{
-        'uid': ReturnsHelp.newUid('bp'),
-        'broker_id': _d(broker['broker_id']).toInt(),
+        'uid': uid,
+        'broker_id': bid,
         'amount': a,
         'date': ReturnsHelp.iso(DateTime.now()),
         if (note.text.trim().isNotEmpty) 'note': note.text.trim(),
       });
+      _bpPendingUid.remove(fp);
       _load();
     } on StockApiException catch (e) {
+      if (e.network) {
+        _bpPendingUid[fp] = uid;
+      } else {
+        _bpPendingUid.remove(fp);
+      }
       if (mounted) snack(context, e.message);
     }
   }

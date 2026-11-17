@@ -53,6 +53,8 @@ String _en(String s) {
 double _numText(String s) => double.tryParse(_en(s).trim()) ?? 0.0;
 double _n(dynamic v) => ReturnsHelp.d(v);
 String _kg(dynamic v) => faNum(_n(v), dec: 3);
+/// STAGE11.5: ورودی به واحد نمایش؛ سرور در واحد ذخیره.
+double _storedNum(String s) => Fmt.storedUnit == Fmt.displayUnit ? _numText(s) : Fmt.fromDisplay(_numText(s)).toDouble(); // یکسان ⇒ بدون گرد کردن
 String _money(dynamic v) => Fmt.money(_n(v), label: false);
 bool _can(String key) => StaffPerms.I.can(key);
 
@@ -410,14 +412,14 @@ class _OrchardDetailScreenState extends State<OrchardDetailScreen> {
     final Map<String, String>? r = await _form(context, 'ثبت هزینهٔ فصلی', <_F>[
       _F('season', 'سال زراعی', initial: '${DateTime.now().year}', numeric: true),
       _F('cat', 'دسته', initial: 'water', options: _catLabels),
-      _F('amount', 'مبلغ', numeric: true),
+      _F('amount', 'مبلغ (${Fmt.unitLabel()})', numeric: true),
       _F('date', 'تاریخ (yyyy-mm-dd)', initial: ReturnsHelp.iso(DateTime.now())),
       _F('party', 'طرف حساب'),
       _F('note', 'یادداشت'),
     ]);
     if (r == null) return;
-    final double amt = _numText(r['amount'] ?? '');
-    if (amt <= 0) return _snackOf(context, 'مبلغ را وارد کنید');
+    final double amt = _storedNum(r['amount'] ?? '');
+    if (_numText(r['amount'] ?? '') <= 0 || amt <= 0) return _snackOf(context, 'مبلغ را وارد کنید');
     final Map<String, dynamic>? res = await _call(context, 'orchard_costs.add', <String, dynamic>{
       'uid': ReturnsHelp.newUid('ocost'),
       'orchard_id': widget.id,
@@ -474,14 +476,14 @@ class _OrchardDetailScreenState extends State<OrchardDetailScreen> {
         'weight': 'بر اساس وزن خشک (جمع هزینه‌ها)',
         'market': 'بر اساس قیمت بازار (وزن × قیمت)',
       }),
-      _F('market', 'قیمت بازار هر کیلو (فقط برای بازار)', numeric: true),
+      _F('market', 'قیمت بازار هر کیلو (${Fmt.unitLabel()}) (فقط برای بازار)', numeric: true),
     ]);
     if (r == null) return;
     final Map<String, dynamic>? res = await _call(context, 'orchards.allocate', <String, dynamic>{
       'orchard_id': widget.id,
       'season_year': season,
       'basis': r['basis'] ?? 'weight',
-      'market_per_kg': _numText(r['market'] ?? ''),
+      'market_per_kg': _storedNum(r['market'] ?? ''),
     });
     if (res != null) {
       _changed = true;

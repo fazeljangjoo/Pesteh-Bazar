@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'crm_ui.dart';
+import 'fmt.dart' show Fmt;
 import 'warehouse_ui.dart';
 
 /// T03.1 — مشخصات طرف‌حساب (نوع، تماس، شناسه‌ها، سقف اعتبار، مانده افتتاحیه). آنلاین از طریق StockApi
@@ -67,6 +68,14 @@ class _PartyMasterScreenState extends State<PartyMasterScreen> {
     return b.toString().replaceAll(',', '').replaceAll('٬', '').trim();
   }
 
+  /// متن واردشده (واحد نمایش) → رشتهٔ مبلغ به واحد ذخیره؛ خالی = ''.
+  String _storedMoney(String text) {
+    final String d = _digits(text);
+    if (d.isEmpty) return '';
+    final num? n = num.tryParse(d);
+    return n == null ? d : '${Fmt.fromDisplay(n)}';
+  }
+
   Future<void> _load() async {
     try {
       final r = await StockApi.call('parties.list');
@@ -80,9 +89,11 @@ class _PartyMasterScreenState extends State<PartyMasterScreen> {
             _nid.text = (x['national_id'] ?? '').toString();
             _eco.text = (x['economic_code'] ?? '').toString();
             _postal.text = (x['postal_code'] ?? '').toString();
-            _limit.text = x['credit_limit'] == null ? '' : '${x['credit_limit']}';
+            // STAGE11.3: سرور «واحد ذخیره» می‌دهد/می‌گیرد؛ فرم با «واحد نمایش» کار می‌کند (قبلاً عدد خام نشان داده و ذخیره می‌شد)
+            final num? lim = num.tryParse('${x['credit_limit'] ?? ''}');
+            _limit.text = lim == null ? '' : '${Fmt.toDisplay(lim)}';
             final num ob = (x['opening_balance'] as num?) ?? 0;
-            _opening.text = ob == 0 ? '' : '${ob.round()}';
+            _opening.text = ob == 0 ? '' : '${Fmt.toDisplay(ob)}';
             _note.text = (x['note'] ?? '').toString();
             final Object? tg = x['tags'];
             if (tg is List) _tags.text = tg.map((Object? e) => '$e').join('، ');
@@ -116,8 +127,8 @@ class _PartyMasterScreenState extends State<PartyMasterScreen> {
         'national_id': _digits(_nid.text),
         'economic_code': _digits(_eco.text),
         'postal_code': _digits(_postal.text),
-        'credit_limit': _digits(_limit.text),
-        'opening_balance': _digits(_opening.text),
+        'credit_limit': _storedMoney(_limit.text),
+        'opening_balance': _storedMoney(_opening.text),
         'opening_side': _side,
         'active': _active ? 1 : 0,
         'note': _note.text.trim(),
@@ -135,14 +146,14 @@ class _PartyMasterScreenState extends State<PartyMasterScreen> {
     if (mounted) setState(() => _saving = false);
   }
 
-  Widget _tf(TextEditingController c, String label, {bool numeric = false, int lines = 1}) {
+  Widget _tf(TextEditingController c, String label, {bool numeric = false, int lines = 1, bool money = false}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: TextField(
         controller: c,
         maxLines: lines,
         keyboardType: numeric ? TextInputType.number : TextInputType.text,
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        decoration: InputDecoration(labelText: label, suffixText: money ? Fmt.unitLabel() : null, border: const OutlineInputBorder()),
       ),
     );
   }
@@ -189,8 +200,8 @@ class _PartyMasterScreenState extends State<PartyMasterScreen> {
                 _tf(_nid, 'کد ملی / شناسهٔ ملی', numeric: true),
                 _tf(_eco, 'کد اقتصادی', numeric: true),
                 _tf(_postal, 'کد پستی', numeric: true),
-                _tf(_limit, 'سقف اعتبار (اختیاری)', numeric: true),
-                _tf(_opening, 'مانده افتتاحیه', numeric: true),
+                _tf(_limit, 'سقف اعتبار (اختیاری)', numeric: true, money: true),
+                _tf(_opening, 'مانده افتتاحیه', numeric: true, money: true),
                 DropdownButtonFormField<String>(
                   value: _side,
                   decoration: const InputDecoration(labelText: 'وضعیت مانده افتتاحیه', border: OutlineInputBorder()),

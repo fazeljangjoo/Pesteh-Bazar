@@ -10,6 +10,7 @@ import 'perms.dart' show StaffPerms;
 import 'reports_ui.dart' show WorkshopReportsScreen;
 import 'db.dart';
 import 'live_query.dart';
+import 'lot_cartex_ui.dart' show LotCartexView;
 import 'lot_chain_ui.dart';
 import 'mix_form.dart';
 import 'orchard_ui.dart';
@@ -32,7 +33,25 @@ class InventoryScreen extends StatefulWidget {
   State<InventoryScreen> createState() => _InventoryScreenState();
 }
 
-class _InventoryScreenState extends State<InventoryScreen> {
+class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProviderStateMixin {
+  bool get _canCartex => StaffPerms.I.canCartex;
+  late final TabController _subTabs; // مرحلهٔ ۱۱: «موجودی انبار» | «کارتکس»
+
+  @override
+  void initState() {
+    super.initState();
+    _subTabs = TabController(length: 2, vsync: this);
+    _subTabs.addListener(() {
+      if (mounted) setState(() {}); // فقط برای نمایش/پنهان‌کردن دکمهٔ شناور
+    });
+  }
+
+  @override
+  void dispose() {
+    _subTabs.dispose();
+    super.dispose();
+  }
+
   String _query = '';
   bool _showSold = false; // false = موجود | true = فروش رفته (مثل وب)
   bool _showMixed = false; // false = پسته‌های خریداری‌شده | true = مخلوط/جداسازی (ساخته‌شده از انبار خودمان)
@@ -235,14 +254,17 @@ class _InventoryScreenState extends State<InventoryScreen> {
             ),
           ),
         ],
+        // بدون مجوز stock.view زیرتب «کارتکس» نشان داده نمی‌شود (TabBar حذف؛ کنترلر ۲تایی می‌ماند، ولی تب دوم قابل‌دسترس نیست)
+        bottom: _canCartex ? TabBar(controller: _subTabs, tabs: const [Tab(text: 'موجودی انبار'), Tab(text: 'کارتکس')]) : null,
       ),
-      floatingActionButton: FloatingActionButton.extended(
+      floatingActionButton: (_canCartex && _subTabs.index != 0) ? null : FloatingActionButton.extended(
         onPressed: () =>
             Navigator.push(context, MaterialPageRoute(builder: (_) => const MixForm())),
         icon: const Icon(Icons.merge_type),
         label: const Text('مخلوط / جداسازی'),
       ),
-      body: LiveQuery<List<Map<String, dynamic>>>(
+      body: TabBarView(controller: _subTabs, physics: const NeverScrollableScrollPhysics(), children: [
+        LiveQuery<List<Map<String, dynamic>>>(
         tab: 3,
         load: AppDb.I.inventoryAll,
         builder: (context, s) {
@@ -437,6 +459,8 @@ class _InventoryScreenState extends State<InventoryScreen> {
             return ListView(padding: const EdgeInsets.all(12), children: children);
           },
       ),
+        if (_canCartex) const LotCartexView() else const SizedBox.shrink(),
+      ]),
     );
   }
 

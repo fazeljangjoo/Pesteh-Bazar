@@ -299,7 +299,8 @@ class _ReportsScreenState extends State<ReportsScreen> {
                 final baseT = (it['base_type'] as String?)?.trim() ?? '';
                 final key = '${it['category_name']} - ${baseT.isNotEmpty ? baseT : it['type_name']}';
                 final w = (it['weight'] as num).toDouble();
-                final rev = w * (sale['price'] as num).toDouble();
+                // فی هر قلم (چند‌قلمی با فی‌های متفاوت): درآمد قلم = وزن × فی خودِ قلم؛ فی میانگینِ فروش تقسیم درآمد بین نوع‌ها را کج می‌کرد
+                final rev = w * ((it['item_price'] as num?) ?? (sale['price'] as num)).toDouble();
                 final extraCost = w * purchaseExtraPerKg(it as Map<String, dynamic>) + saleExtraShare(sale, it);
                 final cost = w * (it['cost_price'] as num).toDouble() + extraCost;
                 byType[key] = (byType[key] ?? 0) + (rev - cost);

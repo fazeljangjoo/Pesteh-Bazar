@@ -22,7 +22,9 @@ class ReturnsHelp {
 
   /// Server id of a local row; throws a Persian message when it has not reached the server yet.
   static Future<int> serverId(String kind, int localId) async {
-    final int? sid = await AppDb.I.serverIdOf(kind, localId) ?? await AppDb.I.aliasOf(kind, localId);
+    // sync_idmap و alias برای خرید با نوع 'pur' ذخیره می‌شوند، نه 'purchase' (sync_service/db.dart)
+    final String mapKind = kind == 'purchase' ? 'pur' : kind;
+    final int? sid = await AppDb.I.serverIdOf(mapKind, localId) ?? await AppDb.I.aliasOf(mapKind, localId);
     if (sid == null || sid <= 0) {
       throw StockApiException('این سند هنوز به سرور نرسیده؛ ابتدا همگام‌سازی کنید و دوباره تلاش کنید.');
     }

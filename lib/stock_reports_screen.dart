@@ -308,19 +308,22 @@ class _StockReportsScreenState extends State<StockReportsScreen> with SingleTick
 
   Widget _ledgerRow(Map<String, dynamic> r) {
     final kg = _n(r, 'kg');
+    // ردیف‌های برگشتِ ویرایش/حذف سند (و ردیف اصلیِ برگشت‌خورده) خنثی‌اند و در جمع «ورودی/خروجی» نیستند؛ کم‌رنگ و برچسب‌دار
+    final bool rev = r['reversed'] == true || r['is_reversal'] == true;
     return Card(
       elevation: 0,
       margin: const EdgeInsets.only(bottom: 6),
       child: ListTile(
         dense: true,
-        title: Text('${jalaliDate((r['date'] ?? '').toString())}  •  ${_kindLabel((r['kind'] ?? '').toString())}'),
+        title: Text('${jalaliDate((r['date'] ?? '').toString())}  •  ${_kindLabel((r['kind'] ?? '').toString())}${rev ? '  •  (اصلاح/برگشت)' : ''}',
+            style: rev ? TextStyle(color: Colors.grey.shade600) : null),
         subtitle: Text(
           '${(r['lot_code'] ?? '-')} • ${_whLabel(r['warehouse_uid']?.toString())} • مانده ${faNum(_n(r, 'balance_kg'))} کیلو',
         ),
         trailing: Text(
           faNum(kg),
           style: TextStyle(
-            color: kg < 0 ? Colors.red.shade700 : Colors.green.shade800,
+            color: rev ? Colors.grey.shade600 : (kg < 0 ? Colors.red.shade700 : Colors.green.shade800),
             fontWeight: FontWeight.w700,
           ),
         ),

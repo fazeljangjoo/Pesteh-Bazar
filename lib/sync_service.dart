@@ -657,9 +657,16 @@ class SyncService {
         LicenseService.I.sessionInvalid.value++;
         return false;
       }
-      if (action == 'entity.delete' && r.code == 404) {
-        // already gone on the server
+      if (r.code == 404 && action.endsWith('.delete') && !r.error.contains('اکشن نامعتبر')) {
+        // حذفِ موردی که روی سرور از قبل حذف شده (مثلاً از دستگاه دیگر): هدف حاصل است؛
+        // وگرنه عملیات «خطادار» می‌ماند و تا دور ریختنش هیچ دریافتی از سرور انجام نمی‌شود.
+        // (۴۰۴ «اکشن نامعتبر» جداست و همچنان خطا حساب می‌شود)
         await AppDb.I.finishOp(seq, rev);
+        continue;
+      }
+      if (r.code == 403 && (r.data?['error'] ?? '').toString() == 'forbidden') {
+        // STAGE11.2: مجوز همین عملیات برای کارکن نیست (سرور error='forbidden'؛ اشتراک مسدود چنین کدی ندارد): عملیات «خطادار» می‌شود تا بقیهٔ صف نماند
+        await AppDb.I.failOp(seq, r.error);
         continue;
       }
       if (r.code == 403 && action.startsWith('entity.')) {
@@ -683,7 +690,11 @@ class SyncService {
             : r.error;
         return false;
       }
-      final retryable = r.code == 409 || r.code == 429 || r.code >= 500 || r.data == null;
+      // ۴۰۹ فقط وقتی «موقتی» است که درخواست قبلیِ همین کلید هنوز در حال پردازش باشد (idemBegin).
+      // سرور خطاهای قطعیِ کسب‌وکاری را هم با ۴۰۹ می‌دهد (حذف ممکن نیست، رکورد حذف شده، حساب تنظیم نشده …)؛
+      // تلاش دوباره برایشان بی‌اثر است و صف پشت آن‌ها تا ۸ دور همگام‌سازی معطل می‌ماند.
+      final bool busy409 = r.code == 409 && r.error.contains('در حال پردازش');
+      final retryable = busy409 || r.code == 429 || r.code >= 500 || r.data == null;
       if (retryable) {
         final att = ((op['attempts'] as num?) ?? 0).toInt() + 1;
         if (att >= 8) {

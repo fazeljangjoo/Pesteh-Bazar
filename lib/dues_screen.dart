@@ -185,7 +185,7 @@ class _DuesScreenState extends State<DuesScreen> {
           children: [
             Text(Fmt.money(i.amount, label: false),
                 style: TextStyle(fontWeight: FontWeight.w700, color: color)),
-            const Text('ریال', style: TextStyle(fontSize: 11)),
+            Text(Fmt.unitLabel(), style: const TextStyle(fontSize: 11)), // STAGE11.3: برچسب واحد از تنظیم نمایش (قبلاً ثابت «ریال»)
           ],
         ),
         onTap: () => _markDone(i),

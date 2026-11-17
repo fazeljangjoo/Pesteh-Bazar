@@ -21,7 +21,7 @@ class ExportDocsPdf {
         padding: const pw.EdgeInsets.symmetric(vertical: 2),
         child: pw.Row(children: <pw.Widget>[
           pw.SizedBox(width: 120, child: pw.Text(pdfText(k), style: pw.TextStyle(fontSize: 10, fontWeight: pw.FontWeight.bold))),
-          pw.Expanded(child: pw.Text(v.isEmpty ? '-' : v, style: const pw.TextStyle(fontSize: 10))),
+          pw.Expanded(child: pw.Text(pdfText(v.isEmpty ? '-' : v), style: const pw.TextStyle(fontSize: 10))),
         ]),
       );
 
