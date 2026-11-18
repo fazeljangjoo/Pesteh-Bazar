@@ -517,7 +517,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
         'weighbridge_cost': MoneyField.stored(_finWb) ?? 0,
         'side_cost_payer': _finPayer,
       },
-      'gram': preset == 'dombest' ? parseNum(_gram.text) : null,
+      'gram': parseNum(_gram.text), // مثل پذیرش اتاق انس: برای همهٔ انواع
       'pct_khandan': preset == 'dombest' ? parseNum(_pctKhandan.text) : null,
       'pct_dombest': preset == 'khandan' ? parseNum(_pctDombest.text) : null,
       'pct_tuchin': preset == 'khandan' ? parseNum(_pctTuchin.text) : null,
@@ -698,7 +698,11 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                 opacity: _locked ? 0.5 : 1,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   sectionTitle(context, 'قیمت و وزن'),
-                  numField(_ounce, 'انس پسته (اختیاری)'),
+                  Row(children: [
+                    Expanded(child: numField(_ounce, 'انس پسته (اختیاری)')),
+                    const SizedBox(width: 8),
+                    Expanded(child: numField(_gram, 'گرم (اختیاری)')),
+                  ]),
                   if (_fx && !_isEdit)
                     FxDocFields(c: _fxc, priceLabel: 'فی خرید ارزی (هر کیلو)', onChanged: () => setState(() {})),
                   if (!_fxc.active && !_useGrades)
@@ -761,7 +765,6 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                   const SizedBox(height: 16),
                   if (preset == 'dombest') ...[
                     sectionTitle(context, 'مشخصات پسته دنبست'),
-                    numField(_gram, 'گرم'),
                     numField(_pctKhandan, 'درصد پسته خندان در دنبست', suffix: '٪', max: 100),
                     numField(_pctCrooked, 'درصد پسته کج / ناخالص', suffix: '٪', max: 100),
                   ] else if (preset == 'khandan') ...[
