@@ -2,6 +2,7 @@
 // «قابلیت‌های هوشمند» (روشن/خاموش کردن پرچم‌ها) فقط برای settings.manage؛ بقیهٔ ورودی‌ها فقط وقتی پرچم مربوط روشن است.
 import 'package:flutter/material.dart';
 
+import 'alerts_ui.dart' show AlertsMenuTile, AlertsScreen, WebhooksScreen; // فاز ۲
 import 'anomaly_ui.dart' show AnomalyListScreen;
 import 'perms.dart' show StaffPerms;
 import 'tech_features.dart';
@@ -24,6 +25,18 @@ List<Widget> techMenuTiles(BuildContext context, void Function(Widget screen) op
           title: const Text('هشدارهای بازده'),
           subtitle: const Text('افت و سالم غیرعادی کارگاه و خط شکست', style: TextStyle(fontSize: 11.5)),
           onTap: () => open(const AnomalyListScreen()),
+        ),
+      ),
+    // فاز ۲: هشدارها (با نشان خوانده‌نشده) و وب‌هوک‌ها
+    TechGate(flag: 'events', child: AlertsMenuTile(onOpen: () => open(const AlertsScreen()))),
+    if (StaffPerms.I.can('settings.manage'))
+      TechGate(
+        flag: 'events',
+        child: ListTile(
+          leading: const Icon(Icons.webhook),
+          title: const Text('وب‌هوک‌ها'),
+          subtitle: const Text('ارسال رویدادها به سامانه‌های دیگر', style: TextStyle(fontSize: 11.5)),
+          onTap: () => open(const WebhooksScreen()),
         ),
       ),
   ];

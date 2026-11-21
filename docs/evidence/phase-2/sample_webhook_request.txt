@@ -1,0 +1,8 @@
+POST https://erp.example.com/hooks/pesteh
+Content-Type: application/json; charset=utf-8
+X-PB-Event-Id: 7f1c2a8e-3b4d-4e5f-8a9b-0c1d2e3f4a5b
+X-PB-Signature: sha256=fa54f06a98de5ce3ed5d2544e7db332547b1b87f2e8010c552aa97f49663990d
+
+{"event_id":"7f1c2a8e-3b4d-4e5f-8a9b-0c1d2e3f4a5b","type":"sale.created","created_at":"2026-11-21 10:15:00","data":{"id":1234,"action":"sales.create"}}
+
+# verify (receiver): hash_hmac("sha256", raw_body, secret) === substr(header, 7)   (secret in this sample: whsec_demo)

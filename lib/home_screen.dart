@@ -24,6 +24,7 @@ import 'sale_form.dart';
 import 'statements_ui.dart'; // S18.T18.3
 import 'scan_entry.dart';
 import 'reminders_ui.dart'; // S31.T31.14b
+import 'alerts_ui.dart' show LiveAlertsBell; // فاز ۲ قابلیت‌های فناورانه (پشت پرچم features.events)
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -38,7 +39,7 @@ class HomeScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Scaffold(
-      appBar: AppBar(title: const Text('پسته بازار'), actions: const <Widget>[ReminderBell(), FiscalSwitcher()]),
+      appBar: AppBar(title: const Text('پسته بازار'), actions: const <Widget>[LiveAlertsBell(), ReminderBell(), FiscalSwitcher()]),
       body: LiveQuery<List<Object?>>(
         tab: 0,
         load: () => Future.wait<Object?>([
