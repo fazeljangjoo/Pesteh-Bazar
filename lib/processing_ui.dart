@@ -17,6 +17,7 @@ import 'sync_service.dart';
 import 'utils.dart';
 import 'warehouse_ui.dart' show StockApi, StockApiException, StockLookup, WhOption;
 import 'workshop_calc.dart' show kWsGradeLabels, kWsOpLabels, kWsOpen;
+import 'processing_flow_ui.dart' show ProcOrderFormScreen, ProcReceiveScreen, procOpInfo; // v82
 import 'workshop_reports_ui.dart' show CrackLineReportScreen; // v81
 import 'workshop_flow_ui.dart' show WorkshopOpScreen, WorkshopOpenFormScreen, wsOpTile; // فاز ۲: کارگاه مرحله‌ای
 import 'workshop_ui.dart' show WorkshopFormScreen, kWsBuyLabel, kWsCostFields, kWsMissingInputCost, wsCanCost, wsParseNum, wsReadOnlyField;
@@ -388,7 +389,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
       ),
       floatingActionButton: _can('processing.create')
           ? FloatingActionButton.extended(
-              onPressed: () => _open(_dir == kProcInternal ? const WorkshopOpenFormScreen() : ProcessingFormScreen(direction: _dir)),
+              onPressed: () => _open(_dir == kProcInternal ? const WorkshopOpenFormScreen() : ProcOrderFormScreen(direction: _dir)),
               icon: Icon(_dir == kProcInternal ? Icons.play_arrow : Icons.add),
               label: Text(_dir == kProcPaid ? 'سفارش برون‌سپاری' : (_dir == kProcInternal ? 'شروع عملیات کارگاه' : 'سفارش فراوری امانی')),
             )
@@ -504,7 +505,7 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
     return Card(
       child: ListTile(
         leading: Icon(rec ? Icons.call_received : Icons.call_made),
-        title: Text('${o['party']}  •  ${_statusLabel('${o['status']}')}${rno.isEmpty ? '' : '  •  قبض $rno'}${own.isEmpty ? '' : '  •  $own'}'),
+        title: Text('${kWsOpLabels['${o['op_type'] ?? ''}'] == null ? '' : '${kWsOpLabels['${o['op_type']}']}${'${o['prod_kind'] ?? ''}'.isEmpty ? '' : ' (${o['prod_kind']})'}  •  '}${o['party']}  •  ${_statusLabel('${o['status']}')}${rno.isEmpty ? '' : '  •  قبض $rno'}${own.isEmpty ? '' : '  •  $own'}'),
         subtitle: Text('${jalaliDate('${o['date']}')}$yieldText\n$info'),
         isThreeLine: true,
         onTap: () => _open(ProcessingDetailScreen(id: _n(o['id']).toInt())),
@@ -967,7 +968,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
   Future<void> _receive() async {
     final bool? ok = await Navigator.push<bool>(
       context,
-      MaterialPageRoute<bool>(builder: (_) => ProcessingReceivePage(order: _d)),
+      MaterialPageRoute<bool>(builder: (_) => '${_d['op_type'] ?? ''}'.isNotEmpty ? ProcReceiveScreen(order: _d) : ProcessingReceivePage(order: _d)), // v82
     );
     if (ok == true) {
       _changed = true;
@@ -1118,6 +1119,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
                         ),
                       ),
                       const SizedBox(height: 8),
+                      if (!_int) ...procOpInfo(context, _d), // v82: نوع عملیات، تراز وزنی، گرم و پرتی شکست
                       if (!_int && !_rec) ...<Widget>[
                         OutsideReceiptCard(order: _d, canEdit: canManage, onEdit: _editReceipt),
                         const SizedBox(height: 8),
@@ -1205,7 +1207,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
   /// فاز ۳: ویرایش فراوری برون‌سپاری/امانی (processing.update). برون‌سپاری «در جریان» ⇒ فرم کامل (اقلام، کرایه، …)؛ بقیه ⇒ تاریخ و توضیح.
   Future<void> _editDoc() async {
     if ('${_d['direction']}' == kProcPaid && '${_d['status']}' == 'in_progress') {
-      final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => ProcessingFormScreen(direction: kProcPaid, edit: _d)));
+      final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => ProcOrderFormScreen(direction: kProcPaid, edit: _d)));
       if (ok == true) {
         _changed = true;
         await _load();
