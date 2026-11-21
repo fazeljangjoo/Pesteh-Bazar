@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'alerts_ui.dart' show AlertsMenuTile, AlertsScreen, WebhooksScreen; // فاز ۲
 import 'anomaly_ui.dart' show AnomalyListScreen;
+import 'api_keys_ui.dart' show ApiKeysScreen; // فاز ۳
 import 'perms.dart' show StaffPerms;
 import 'tech_features.dart';
 
@@ -37,6 +38,17 @@ List<Widget> techMenuTiles(BuildContext context, void Function(Widget screen) op
           title: const Text('وب‌هوک‌ها'),
           subtitle: const Text('ارسال رویدادها به سامانه‌های دیگر', style: TextStyle(fontSize: 11.5)),
           onTap: () => open(const WebhooksScreen()),
+        ),
+      ),
+    // فاز ۳: کلیدهای API
+    if (StaffPerms.I.can('settings.manage'))
+      TechGate(
+        flag: 'api',
+        child: ListTile(
+          leading: const Icon(Icons.vpn_key_outlined),
+          title: const Text('کلیدهای API'),
+          subtitle: const Text('دسترسی فقط‌خواندنی نرم‌افزارهای دیگر', style: TextStyle(fontSize: 11.5)),
+          onTap: () => open(const ApiKeysScreen()),
         ),
       ),
   ];

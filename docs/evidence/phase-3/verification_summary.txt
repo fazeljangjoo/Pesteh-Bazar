@@ -1,0 +1,20 @@
+and flutter test: +157 -1: Some tests failed
+    Failing tests:
+      C:/Users/ZARIN.COMPUTER/Desktop/pesteh-bazar-workshop/android/Pesteh-Bazar-v-4/test/widget_test.dart: loading C:/Users/ZARIN.COMPUTER/Desktop/pesteh-bazar-workshop/android/Pesteh-Bazar-v-4/test/widget_test.dart
+and analyze: 406 issues found. (ran in 13.7s) errors=83 warnings=21 infos=302; lib/ errors: 0
+gold flutter test: +163 -1: Some tests failed
+    Failing tests:
+      C:/Users/ZARIN.COMPUTER/Desktop/pesteh-bazar-workshop/gold/pesteh-bazar-gold-v-4/test/widget_test.dart: loading C:/Users/ZARIN.COMPUTER/Desktop/pesteh-bazar-workshop/gold/pesteh-bazar-gold-v-4/test/widget_test.dart
+gold analyze: 471 issues found. (ran in 12.1s) errors=150 warnings=22 infos=299; lib/ errors: 0
+php -l: 180 files, 0 failing
+selftest edit_guard: exit 0 "cases":25 failed="failed": []
+selftest workshop_flow: exit 0 "steps":30 failed="failed": []
+selftest workshop: exit 0 "cases":10 failed="failed": []
+selftest workshop_v81: exit 0 "cases":18 failed="failed": []
+selftest anomaly: exit 0 "cases":16 failed="failed": []
+selftest events: exit 0 "cases":61 failed="failed": []
+selftest api: exit 0 "cases":50 failed="failed": []
+selftest lot_cartex (app cases): ALL OK
+snapshot gold/pesteh-bazar-gold-v-4: {"ok":true,"sections":9,"diff":[]}
+snapshot android/Pesteh-Bazar-v-4: {"ok":true,"sections":9,"diff":[]}
+anomaly_cases.json identical in server+both apps
