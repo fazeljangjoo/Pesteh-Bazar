@@ -1068,6 +1068,9 @@ WsFlowStep wsFlowApply(Map<String, dynamic> s0, String action, Map<String, dynam
         s['closed_at'] = null;
       }
       break;
+    case 'shifts_save': // v86: شیفت‌های شکست (کل فهرست جایگزین می‌شود)
+      s['shifts'] = p['shifts'];
+      break;
   }
   return WsFlowStep(s, err);
 }
@@ -1220,4 +1223,52 @@ double? wsWeightedAvg(List<Map<String, num?>> rows, String key) {
     k += kg;
   }
   return k > 0 ? vk / k : null;
+}
+
+// ---------------------------------------------------------------------------
+// v86 — شیفت‌های شکست (صبح / عصر / شب): مدت هر شیفت و جمع ساعات و شیفت‌ها
+// ---------------------------------------------------------------------------
+
+const Map<String, String> kWsShiftLabels = <String, String>{'morning': 'صبح', 'evening': 'عصر', 'night': 'شب'};
+
+/// دقیقهٔ یک «HH:MM» یا null.
+int? wsClockMin(String? s) {
+  final RegExpMatch? m = RegExp(r'^(\d{1,2}):(\d{2})$').firstMatch((s ?? '').trim());
+  if (m == null) return null;
+  final int h = int.parse(m.group(1)!), mi = int.parse(m.group(2)!);
+  if (h > 23 || mi > 59) return null;
+  return h * 60 + mi;
+}
+
+/// مدت شیفت به دقیقه (پایان قبل از شروع ⇒ عبور از نیمه‌شب، مثل شیفت شب). null = ساعت نامعتبر.
+int? wsShiftMinutes(String? start, String? end) {
+  final int? a = wsClockMin(start), b = wsClockMin(end);
+  if (a == null || b == null) return null;
+  final int d = b - a;
+  return d < 0 ? d + 1440 : d;
+}
+
+/// «x ساعت و y دقیقه».
+String wsHm(int minutes) {
+  final int h = minutes ~/ 60, m = minutes % 60;
+  if (h == 0) return '$m دقیقه';
+  return m == 0 ? '$h ساعت' : '$h ساعت و $m دقیقه';
+}
+
+class WsShiftTotals {
+  const WsShiftTotals(this.minutes, this.count, this.byShift);
+  final int minutes;
+  final int count;
+  final Map<String, int> byShift; // morning/evening/night ⇒ تعداد
+}
+
+WsShiftTotals wsShiftTotals(List<Map<String, dynamic>> shifts) {
+  int t = 0;
+  final Map<String, int> by = <String, int>{for (final String k in kWsShiftLabels.keys) k: 0};
+  for (final Map<String, dynamic> r in shifts) {
+    t += wsShiftMinutes('${r['start'] ?? ''}', '${r['end'] ?? ''}') ?? 0;
+    final String k = '${r['shift'] ?? ''}';
+    if (by.containsKey(k)) by[k] = by[k]! + 1;
+  }
+  return WsShiftTotals(t, shifts.length, by);
 }

@@ -5,7 +5,7 @@ import 'entity_store.dart' show EntityStore;
 import 'fmt.dart' show Fmt;
 import 'form_settings.dart' show FormSettingsLocal;
 import 'perms.dart';
-import 'processing_flow_ui.dart' show ChainSortDialog, procChainCard, wsMoistureRows; // v85
+import 'processing_flow_ui.dart' show ChainSortDialog, askEndReport, procChainCard, procReportRows, wsMoistureRows; // v85 + v86
 import 'processing_ui.dart' show ProcessingStore;
 import 'returns_ui.dart' show ReturnsHelp;
 import 'utils.dart';
@@ -13,6 +13,7 @@ import 'warehouse_ui.dart' show StockApi, StockApiException, StockLookup, WhOpti
 import 'widgets.dart' show JalaliDateField, confirm;
 import 'workshop_calc.dart';
 import 'workshop_reports_ui.dart' show CrackLineReportScreen, wsPrintOp, wsPrintOpsList;
+import 'ws_shifts_ui.dart' show WsShiftsCard; // v86: شیفت‌های شکست
 import 'workshop_ui.dart' show kWsBuyLabel, kWsCostFields, kWsMissingInputCost, wsCanCost, wsParseNum, wsReadOnlyField;
 
 /// فاز ۲ مجد — «کارگاه مرحله‌ای» (فایل مشترک اندروید و ویندوز؛ بدون واژهٔ مخصوص پلتفرم).
@@ -1132,6 +1133,11 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
       if (r.gramVsLine != null) x.add(<String>['اختلاف با گرم پرتی خط', '${r.gramVsLine! > 0 ? '+' : ''}${_f2(r.gramVsLine!)}']);
       if (r.lossKg != null) x.add(<String>['وزن پرتی (مغز)', '${_kg(r.lossKg)} کیلو']);
     }
+    // v86: میانگین انس/گرم ورودی و خروجی، ضایعات، پرت اعلامی و واقعی (شکست)، رطوبت (آبخندان)، شیفت‌ها
+    final Set<String> have = <String>{for (final List<String> r in x) r[0]};
+    for (final List<String> r in procReportRows(_d, inKg0: wsFlowTotals(_d).inputKg)) {
+      if (!have.contains(r[0]) && !(r[0].startsWith('ضایعات') || r[0] == 'اضافه وزن')) x.add(r);
+    }
     return x;
   }
 
@@ -1526,6 +1532,10 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
     final Map<String, dynamic>? res = await showDialog<Map<String, dynamic>>(context: context, builder: (_) => _CloseDialog(detail: _d, totals: t, titleOf: _outTitle));
     if (res == null) return;
     await _send('close', res, 'بستن عملیات کارگاه');
+    // v86: پایان فرایند ⇒ گزارش PDF (ورودی، خروجی، میانگین‌ها، پرت اعلامی و واقعی، شیفت‌ها)
+    if (mounted && _d['status'] == 'done' && await askEndReport(context) && mounted) {
+      await wsPrintOp(context, _d, title: wsOpTitle(_d), titleOf: _outTitle, extra: _printExtra());
+    }
   }
 
   /// v83: حذف کامل عملیات (ورودی‌ها به موجودی برمی‌گردند، لات‌های خروجی حذف می‌شوند). فقط اگر خروجی‌ها فروخته/مصرف نشده‌اند.
@@ -1715,6 +1725,14 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
                               : null,
                         ),
                     ], action: edit && !_single ? TextButton.icon(onPressed: _addInput, icon: const Icon(Icons.add), label: const Text('افزودن ورودی')) : null),
+                    // v86: شیفت‌های شکست (قبل از ثبت خروجی‌ها): شیفت، تاریخ، اپراتور، ساعت شروع/پایان + جمع ساعات و شیفت‌ها
+                    if (_isCrack && _d.isNotEmpty)
+                      WsShiftsCard(
+                        shifts: ReturnsHelp.maps(_d['shifts']),
+                        editable: !_busy && (_can('workshop.operate') || _can('workshop.manage')),
+                        hint: _outs.isEmpty ? 'پیش از ثبت خروجی‌ها، شیفت‌های کار خط را وارد کنید.' : null,
+                        onSave: (List<Map<String, dynamic>> v) => _send('shifts_save', <String, dynamic>{'shifts': v}, 'شیفت‌های شکست'),
+                      ),
                     _section('خروجی‌ها (فقط هنگام بستن وارد موجودی می‌شوند)', <Widget>[
                       if (_outs.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('هنوز خروجی ثبت نشده')),
                       for (final Map<String, dynamic> r in _outs)

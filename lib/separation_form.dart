@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'lot_chain_ui.dart' show LotChainScreen; // v86
 import 'vouchers_links.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -920,121 +921,15 @@ class _SeparationDetailScreenState extends State<SeparationDetailScreen> {
 
 /// Ancestors / descendants tree of one lot (server `lots.lineage`; covers purchases, mixes and separations).
 /// Opened either with a lot id, or empty with a tracking-code box (KH… / MX… / K-…).
-class LotLineageScreen extends StatefulWidget {
-  final int? lotId;
+/// v86: «ردیابی لات» = همان «مسیر پسته» کامل (خرید، کوت، جداسازی، کارگاه داخلی/شکست/تولید، برون‌سپاری، امانی، فروش، ضایعات + PDF).
+/// قبلاً فقط جداسازی و مخلوط را می‌شناخت و محصول کارگاه (مثلاً مغز شکست) را «خرید مستقیم بدون منشأ» نشان می‌داد.
+/// [lotId] = شناسهٔ سرور (پاسخ‌های سرور جداسازی).
+class LotLineageScreen extends StatelessWidget {
   const LotLineageScreen({super.key, this.lotId});
-  @override
-  State<LotLineageScreen> createState() => _LotLineageScreenState();
-}
-
-class _LotLineageScreenState extends State<LotLineageScreen> {
-  final TextEditingController _code = TextEditingController();
-  Map<String, dynamic>? _data;
-  String? _err;
-  bool _busy = false;
+  final int? lotId;
 
   @override
-  void initState() {
-    super.initState();
-    if (widget.lotId != null) _load(<String, dynamic>{'lot_id': widget.lotId});
-  }
-
-  @override
-  void dispose() {
-    _code.dispose();
-    super.dispose();
-  }
-
-  Future<void> _load(Map<String, dynamic> payload) async {
-    setState(() {
-      _busy = true;
-      _err = null;
-    });
-    try {
-      final Map<String, dynamic> r = await StockApi.call('lots.lineage', payload);
-      if (mounted) setState(() => _data = r);
-    } on StockApiException catch (e) {
-      if (mounted) {
-        setState(() {
-          _data = null;
-          _err = SeparationStore.isNetworkError(e.message) ? 'ردیابی به اینترنت نیاز دارد؛ اتصال را بررسی کنید.' : e.message;
-        });
-      }
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _lookup() async {
-    final String raw = _code.text.trim();
-    if (raw.isEmpty) return;
-    await _load(<String, dynamic>{'code': normalizeScan(raw) ?? raw});
-  }
-
-  String _kind(dynamic k) => k == 'separation' ? 'جداسازی' : (k == 'mix' ? 'مخلوط' : 'خرید');
-  String _via(dynamic v) => v == 'mix' ? 'مخلوط' : 'جداسازی';
-
-  List<Widget> _nodes(List<Map<String, dynamic>> nodes, int level) {
-    final List<Widget> out = <Widget>[];
-    for (final Map<String, dynamic> n in nodes) {
-      out.add(Padding(
-        padding: EdgeInsetsDirectional.only(start: 14.0 * level),
-        child: Card(
-          child: ListTile(
-            dense: true,
-            leading: const Icon(Icons.subdirectory_arrow_left),
-            title: Text('${n['type_name'] ?? ''}  •  ${n['code'] ?? '-'}'),
-            subtitle: Text('${_via(n['via'])}  •  ${faNum(_d(n['kg']), dec: 3)} کیلو'
-                '${n['remaining'] != null ? '  •  مانده ${faNum(_d(n['remaining']), dec: 3)}' : ''}'),
-            onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => LotLineageScreen(lotId: _d(n['lot_id']).toInt()))),
-          ),
-        ),
-      ));
-      out.addAll(_nodes(ReturnsHelp.maps(n['children']), level + 1));
-    }
-    return out;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final Map<String, dynamic>? d = _data;
-    final Map<String, dynamic> lot = d != null && d['lot'] is Map ? Map<String, dynamic>.from(d['lot'] as Map) : <String, dynamic>{};
-    final List<Map<String, dynamic>> up = d == null ? <Map<String, dynamic>>[] : ReturnsHelp.maps(d['ancestors_tree']);
-    final List<Map<String, dynamic>> down = d == null ? <Map<String, dynamic>>[] : ReturnsHelp.maps(d['descendants_tree']);
-    return Scaffold(
-      appBar: AppBar(title: const Text('ردیابی لات')),
-      body: ListView(padding: const EdgeInsets.all(12), children: <Widget>[
-        Row(children: <Widget>[
-          Expanded(
-            child: TextField(
-              controller: _code,
-              textDirection: TextDirection.ltr,
-              decoration: const InputDecoration(labelText: 'کد پسته (مثلاً KH… / D… / M… / S-…)', border: OutlineInputBorder(), isDense: true),
-              onSubmitted: (_) => _lookup(),
-            ),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(onPressed: _busy ? null : _lookup, child: const Text('جستجو')),
-        ]),
-        const SizedBox(height: 8),
-        if (_busy) const LinearProgressIndicator(),
-        if (_err != null) Padding(padding: const EdgeInsets.all(12), child: Text(_err!, style: TextStyle(color: Theme.of(context).colorScheme.error))),
-        if (d != null) ...<Widget>[
-          Card(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            child: ListTile(
-              title: Text('${lot['type_name'] ?? ''}  •  ${lot['code'] ?? '-'}'),
-              subtitle: Text('${_kind(lot['kind'])}  •  ${faNum(_d(lot['net_weight']), dec: 3)} کیلو  •  مانده ${faNum(_d(lot['remaining']), dec: 3)}'),
-            ),
-          ),
-          sectionTitle(context, 'از چه ساخته شده (منشأ)'),
-          if (up.isEmpty) const Text('خرید مستقیم است؛ منشأ دیگری ندارد.', style: TextStyle(color: Colors.black54)) else ..._nodes(up, 0),
-          sectionTitle(context, 'چه چیزهایی از آن ساخته شده'),
-          if (down.isEmpty) const Text('هنوز در مخلوط یا جداسازی دیگری استفاده نشده.', style: TextStyle(color: Colors.black54)) else ..._nodes(down, 0),
-        ],
-      ]),
-    );
-  }
+  Widget build(BuildContext context) => LotChainScreen(lotId: lotId);
 }
 
 /// Bottom sheet for a separation output lot (is_mix = 2) in the inventory list.
@@ -1048,7 +943,7 @@ Future<void> showSeparationLotSheet(BuildContext context, Map<String, dynamic> l
         padding: const EdgeInsets.all(16),
         child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
           Text('${l['category_name']} - ${l['type_name']}', style: Theme.of(ctx).textTheme.titleMedium),
-          const Text('محصول جداسازی', style: TextStyle(color: Colors.black54)),
+          Text('${l['code'] ?? ''}'.toUpperCase().startsWith('W') ? 'محصول کارگاه / فراوری' : 'محصول جداسازی / فراوری', style: const TextStyle(color: Colors.black54)),
           infoRow('کد ردیابی', code),
           BarcodeBox(code),
           infoRow('وزن این قلم (خالص)', '${faNum(_d(l['net_weight']))} کیلو'),
@@ -1060,7 +955,7 @@ Future<void> showSeparationLotSheet(BuildContext context, Map<String, dynamic> l
           FilledButton.icon(
             onPressed: () {
               Navigator.pop(ctx);
-              Navigator.push(context, MaterialPageRoute<void>(builder: (_) => LotLineageScreen(lotId: _d(l['id']).toInt())));
+              Navigator.push(context, MaterialPageRoute<void>(builder: (_) => LotChainScreen(code: code))); // v86: ردیابی کامل با کد (شناسهٔ محلی ≠ سرور)
             },
             icon: const Icon(Icons.account_tree_outlined),
             label: const Text('ردیابی (منشأ و مشتقات)'),

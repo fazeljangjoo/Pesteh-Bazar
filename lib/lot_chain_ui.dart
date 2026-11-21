@@ -54,10 +54,16 @@ class _LotChainScreenState extends State<LotChainScreen> {
   String? _error;
   bool _loading = false;
 
+  bool _idMode = false; // v86: فقط وقتی از lotId (شناسهٔ سرور) باز شده و متن دست نخورده
+
   @override
   void initState() {
     super.initState();
+    _idMode = widget.lotId != null && (widget.code ?? '').trim().isEmpty;
     _c.text = widget.code ?? (widget.lotId != null ? '${widget.lotId}' : '');
+    _c.addListener(() {
+      if (_idMode && _c.text.trim() != '${widget.lotId}') _idMode = false;
+    });
     if (widget.lotId != null || (widget.code ?? '').trim().isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _go());
     }
@@ -78,7 +84,17 @@ class _LotChainScreenState extends State<LotChainScreen> {
     });
     try {
       final int? id = int.tryParse(_latin(t));
-      final Map<String, dynamic> r = await StockApi.call('lot_chain.get', <String, dynamic>{if (id != null) 'lot_id': id else 'code': t});
+      Map<String, dynamic> r;
+      if (_idMode && id != null) {
+        r = await StockApi.call('lot_chain.get', <String, dynamic>{'lot_id': id});
+      } else {
+        try {
+          r = await StockApi.call('lot_chain.get', <String, dynamic>{'code': t});
+        } on StockApiException catch (e) {
+          if (id == null || e.code != 404) rethrow;
+          r = await StockApi.call('lot_chain.get', <String, dynamic>{'lot_id': id}); // شمارهٔ لات
+        }
+      }
       if (!mounted) return;
       setState(() {
         _t = chainToTimeline(r);

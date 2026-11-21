@@ -610,12 +610,12 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
       onTap: isMix ? () => (isSep ? showSeparationLotSheet(context, l) : _showMixDetails(context, l)) : null,
       leading: isMix
           ? Tooltip(
-              message: isSep ? 'محصول جداسازی — ردیابی‌پذیر با کد K-…' : 'مخلوط/جداسازی — از جنس‌های خودِ انبار ساخته شده',
+              message: isSep ? 'محصول جداسازی / کارگاه / فراوری — ردیابی با «مسیر پسته»' : 'مخلوط/جداسازی — از جنس‌های خودِ انبار ساخته شده',
               child: Icon(isSep ? Icons.call_split : Icons.merge_type))
           : null,
       title: Text(sold
-          ? '${faNum(net)} کیلو (خالص)  •  ${_segLabels[_exitOf(l)]}${isMix ? (isSep ? '  •  محصول جداسازی' : '  •  مخلوط/جداسازی') : ''}'
-          : '${faNum(rem)} کیلو (خالص) مانده${isMix ? (isSep ? '  •  محصول جداسازی' : '  •  مخلوط/جداسازی') : ''}'),
+          ? '${faNum(net)} کیلو (خالص)  •  ${_segLabels[_exitOf(l)]}${isMix ? (isSep ? '  •  محصول فراوری/جداسازی' : '  •  مخلوط/کوت') : ''}'
+          : '${faNum(rem)} کیلو (خالص) مانده${isMix ? (isSep ? '  •  محصول فراوری/جداسازی' : '  •  مخلوط/کوت') : ''}'),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[

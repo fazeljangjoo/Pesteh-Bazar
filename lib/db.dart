@@ -2396,6 +2396,8 @@ class AppDb {
     String? warehouseUid,
     String? ounceUid,
     bool uidsGiven = false,
+    String? date, // v86: تاریخ شروع کوت‌ریزی (yyyy-mm-dd)
+    String? endDate, // v86: تاریخ پایان کوت‌ریزی
   }) async {
     if (categoryId == 0) throw Exception('دسته را انتخاب کنید');
     if (netWeight <= 0 || netWeight > 1e9) throw Exception('وزن نهایی مخلوط (طبق ترازو) را وارد کنید');
@@ -2426,7 +2428,8 @@ class AppDb {
         'category_id': categoryId,
         'type_name': name,
         'base_type': baseTypeV,
-        'date': _ymd(DateTime.now()),
+        'date': date ?? _ymd(DateTime.now()),
+        if (endDate != null && await _ensureEndDate(t)) 'end_date': endDate,
         'price': _r(avgPrice, 2),
         'usd_rate': mixRate,
         'price_usd': mixUsd,
@@ -2457,6 +2460,8 @@ class AppDb {
             'type_name': name,
         'base_type': baseTypeV,
             'sources': _mixSourcesPayload(srcs),
+            if (date != null) 'date': date,
+            'end_date': endDate,
             'net_weight': net,
             'small_sack_count': _r(smallSackCount, 2),
             'large_sack_count': _r(largeSackCount, 2),
@@ -2516,6 +2521,20 @@ class AppDb {
     return ok;
   }
 
+  /// v86: ستون end_date (تاریخ پایان کوت‌ریزی) — تنبل و idempotent.
+  static bool? _hasEndDate;
+  Future<bool> _ensureEndDate(DatabaseExecutor t) async {
+    if (_hasEndDate != null) return _hasEndDate!;
+    try {
+      final List<Map<String, Object?>> info = await t.rawQuery('PRAGMA table_info(purchases)');
+      if (!info.any((Map<String, Object?> r) => r['name'] == 'end_date')) await t.execute('ALTER TABLE purchases ADD COLUMN end_date TEXT');
+      _hasEndDate = true;
+    } catch (_) {
+      _hasEndDate = false;
+    }
+    return _hasEndDate!;
+  }
+
   Future<bool> updateMix({
     required int mixPurchaseId,
     required int categoryId,
@@ -2532,6 +2551,8 @@ class AppDb {
     String? warehouseUid,
     String? ounceUid,
     bool uidsGiven = false,
+    String? date, // v86: تاریخ شروع کوت‌ریزی (yyyy-mm-dd)
+    String? endDate, // v86: تاریخ پایان کوت‌ریزی
   }) async {
     if (categoryId == 0) throw Exception('دسته را انتخاب کنید');
     if (netWeight <= 0 || netWeight > 1e9) throw Exception('وزن نهایی مخلوط (طبق ترازو) را وارد کنید');
@@ -2573,6 +2594,8 @@ class AppDb {
             'category_id': categoryId,
             'type_name': name,
         'base_type': baseTypeV,
+            if (date != null) 'date': date,
+            if (await _ensureEndDate(t)) 'end_date': endDate,
             'price': _r(avgPrice, 2),
             'usd_rate': mixRate,
             'price_usd': mixUsd,
@@ -2604,6 +2627,8 @@ class AppDb {
             'type_name': name,
         'base_type': baseTypeV,
             'sources': _mixSourcesPayload(srcs),
+            if (date != null) 'date': date,
+            'end_date': endDate,
             'net_weight': net,
             'small_sack_count': _r(smallSackCount, 2),
             'large_sack_count': _r(largeSackCount, 2),

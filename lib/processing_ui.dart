@@ -17,7 +17,7 @@ import 'sync_service.dart';
 import 'utils.dart';
 import 'warehouse_ui.dart' show StockApi, StockApiException, StockLookup, WhOption;
 import 'workshop_calc.dart' show kWsGradeLabels, kWsOpLabels, kWsOpen;
-import 'processing_flow_ui.dart' show ProcOrderFormScreen, ProcReceiveScreen, procChainSection, procOpInfo; // v82 + v85
+import 'processing_flow_ui.dart' show ProcOrderFormScreen, ProcReceiveScreen, askEndReport, procChainSection, procOpInfo, procPrintReport; // v82 + v85 + v86
 import 'workshop_reports_ui.dart' show CrackLineReportScreen; // v81
 import 'workshop_flow_ui.dart' show WorkshopOpScreen, WorkshopOpenFormScreen, wsOpTile; // فاز ۲: کارگاه مرحله‌ای
 import 'workshop_ui.dart' show WorkshopFormScreen, kWsBuyLabel, kWsCostFields, kWsMissingInputCost, wsCanCost, wsParseNum, wsReadOnlyField;
@@ -973,6 +973,10 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
     if (ok == true) {
       _changed = true;
       await _load();
+      // v86: پایان فرایند ⇒ گزارش PDF (ورودی، خروجی، میانگین‌ها، پرت اعلامی و واقعی، رطوبت، شیفت‌ها)
+      if (mounted && '${_d['op_type'] ?? ''}'.isNotEmpty && '${_d['status']}' != 'in_progress' && await askEndReport(context) && mounted) {
+        await procPrintReport(context, _d, money: _can('price.view'));
+      }
     }
   }
 
@@ -1017,6 +1021,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
   }
 
   Future<void> _print({required bool fee}) async {
+    if (!fee && !_int && '${_d['op_type'] ?? ''}'.isNotEmpty) return procPrintReport(context, _d, money: _can('price.view')); // v86
     final List<dynamic> ins = (_d['inputs'] is List) ? (_d['inputs'] as List<dynamic>) : <dynamic>[];
     final List<dynamic> outs = (_d['outputs'] is List) ? (_d['outputs'] as List<dynamic>) : <dynamic>[];
     final File file;
@@ -1117,7 +1122,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
                                 ),
                               ] else ...<Widget>[
                                 Text('${_rec ? 'مشتری' : 'فراوری‌کننده'}: ${_d['party'] ?? ''}'),
-                                Text('تاریخ: ${jalaliDate('${_d['date'] ?? ''}')}'),
+                                Text('تاریخ شروع: ${jalaliDate('${_d['date'] ?? ''}')}${'${_d['receive_date'] ?? ''}'.isEmpty ? '' : '  •  تاریخ پایان: ${jalaliDate('${_d['receive_date']}')}'}'), // v86
                                 Text('وضعیت: ${_statusLabel('${_d['status'] ?? ''}')}'),
                                 Text('کرایه (${_feeBasis[_d['fee_basis']] ?? ''}): ${_money(_d['fee_amount'])}'),
                                 if (_rec) Text('مطالبه از مشتری: ${_money(_d['charge_amount'])}'),

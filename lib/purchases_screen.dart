@@ -22,6 +22,7 @@ import 'returns_ui.dart';
 import 'perms.dart';
 import 'notify_service.dart';
 import 'barcode_utils.dart';
+import 'code_kind.dart' show groupColor; // v86: رنگ گروه کوت
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -39,6 +40,62 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
   bool _openedCode = false;
   // پیش‌فرض: سال پسته‌ای جاری (۱ مهر تا ۳۱ شهریور سال بعد)، جدیدترین اول
   DocListFilter _filter = DocListFilter.defaults();
+  // v86: فیلتر فروخته‌شده در هر دو تب (همه / بدون فروخته‌شده / فقط فروخته‌شده) + «کوت‌های هم‌گروه زیر هم» در تب کوت و فراوری
+  String _soldMode = 'hide';
+  bool _groupMix = false;
+  static const Map<String, String> _soldModes = <String, String>{'all': 'همه', 'hide': 'بدون فروخته‌شده', 'only': 'فقط فروخته‌شده'};
+
+  /// v86: خریدها + کیلوی فروش/کوت/برگشت + گروه کوت ⇒ «کوت‌ریزی یا فراوری‌شده» = بخشی از وزن به کوت رفته یا (خالص − مانده − فروش − کوت − برگشت) به فراوری.
+  Future<List<Map<String, dynamic>>> _load() async {
+    final List<Map<String, dynamic>> rows = await AppDb.I.purchases();
+    final d = await AppDb.I.db;
+    Future<Map<int, double>> sum(String sql) async {
+      try {
+        return <int, double>{
+          for (final Map<String, Object?> r in await d.rawQuery(sql))
+            if (r['id'] is num) (r['id'] as num).toInt(): ((r['kg'] as num?) ?? 0).toDouble(),
+        };
+      } catch (_) {
+        return <int, double>{};
+      }
+    }
+
+    final Map<int, double> sold = await sum('SELECT purchase_id AS id, SUM(weight) AS kg FROM sale_items GROUP BY purchase_id');
+    final Map<int, double> kout = await sum('SELECT source_purchase_id AS id, SUM(weight) AS kg FROM mix_sources GROUP BY source_purchase_id');
+    final Map<int, double> ret = await sum('SELECT lot_id AS id, SUM(kg) AS kg FROM purchase_return_items GROUP BY lot_id');
+    final Map<int, int?> groups = await AppDb.I.mixGroupKeyMap();
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> r in rows)
+        () {
+          final int id = (r['id'] as num).toInt();
+          final double net = ((r['net_weight'] as num?) ?? 0).toDouble(), rem = ((r['remaining'] as num?) ?? 0).toDouble();
+          final double k = kout[id] ?? 0, proc = net - rem - (sold[id] ?? 0) - k - (ret[id] ?? 0);
+          return <String, dynamic>{...r, 'kout_kg': k, 'proc_kg': proc > 1e-3 ? proc : 0.0, 'used': k > 1e-6 || proc > 1e-3, 'mix_group': k > 1e-6 ? groups[id] : null};
+        }(),
+    ];
+  }
+
+  bool _soldOk(Map<String, dynamic> p) => _soldMode == 'all' || (_soldMode == 'only' ? _isSold(p) : !_isSold(p));
+
+  /// v86: «کوت‌های هم‌گروه زیر هم»: ترتیب فیلتر حفظ می‌شود؛ هر گروه کوت در جای اولین عضوش کنار هم می‌آید.
+  static List<Map<String, dynamic>> _grouped(List<Map<String, dynamic>> list) {
+    final Map<int, List<Map<String, dynamic>>> byG = <int, List<Map<String, dynamic>>>{};
+    for (final Map<String, dynamic> p in list) {
+      final int? g = (p['mix_group'] as num?)?.toInt();
+      if (g != null) byG.putIfAbsent(g, () => <Map<String, dynamic>>[]).add(p);
+    }
+    final Set<int> done = <int>{};
+    final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+    for (final Map<String, dynamic> p in list) {
+      final int? g = (p['mix_group'] as num?)?.toInt();
+      if (g == null) {
+        out.add(p);
+      } else if (done.add(g)) {
+        out.addAll(byG[g]!);
+      }
+    }
+    return out;
+  }
 
   void _details(BuildContext context, Map<String, dynamic> p) {
     String? pct(String k) => p[k] == null ? null : '${faNum(p[k] as num)}٪';
@@ -195,7 +252,11 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
   Widget _card(BuildContext context, Map<String, dynamic> p) {
     final hasPhoto = ((p['has_photo'] as num?) ?? 0) == 1;
     final sold = _isSold(p);
+    final int? g = (p['mix_group'] as num?)?.toInt(); // v86: خریدهایی که با هم کوت شده‌اند هم‌رنگ‌اند
+    final double koutKg = ((p['kout_kg'] as num?) ?? 0).toDouble(), procKg = ((p['proc_kg'] as num?) ?? 0).toDouble();
     return Card(
+      color: g == null ? null : groupColor(g).withAlpha(28),
+      shape: g == null ? null : RoundedRectangleBorder(borderRadius: BorderRadius.circular(12), side: BorderSide(color: groupColor(g).withAlpha(170), width: 1.5)),
       child: ListTile(
         onTap: () => _details(context, p),
         leading: CircleAvatar(child: Icon(hasPhoto ? Icons.photo_camera_outlined : Icons.grass)),
@@ -204,7 +265,8 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
             'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو (خالص)\n'
             '${sold ? 'فروخته‌شده' : 'مانده ${faNum(p['remaining'] as num)} کیلو (خالص)'}  •  فی ${Fmt.money(p['price'] as num)}'
             '${LicenseService.I.isFx.value && p['price_usd'] != null ? ' (${faUsd(p['price_usd'] as num, dec: 3)})' : ''}'
-            '${_inMixLine(p)}'),
+            '${_inMixLine(p)}'
+            '${koutKg > 1e-6 || procKg > 1e-3 ? '\n${<String>[if (koutKg > 1e-6) 'کوت ${faNum(koutKg)} کیلو${g == null ? '' : ' (گروه کوت #${faNum(g, dec: 0)})'}', if (procKg > 1e-3) 'فراوری ${faNum(procKg)} کیلو'].join('  •  ')}' : ''}'),
         isThreeLine: true,
         trailing: PopupMenuButton<String>(
           onSelected: (v) async {
@@ -274,8 +336,8 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
             ),
           ],
           bottom: const TabBar(tabs: [
-            Tab(text: 'خریدهای موجود'),
-            Tab(text: 'خریدهای فروخته‌شده'),
+            Tab(text: 'خریدها'),
+            Tab(text: 'کوت و فراوری'), // v86: خریدهای کوت‌ریزی یا فراوری‌شده
           ]),
         ),
         floatingActionButton: FloatingActionButton.extended(
@@ -286,7 +348,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         ),
         body: LiveQuery<List<Map<String, dynamic>>>(
           tab: 1,
-          load: AppDb.I.purchases,
+          load: _load, // v86
           builder: (context, s) {
               if (!s.hasData) return const Center(child: CircularProgressIndicator());
               final all = s.data!;
@@ -308,8 +370,9 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                       .toList();
               final filtered = _filter.apply(byText); // بازهٔ تاریخ + ترتیب
               final narrowed = !_filter.isAll && all.isNotEmpty;
-              final available = filtered.where((p) => !_isSold(p)).toList();
-              final sold = filtered.where(_isSold).toList();
+              final plain = filtered.where((p) => p['used'] != true && _soldOk(p)).toList();
+              final used0 = filtered.where((p) => p['used'] == true && _soldOk(p)).toList();
+              final used = _groupMix ? _grouped(used0) : used0;
               return Column(children: [
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
@@ -331,10 +394,24 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                     total: all.length,
                   ),
                 ),
+                // v86: فروخته‌شده‌ها (هر دو تب) + کوت‌های هم‌گروه زیر هم (تب کوت و فراوری)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
+                  child: Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
+                    for (final e in _soldModes.entries)
+                      ChoiceChip(label: Text(e.value), selected: _soldMode == e.key, onSelected: (_) => setState(() => _soldMode = e.key)),
+                    FilterChip(
+                      avatar: const Icon(Icons.merge_type, size: 18),
+                      label: const Text('کوت‌های هم‌گروه زیر هم'),
+                      selected: _groupMix,
+                      onSelected: (v) => setState(() => _groupMix = v),
+                    ),
+                  ]),
+                ),
                 Expanded(
                   child: TabBarView(children: [
-                    _tabList(context, available, 'هیچ خرید موجودی در انبار نیست', narrowed: narrowed),
-                    _tabList(context, sold, 'هنوز خریدِ کاملاً فروخته‌شده‌ای نداریم', narrowed: narrowed),
+                    _tabList(context, plain, _soldMode == 'only' ? 'خرید فروخته‌شده‌ای نیست' : 'خریدی نیست', narrowed: narrowed || _soldMode != 'all'),
+                    _tabList(context, used, 'هنوز خریدی کوت‌ریزی یا فراوری نشده', narrowed: narrowed || _soldMode != 'all'),
                   ]),
                 ),
               ]);

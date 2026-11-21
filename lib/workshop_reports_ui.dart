@@ -181,7 +181,7 @@ Future<void> wsPrintOp(BuildContext context, Map<String, dynamic> d, {required S
   final WsBalance t = wsFlowTotals(d);
   final bool cost = wsCanCost();
   final File file = await PdfService.buildTableReport(
-    title: 'برگهٔ عملیات کارگاه — $title',
+    title: '${d['closed_at'] == null ? 'برگهٔ عملیات کارگاه' : 'گزارش پایان فرایند کارگاه'} — $title', // v86
     subtitle: 'شروع ${jalaliDate('${d['started_at'] ?? d['date'] ?? ''}')}${d['closed_at'] == null ? '  •  باز (در کارگاه)' : '  •  پایان ${jalaliDate('${d['closed_at']}')}'}',
     kv: <List<String>>[
       if ('${d['pistachio_type'] ?? ''}'.isNotEmpty) <String>['نوع پسته', '${d['pistachio_type']}'],

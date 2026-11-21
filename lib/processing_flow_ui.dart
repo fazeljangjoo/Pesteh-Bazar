@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'fmt.dart' show Fmt;
@@ -10,6 +12,9 @@ import 'widgets.dart' show JalaliDateField;
 import 'workshop_calc.dart';
 import 'workshop_flow_ui.dart' show WsCat, WsCats, WsCrackData, WsCrackLine, WsLotInfo, WsLotPicker, WsOutputDialog;
 import 'workshop_ui.dart' show wsParseNum;
+import 'ws_shifts_ui.dart' show WsShiftsCard, wsShiftReportRows; // v86
+import 'pdf_output.dart' show PdfOutput; // v86
+import 'pdf_service.dart' show PdfService;
 
 /// v82 — برون‌سپاری و فراوری امانی با همان سه نوع عملیات کارگاه داخلی (شکست / تولید / آبخندان). فایل مشترک اندروید و ویندوز.
 ///   [ProcOrderFormScreen]  ثبت/ویرایش سفارش:
@@ -661,7 +666,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
         final bool row = c.maxWidth >= 600;
         final List<Widget> head = <Widget>[
           TextField(controller: _party, decoration: _dec(_paid ? 'فراوری‌کننده' : 'مشتری (صاحب کالا)')),
-          JalaliDateField(label: 'تاریخ', value: _date, onChanged: (DateTime d) => setState(() => _date = d)),
+          JalaliDateField(label: 'تاریخ شروع', value: _date, onChanged: (DateTime d) => setState(() => _date = d)),
           _opField(),
           if (_op == 'production' || _op == 'crack') _third(),
         ];
@@ -875,7 +880,7 @@ class _ProcReceiveScreenState extends State<ProcReceiveScreen> {
       body: ListView(padding: const EdgeInsets.all(14), children: <Widget>[
         Text('${_rec ? 'مشتری' : 'فراوری‌کننده'}: ${_o['party'] ?? ''}  •  ورودی ${_kg(_inKg)} کیلو'),
         const SizedBox(height: 8),
-        JalaliDateField(label: 'تاریخ دریافت', value: _date, onChanged: (DateTime d) => setState(() => _date = d)),
+        JalaliDateField(label: 'تاریخ پایان (دریافت خروجی)', value: _date, onChanged: (DateTime d) => setState(() => _date = d)),
         const SizedBox(height: 8),
         Card(
           child: Padding(
@@ -925,6 +930,7 @@ List<Widget> procOpInfo(BuildContext context, Map<String, dynamic> d, {bool show
   final List<Widget> rows = <Widget>[
     Text('${rec ? 'فراوری امانی' : 'برون‌سپاری'} — ${kWsOpLabels[op] ?? op}${'${d['prod_kind'] ?? ''}'.isEmpty ? '' : ' (${d['prod_kind']})'}',
         style: Theme.of(context).textTheme.titleMedium),
+    Text('شروع ${jalaliDate('${d['date'] ?? ''}')}  •  ${'${d['receive_date'] ?? ''}'.isEmpty ? 'در جریان' : 'پایان ${jalaliDate('${d['receive_date']}')}'}'), // v86
     if ('${d['crack_line_name'] ?? ''}'.isNotEmpty) Text('خط شکست: ${d['crack_line_name']}'),
     if ('${d['ext_party'] ?? ''}'.isNotEmpty) Text('فراوری‌کنندهٔ بیرونی: ${d['ext_party']}${showMoney && d['ext_fee'] != null ? ' — کرایه ${Fmt.money(ReturnsHelp.d(d['ext_fee']), label: false)}' : ''}'),
     if (showMoney && d['other_cost'] != null) Text('سایر هزینه‌ها: ${Fmt.money(ReturnsHelp.d(d['other_cost']), label: false)} (داخل ${rec ? 'مطالبه' : 'کرایه'})'),
@@ -1322,8 +1328,25 @@ List<Widget> procChainSection(BuildContext context, Map<String, dynamic> d,
 
   String? hint;
   if (status == 'in_progress') hint = 'پس از «دریافت خروجی» شکست، خروجی‌ها را در همین فرایند به تولید (سورت) بفرستید.';
+  // v86: شکست امانی ⇒ شیفت‌ها (شیفت، تاریخ، اپراتور، ساعت شروع/پایان) + جمع ساعات و شیفت‌ها
+  final Widget? shiftsCard = rec && op == 'crack'
+      ? WsShiftsCard(
+          shifts: ReturnsHelp.maps(d['shifts']),
+          editable: canCreate,
+          hint: status == 'in_progress' ? 'پیش از دریافت خروجی‌ها، شیفت‌های کار خط شکست را وارد کنید.' : null,
+          onSave: (List<Map<String, dynamic>> v) async {
+            try {
+              await StockApi.call('processing.shifts_save', <String, dynamic>{'id': ReturnsHelp.d(d['id']).toInt(), 'shifts': v});
+              onChanged();
+            } on StockApiException catch (e) {
+              if (context.mounted) _snack(context, e.message);
+            }
+          },
+        )
+      : null;
   if (status == 'closed') hint = 'خروجی‌های این شکست به مشتری تحویل شده است.';
   return <Widget>[
+    if (shiftsCard != null) shiftsCard,
     procChainCard(
       context,
       d,
@@ -1364,3 +1387,120 @@ List<Widget> wsMoistureRows(BuildContext context, {required double sentKg, requi
     if (m != null && m.added) Text('پستهٔ تحویلی رطوبت بیشتری دارد (درصد مثبت = وزن اضافه‌شده × ۱۰۰ ÷ وزن ارسالی).', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
   ];
 }
+
+// ---------------------------------------------------------------------------
+// v86 — گزارش پایان فرایند (PDF) برون‌سپاری و امانی
+// ---------------------------------------------------------------------------
+
+/// میانگین موزون انس و گرم ردیف‌ها (ورودی: ستون ounce/gram لات؛ خروجی: attrs).
+Map<String, double?> procAvgOg(List<Map<String, dynamic>> rows) {
+  double? v(dynamic x) => x == null ? null : ReturnsHelp.d(x);
+  final List<Map<String, num?>> og = <Map<String, num?>>[
+    for (final Map<String, dynamic> r in rows)
+      <String, num?>{
+        'kg': ReturnsHelp.d(r['kg']),
+        'ounce': v(r['ounce']) ?? (r['attrs'] is Map ? v((r['attrs'] as Map)['ounce']) : null),
+        'gram': v(r['gram']) ?? (r['attrs'] is Map ? v((r['attrs'] as Map)['gram']) : null),
+      },
+  ];
+  return <String, double?>{'ounce': wsWeightedAvg(og, 'ounce'), 'gram': wsWeightedAvg(og, 'gram')};
+}
+
+/// ردیف‌های مشترک گزارش پایان فرایند: میانگین‌ها، شکست (پرت اعلامی و واقعی)، آبخندان (رطوبت)، شیفت‌ها.
+List<List<String>> procReportRows(Map<String, dynamic> d, {double? inKg0}) {
+  final String op = '${d['op_type'] ?? ''}';
+  final List<Map<String, dynamic>> ins = ReturnsHelp.maps(d['inputs']), outs = ReturnsHelp.maps(d['outputs']);
+  final double inKg = inKg0 ?? ReturnsHelp.d(d['input_kg']);
+  final double outKg = outs.fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg']));
+  double sum(String g) => outs.where((Map<String, dynamic> r) => r['grade'] == g).fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg']));
+  final Map<String, double?> ai = procAvgOg(ins), ao = procAvgOg(outs);
+  final List<List<String>> x = <List<String>>[
+    if (ai['ounce'] != null) <String>['میانگین انس ورودی', faNum(ai['ounce']!, dec: 2)],
+    if (ai['gram'] != null) <String>['میانگین گرم ورودی', _f2(ai['gram']!)],
+    if (ao['ounce'] != null) <String>['میانگین انس خروجی', faNum(ao['ounce']!, dec: 2)],
+    if (ao['gram'] != null) <String>['میانگین گرم خروجی', _f2(ao['gram']!)],
+  ];
+  if (outs.isNotEmpty && op != 'abkhandan') {
+    final double w = ((inKg - outKg) * 1000).round() / 1000;
+    x.add(<String>[w >= 0 ? 'ضایعات (ورودی − خروجی)' : 'اضافه وزن', '${_kg(w.abs())} کیلو${inKg > 0 ? ' (${_f2(w.abs() * 100 / inKg)}٪)' : ''}', 'b']);
+  }
+  if (op == 'crack' && sum('kernel') > 0) {
+    final double? declared = d['crack_loss_gram'] == null ? null : ReturnsHelp.d(d['crack_loss_gram']);
+    final double? g0 = d['input_gram'] == null ? (d['sent_gram_pct'] == null ? null : ReturnsHelp.d(d['sent_gram_pct'])) : ReturnsHelp.d(d['input_gram']);
+    final WsCrackResult r = wsCrackResult(inKg: inKg, gram: g0, kernelKg: sum('kernel'), lineLoss: declared, uncrackedKg: sum('uncracked'), outKg: outKg);
+    x.addAll(<List<String>>[
+      <String>['مغز / پوست / نشکن', '${_kg(sum('kernel'))} / ${_kg(sum('hull'))} / ${_kg(sum('uncracked'))} کیلو'],
+      <String>['گرم ارسالی (اولیه)', r.initGram == null ? '—' : _f2(r.initGram!)],
+      <String>['گرم دریافتی', r.recvGram == null ? '—' : _f2(r.recvGram!)],
+      <String>['پرت اعلام‌شده (گرم)', declared == null ? '—' : _f2(declared)],
+      <String>['پرت واقعی (افت گرم)', r.lossGram == null ? '—' : _f2(r.lossGram!), 'b'],
+      if (r.gramVsLine != null)
+        <String>['اختلاف پرت واقعی با اعلامی', '${r.gramVsLine! > 0 ? '+' : ''}${_f2(r.gramVsLine!)} گرم (${r.gramVsLine! > 0 ? 'بیشتر' : 'کمتر'} از اعلامی)', 'b'],
+      if (r.expectedLossKg != null) <String>['وزن پرتی طبق اعلامی', '${_kg(r.expectedLossKg)} کیلو'],
+      if (r.lossKg != null) <String>['وزن پرتی واقعی (مغز)', '${_kg(r.lossKg)} کیلو'],
+      if (r.lossPct != null) <String>['درصد پرتی', '${_f2(r.lossPct!)}٪'],
+    ]);
+  }
+  if (op == 'abkhandan' && outs.isNotEmpty) {
+    final WsMoisture? m = wsMoisture(inKg, outKg);
+    if (m != null) {
+      x.addAll(<List<String>>[
+        <String>['وزن ارسالی / دریافتی', '${_kg(inKg)} / ${_kg(outKg)} کیلو'],
+        <String>[m.shortage ? 'کم‌بود وزن' : 'وزن اضافه‌شده', '${_kg(m.absKg)} کیلو', 'b'],
+        <String>['درصد رطوبت', '${m.pct > 0 ? '+' : (m.pct < 0 ? '−' : '')}${_f2(m.pct.abs())}٪', 'b'],
+      ]);
+    }
+  }
+  x.addAll(wsShiftReportRows(ReturnsHelp.maps(d['shifts'])));
+  return x;
+}
+
+/// v86: گزارش PDF پایان فرایند سفارش برون‌سپاری/امانی: تاریخ شروع و پایان، پستهٔ ورودی و خروجی، میانگین‌ها، پرت اعلامی و واقعی، رطوبت، شیفت‌ها.
+Future<void> procPrintReport(BuildContext context, Map<String, dynamic> d, {bool money = false}) async {
+  final bool rec = d['direction'] == kProcReceivedDir;
+  final String op = '${d['op_type'] ?? ''}';
+  final List<Map<String, dynamic>> ins = ReturnsHelp.maps(d['inputs']), outs = ReturnsHelp.maps(d['outputs']);
+  final String end = '${d['receive_date'] ?? ''}';
+  final File file = await PdfService.buildTableReport(
+    title: '${'${d['receive_date'] ?? ''}'.isEmpty ? 'گزارش فرایند' : 'گزارش پایان فرایند'} — ${rec ? 'فراوری امانی' : 'برون‌سپاری'} ${kWsOpLabels[op] ?? ''}'
+        '${'${d['prod_kind'] ?? ''}'.isEmpty ? '' : ' (${d['prod_kind']})'}',
+    subtitle: '${rec ? 'مشتری' : 'فراوری‌کننده'}: ${d['party'] ?? ''}  •  شروع ${jalaliDate('${d['date'] ?? ''}')}  •  ${end.isEmpty ? 'در جریان' : 'پایان ${jalaliDate(end)}'}',
+    kv: <List<String>>[
+      if ('${d['crack_line_name'] ?? ''}'.isNotEmpty) <String>['خط شکست', '${d['crack_line_name']}'],
+      if ('${d['ext_party'] ?? ''}'.isNotEmpty) <String>['فراوری‌کنندهٔ بیرونی', '${d['ext_party']}'],
+      <String>['وزن ورودی / خروجی', '${_kg(d['input_kg'])} / ${_kg(outs.fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg'])))} کیلو', 'b'],
+      ...procReportRows(d),
+      if (money) <String>[rec ? 'مطالبه از مشتری' : 'کرایه', Fmt.money(ReturnsHelp.d(rec ? d['charge_amount'] : d['fee_amount']), label: false)],
+      if ('${d['note'] ?? ''}'.isNotEmpty) <String>['یادداشت', '${d['note']}'],
+    ],
+    headers: const <String>['ردیف', 'شرح', 'لات', 'وزن (کیلو)', 'عدل کوچک/بزرگ', 'انس / گرم'],
+    rows: <List<String>>[
+      for (final Map<String, dynamic> r in ins)
+        <String>['ورودی', '${r['type_name'] ?? ''}', '${r['code'] ?? ''}', _kg(r['kg']), '${faNum(ReturnsHelp.d(r['small_sacks']), dec: 0)}/${faNum(ReturnsHelp.d(r['large_sacks']), dec: 0)}',
+          '${r['ounce'] == null ? '—' : faNum(ReturnsHelp.d(r['ounce']), dec: 2)} / ${r['gram'] == null ? '—' : _f2(ReturnsHelp.d(r['gram']))}'],
+      for (final Map<String, dynamic> r in outs)
+        <String>['خروجی', procOutTitle(r) + ('${r['lot_name'] ?? ''}'.isEmpty ? '' : ' (${r['lot_name']})'), '${r['code'] ?? ''}', _kg(r['kg']),
+          '${faNum(ReturnsHelp.d(r['small_sacks']), dec: 0)}/${faNum(ReturnsHelp.d(r['large_sacks']), dec: 0)}',
+          r['attrs'] is Map ? '${(r['attrs'] as Map)['ounce'] == null ? '—' : faNum(ReturnsHelp.d((r['attrs'] as Map)['ounce']), dec: 2)} / ${(r['attrs'] as Map)['gram'] == null ? '—' : _f2(ReturnsHelp.d((r['attrs'] as Map)['gram']))}' : '—'],
+    ],
+    filePrefix: 'processing_report',
+    signatures: <String>[rec ? 'مسئول فراوری' : 'مسئول برون‌سپاری', 'انباردار'],
+  );
+  if (!context.mounted) return;
+  await PdfOutput.show(context, file);
+}
+
+/// پرسش «گزارش PDF پایان فرایند؟» بعد از پایان (دریافت / بستن / ثبت کوت).
+Future<bool> askEndReport(BuildContext context) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (BuildContext c) => AlertDialog(
+        title: const Text('فرایند تمام شد'),
+        content: const Text('گزارش PDF پایان فرایند (پستهٔ ورودی و خروجی و میانگین‌ها) ساخته شود؟'),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('بعداً')),
+          FilledButton.icon(onPressed: () => Navigator.pop(c, true), icon: const Icon(Icons.picture_as_pdf_outlined), label: const Text('گزارش PDF')),
+        ],
+      ),
+    ) ??
+    false;
