@@ -34,6 +34,7 @@ import 'vouchers_ui.dart';
 import 'fx_currencies_ui.dart'; // S26.T26.2
 import 'fx_rates_ui.dart'; // S26.T26.2
 import 'form_settings.dart' show FormSettingsScreen; // S35.T35.1
+import 'tech_menu.dart' show techMenuTiles; // قابلیت‌های فناورانه (پرچم‌ها + ورودی‌های منو؛ پیش‌فرض خاموش)
 import 'fx_mismatch_ui.dart'; // S27c.T27b.8
 import 'fx_reval_ui.dart'; // FXREVAL step 13 (FxRevalScreen + FxRevalPerms)
 import 'fiscal_ui.dart';
@@ -262,6 +263,10 @@ class _HomeShellState extends State<HomeShell> {
                     _push(context, MaterialPageRoute<void>(builder: (_) => const FormSettingsScreen()));
                   },
                 ),
+              ...techMenuTiles(context, (Widget screen) { // قابلیت‌های فناورانه
+                _closeMenu(context);
+                _push(context, MaterialPageRoute<void>(builder: (_) => screen));
+              }),
               if (StaffPerms.I.can('users.manage'))
                 ListTile(
                   leading: const Icon(Icons.manage_accounts_outlined),

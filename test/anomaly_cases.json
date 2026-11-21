@@ -1,0 +1,481 @@
+{
+    "_note": "Shared PHP<->Dart cases for anomaly_calc (phase 1). Byte-identical copies: server backend\/api\/anomaly_cases.json and test\/anomaly_cases.json in both apps.",
+    "eval": [
+        {
+            "name": "insufficient_7",
+            "x": 9.0,
+            "history": [
+                4,
+                4.1,
+                3.9,
+                4.2,
+                4,
+                3.8,
+                4.1
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "insufficient",
+                "value": 9,
+                "median": null,
+                "mad": null,
+                "z": null,
+                "sample_size": 7,
+                "ratio": null,
+                "scale": "none"
+            }
+        },
+        {
+            "name": "null_value",
+            "x": null,
+            "history": [
+                3.8,
+                4.1,
+                4.0,
+                3.9,
+                4.2,
+                4.3,
+                3.7,
+                4.0,
+                4.1,
+                3.95
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "insufficient",
+                "value": null,
+                "median": null,
+                "mad": null,
+                "z": null,
+                "sample_size": 10,
+                "ratio": null,
+                "scale": "none"
+            }
+        },
+        {
+            "name": "normal_loss",
+            "x": 4.15,
+            "history": [
+                3.8,
+                4.1,
+                4.0,
+                3.9,
+                4.2,
+                4.3,
+                3.7,
+                4.0,
+                4.1,
+                3.95
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "normal",
+                "value": 4.15,
+                "median": 4.0,
+                "mad": 0.1,
+                "z": 1.012,
+                "sample_size": 10,
+                "ratio": 1.04,
+                "scale": "mad"
+            }
+        },
+        {
+            "name": "very_high_loss",
+            "x": 9.2,
+            "history": [
+                3.8,
+                4.1,
+                4.0,
+                3.9,
+                4.2,
+                4.3,
+                3.7,
+                4.0,
+                4.1,
+                3.95
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "high",
+                "value": 9.2,
+                "median": 4.0,
+                "mad": 0.1,
+                "z": 35.074,
+                "sample_size": 10,
+                "ratio": 2.3,
+                "scale": "mad"
+            }
+        },
+        {
+            "name": "warn_band_loss",
+            "x": 4.45,
+            "history": [
+                3.8,
+                4.1,
+                4.0,
+                3.9,
+                4.2,
+                4.3,
+                3.7,
+                4.0,
+                4.1,
+                3.95
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "warn",
+                "value": 4.45,
+                "median": 4.0,
+                "mad": 0.1,
+                "z": 3.035,
+                "sample_size": 10,
+                "ratio": 1.11,
+                "scale": "mad"
+            }
+        },
+        {
+            "name": "very_low_loss",
+            "x": 0.4,
+            "history": [
+                3.8,
+                4.1,
+                4.0,
+                3.9,
+                4.2,
+                4.3,
+                3.7,
+                4.0,
+                4.1,
+                3.95
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "low_loss",
+                "value": 0.4,
+                "median": 4.0,
+                "mad": 0.1,
+                "z": -24.282,
+                "sample_size": 10,
+                "ratio": 0.1,
+                "scale": "mad"
+            }
+        },
+        {
+            "name": "sound_very_low",
+            "x": 70.0,
+            "history": [
+                80.5,
+                81.2,
+                82.0,
+                80.9,
+                81.5,
+                82.3,
+                81.0,
+                80.7,
+                81.8,
+                81.1
+            ],
+            "dir": "down_bad",
+            "expect": {
+                "level": "high",
+                "value": 70,
+                "median": 81.15,
+                "mad": 0.4,
+                "z": -18.802,
+                "sample_size": 10,
+                "ratio": 0.86,
+                "scale": "mad"
+            }
+        },
+        {
+            "name": "sound_very_high_is_normal",
+            "x": 95.0,
+            "history": [
+                80.5,
+                81.2,
+                82.0,
+                80.9,
+                81.5,
+                82.3,
+                81.0,
+                80.7,
+                81.8,
+                81.1
+            ],
+            "dir": "down_bad",
+            "expect": {
+                "level": "normal",
+                "value": 95,
+                "median": 81.15,
+                "mad": 0.4,
+                "z": 23.355,
+                "sample_size": 10,
+                "ratio": 1.17,
+                "scale": "mad"
+            }
+        },
+        {
+            "name": "mad_zero_meanad",
+            "x": 5.0,
+            "history": [
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                6
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "high",
+                "value": 5,
+                "median": 4.0,
+                "mad": 0.0,
+                "z": 3.989,
+                "sample_size": 10,
+                "ratio": 1.25,
+                "scale": "meanad"
+            }
+        },
+        {
+            "name": "all_equal_pp_warn",
+            "x": 6.5,
+            "history": [
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "warn",
+                "value": 6.5,
+                "median": 4.0,
+                "mad": 0.0,
+                "z": null,
+                "sample_size": 10,
+                "ratio": 1.63,
+                "scale": "pp"
+            }
+        },
+        {
+            "name": "all_equal_pp_normal",
+            "x": 5.9,
+            "history": [
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "normal",
+                "value": 5.9,
+                "median": 4.0,
+                "mad": 0.0,
+                "z": null,
+                "sample_size": 10,
+                "ratio": 1.48,
+                "scale": "pp"
+            }
+        },
+        {
+            "name": "all_equal_pp_low",
+            "x": 1.5,
+            "history": [
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4,
+                4
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "low_loss",
+                "value": 1.5,
+                "median": 4.0,
+                "mad": 0.0,
+                "z": null,
+                "sample_size": 10,
+                "ratio": 0.38,
+                "scale": "pp"
+            }
+        },
+        {
+            "name": "all_equal_pp_sound_warn",
+            "x": 77.5,
+            "history": [
+                80,
+                80,
+                80,
+                80,
+                80,
+                80,
+                80,
+                80,
+                80
+            ],
+            "dir": "down_bad",
+            "expect": {
+                "level": "warn",
+                "value": 77.5,
+                "median": 80.0,
+                "mad": 0.0,
+                "z": null,
+                "sample_size": 9,
+                "ratio": 0.97,
+                "scale": "pp"
+            }
+        },
+        {
+            "name": "only_first_30_used",
+            "x": 4.0,
+            "history": [
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0,
+                50.0
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "normal",
+                "value": 4,
+                "median": 4.0,
+                "mad": 0.0,
+                "z": null,
+                "sample_size": 30,
+                "ratio": 1.0,
+                "scale": "pp"
+            }
+        },
+        {
+            "name": "precision_fixed",
+            "x": 4.0004,
+            "history": [
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0,
+                4.0
+            ],
+            "dir": "up_bad",
+            "expect": {
+                "level": "normal",
+                "value": 4,
+                "median": 4.0,
+                "mad": 0.0,
+                "z": null,
+                "sample_size": 8,
+                "ratio": 1.0,
+                "scale": "pp"
+            }
+        }
+    ],
+    "evaluate": [
+        {
+            "name": "workshop_text_high",
+            "source": "workshop",
+            "values": {
+                "loss_pct": 9.2,
+                "sound_pct": 81.0
+            },
+            "histories": {
+                "loss_pct": [
+                    3.8,
+                    4.1,
+                    4.0,
+                    3.9,
+                    4.2,
+                    4.3,
+                    3.7,
+                    4.0,
+                    4.1,
+                    3.95
+                ],
+                "sound_pct": [
+                    80.5,
+                    81.2,
+                    82.0,
+                    80.9,
+                    81.5,
+                    82.3,
+                    81.0,
+                    80.7,
+                    81.8,
+                    81.1
+                ]
+            },
+            "expect": {
+                "worst": "high",
+                "levels": [
+                    "high",
+                    "normal"
+                ],
+                "texts": [
+                    "افت این عملیات ۲٫۳ برابر میانهٔ ۱۰ عملیات اخیر کارگاه داخلی است (۹٫۲٪ در برابر ۴٪). غیرعادی و جدی است؛ بررسی شود.",
+                    "سالم این عملیات ۸۱٪ است؛ میانهٔ ۱۰ عملیات اخیر کارگاه داخلی ۸۱٫۱۵٪. در محدودهٔ عادی است."
+                ]
+            }
+        }
+    ]
+}

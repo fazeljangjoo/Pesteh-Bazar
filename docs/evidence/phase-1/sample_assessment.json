@@ -1,0 +1,37 @@
+{
+    "source": "workshop",
+    "source_id": 13,
+    "scope": "type",
+    "kind_label": "«تولید (سورت)»",
+    "worst": "high",
+    "rows": [
+        {
+            "metric": "loss_pct",
+            "label": "افت",
+            "dir": "up_bad",
+            "level": "high",
+            "value": 9.2,
+            "median": 4,
+            "mad": 0.1,
+            "z": 35.074,
+            "sample_size": 12,
+            "ratio": 2.3,
+            "scale": "mad",
+            "text": "افت این عملیات ۲٫۳ برابر میانهٔ ۱۲ عملیات اخیر «تولید (سورت)» است (۹٫۲٪ در برابر ۴٪). غیرعادی و جدی است؛ بررسی شود."
+        },
+        {
+            "metric": "sound_pct",
+            "label": "سالم",
+            "dir": "down_bad",
+            "level": "high",
+            "value": 70,
+            "median": 81.15,
+            "mad": 0.4,
+            "z": -18.802,
+            "sample_size": 12,
+            "ratio": 0.86,
+            "scale": "mad",
+            "text": "سالم این عملیات ۰٫۹ برابر میانهٔ ۱۲ عملیات اخیر «تولید (سورت)» است (۷۰٪ در برابر ۸۱٫۱۵٪). غیرعادی و جدی است؛ بررسی شود."
+        }
+    ]
+}

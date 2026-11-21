@@ -12,6 +12,7 @@ import 'utils.dart';
 import 'warehouse_ui.dart' show StockApi, StockApiException, StockLookup, WhOption;
 import 'widgets.dart' show JalaliDateField, confirm;
 import 'workshop_calc.dart';
+import 'anomaly_ui.dart' show YieldAssessmentCard; // فاز ۱ قابلیت‌های فناورانه (پشت پرچم features.anomaly)
 import 'workshop_reports_ui.dart' show CrackLineReportScreen, wsPrintOp, wsPrintOpsList;
 import 'ws_shifts_ui.dart' show WsShiftsCard; // v86: شیفت‌های شکست
 import 'workshop_ui.dart' show kWsBuyLabel, kWsCostFields, kWsMissingInputCost, wsCanCost, wsParseNum, wsReadOnlyField;
@@ -1711,6 +1712,15 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
                             if (t.overOutput && _op != 'abkhandan') const Text('جمع خروجی‌ها از ورودی بیشتر است', style: TextStyle(color: Colors.red)),
                           ]),
                         ),
+                      ),
+                    if (_d['id'] != null && (_open || _d['status'] == 'done')) // فاز ۱: ارزیابی بازده (پرچم خاموش ⇒ هیچ)
+                      YieldAssessmentCard(
+                        source: 'workshop',
+                        sourceId: _d['id'] is int ? _d['id'] as int : int.tryParse('${_d['id']}'),
+                        live: _open,
+                        values: <String, Object?>{'loss_pct': t.lossPct, 'sound_pct': t.soundPct},
+                        opType: _op,
+                        pistachioType: '${_d['pistachio_type'] ?? ''}',
                       ),
                     if (_isCrack && t.overOutput)
                       const Card(child: Padding(padding: EdgeInsets.all(10), child: Text('جمع خروجی‌ها از ورودی بیشتر است', style: TextStyle(color: Colors.red)))),

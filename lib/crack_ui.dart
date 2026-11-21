@@ -16,6 +16,7 @@ import 'utils.dart';
 import 'warehouse_ui.dart' show StockApi, StockApiException, StockLookup, WhOption;
 import 'widgets.dart' show pickDate;
 import 'workshop_calc.dart';
+import 'anomaly_ui.dart' show YieldAssessmentCard; // فاز ۱ قابلیت‌های فناورانه
 
 /// کارگاه — مرحلهٔ ۳-ب: «گزارش خط شکست» (فرم نوبت کار دستگاه شکست؛ برگهٔ اکسل A..AP).
 /// سرور: workshop.crack_create/update/list (api/workshop_crack.php). هیچ فیلد قیمتی نیست و موجودی انبار اصلی را تغییر نمی‌دهد.
@@ -389,6 +390,18 @@ class _CrackFormScreenState extends State<CrackFormScreen> {
   }
 
   /// S2: کارت «تراز واقعی» (فقط‌خواندنی؛ آینهٔ pb_cr_calc).
+  /// فاز ۱ قابلیت‌های فناورانه: ارزیابی زندهٔ بازده (پشت پرچم features.anomaly؛ خاموش ⇒ هیچ).
+  Widget _crackYield(CrackCalc c) => YieldAssessmentCard(
+        source: 'crack',
+        sourceId: widget.existing?['id'] is int ? widget.existing!['id'] as int : int.tryParse('${widget.existing?['id'] ?? ''}'),
+        live: true,
+        values: <String, Object?>{
+          'loss_pct': c.lossPct, 'real_loss_pct': c.realLossPct, 'shortfall_pct': c.shortfallPct,
+          'sound_pct_input': c.soundPctInput, 'sound_pct_kernel': c.soundPctKernel,
+        },
+        pistachioType: _t['pistachio_type']?.text ?? '',
+      );
+
   Widget _realBalanceCard(CrackCalc c) {
     String kgPct(double? kg, double? pct) {
       if (kg == null) return '';
@@ -1074,6 +1087,7 @@ class _CrackFormScreenState extends State<CrackFormScreen> {
             ..._poolCards(), // CP4
             _warnings(c),
             _realBalanceCard(c),
+            _crackYield(c),
             _textField('note'),
             const SizedBox(height: 16),
             FilledButton.icon(
