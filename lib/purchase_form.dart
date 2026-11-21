@@ -165,6 +165,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     if (LicenseService.I.isFx.value) _initFx();
     _loadWeighSettings();
     final e = widget.existing;
+    _pp.gramSource = () => parseNum(_gram.text); // v85: گرم پستهٔ اصلی در «فی پایه ۵۰ گرم» / «خرید گرمی»
     _pp.init().then((_) { // v84: تعریف درصدها و گرم مرجع ⇒ ردیف‌های ذخیره‌شده؛ مشخصه‌های درصدی از «مشخصات دلخواه» بیرون می‌روند
       if (!mounted) return;
       setState(() {
@@ -743,12 +744,12 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                   Row(children: [
                     Expanded(child: numField(_ounce, 'انس پسته (اختیاری)')),
                     const SizedBox(width: 8),
-                    Expanded(child: numField(_gram, 'گرم (اختیاری)')),
+                    Expanded(child: numField(_gram, 'گرم (اختیاری)', onChanged: () => setState(() {}))),
                   ]),
                   if (_fx && !_isEdit)
                     FxDocFields(c: _fxc, priceLabel: 'فی خرید ارزی (هر کیلو)', onChanged: () => setState(() {})),
                   if (!_fxc.active && !_useGrades)
-                    MoneyField(controller: _price, label: _pp.pricing ? 'قیمت پایه (هر کیلو) — فی خرید از قیمت‌گذاری درصدها' : 'فی خرید (به ازای هر کیلو)', required: true, onChanged: () => setState(() {})),
+                    MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, required: true, onChanged: () => setState(() {})),
                   if (_priceTableOn && !_fxc.active && !_useGrades)
                     PriceSuggestionHint(
                         typeName: _suggestTypeName, ounceUid: _ounceUid, onAccept: (num v) => setState(() => MoneyField.setStored(_price, v))), // S35.T35.4
