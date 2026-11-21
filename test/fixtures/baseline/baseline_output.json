@@ -1,0 +1,1955 @@
+{
+    "_note": "synthetic data only (not real customer data)",
+    "workshop_cost_balance": {
+        "no_custom": {
+            "balance": {
+                "input_kg": 100,
+                "sound_kg": 80,
+                "waste_kg": 20,
+                "loss_kg": 5,
+                "loss_pct": 5.0,
+                "out_plus_loss_kg": 100,
+                "diff_kg": 0,
+                "sound_pct": 80.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "cost": {
+                "value_in": 10000000.0,
+                "cost_total": 250000.0,
+                "recovery_value": 756000.0,
+                "cost_sound": 9494000.0,
+                "cost_per_kg_sound": 118675.0,
+                "sub_values": {
+                    "deformed_fine": 150000.0,
+                    "hull": 6000.0,
+                    "kernel": 600000.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0
+                },
+                "sound_kg": 80,
+                "warning": null
+            },
+            "alloc": [
+                9494000.0,
+                150000.0,
+                6000.0,
+                600000.0,
+                0.0
+            ]
+        },
+        "one_custom": {
+            "balance": {
+                "input_kg": 100,
+                "sound_kg": 75,
+                "waste_kg": 25,
+                "loss_kg": 6,
+                "loss_pct": 6.0,
+                "out_plus_loss_kg": 100,
+                "diff_kg": 0,
+                "sound_pct": 75.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "cost": {
+                "value_in": 10000000.0,
+                "cost_total": 250000.0,
+                "recovery_value": 816000.0,
+                "cost_sound": 9434000.0,
+                "cost_per_kg_sound": 125786.6667,
+                "sub_values": {
+                    "deformed_fine": 150000.0,
+                    "hull": 6000.0,
+                    "kernel": 600000.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0,
+                    "custom": 60000.0
+                },
+                "sound_kg": 75,
+                "warning": null
+            },
+            "alloc": [
+                9434000.0,
+                150000.0,
+                6000.0,
+                600000.0,
+                0.0,
+                60000.0
+            ]
+        },
+        "two_custom": {
+            "balance": {
+                "input_kg": 100,
+                "sound_kg": 70,
+                "waste_kg": 30,
+                "loss_kg": 9.5,
+                "loss_pct": 9.5,
+                "out_plus_loss_kg": 100,
+                "diff_kg": 0,
+                "sound_pct": 70.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "cost": {
+                "value_in": 10000000.0,
+                "cost_total": 250000.0,
+                "recovery_value": 916000.0,
+                "cost_sound": 9334000.0,
+                "cost_per_kg_sound": 133342.8571,
+                "sub_values": {
+                    "deformed_fine": 150000.0,
+                    "hull": 6000.0,
+                    "kernel": 600000.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0,
+                    "custom": 160000.0
+                },
+                "sound_kg": 70,
+                "warning": null
+            },
+            "alloc": [
+                9334000.0,
+                150000.0,
+                6000.0,
+                600000.0,
+                60000.0,
+                100000.0
+            ]
+        },
+        "negative_cost": {
+            "balance": {
+                "input_kg": 10,
+                "sound_kg": 5,
+                "waste_kg": 5,
+                "loss_kg": 0,
+                "loss_pct": 0.0,
+                "out_plus_loss_kg": 10,
+                "diff_kg": 0,
+                "sound_pct": 50.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "cost": {
+                "value_in": 10000.0,
+                "cost_total": 0.0,
+                "recovery_value": 25000.0,
+                "cost_sound": -15000.0,
+                "cost_per_kg_sound": -3000.0,
+                "sub_values": {
+                    "deformed_fine": 0.0,
+                    "hull": 0.0,
+                    "kernel": 25000.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0
+                },
+                "sound_kg": 5,
+                "warning": "negative_cost"
+            },
+            "alloc": [
+                -15000.0,
+                25000.0
+            ]
+        },
+        "zero_weight_custom": {
+            "balance": {
+                "input_kg": 10,
+                "sound_kg": 10,
+                "waste_kg": 0,
+                "loss_kg": 0,
+                "loss_pct": 0.0,
+                "out_plus_loss_kg": 10,
+                "diff_kg": 0,
+                "sound_pct": 100.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "cost": {
+                "value_in": 10000.0,
+                "cost_total": 0.0,
+                "recovery_value": 0.0,
+                "cost_sound": 10000.0,
+                "cost_per_kg_sound": 1000.0,
+                "sub_values": {
+                    "deformed_fine": 0.0,
+                    "hull": 0.0,
+                    "kernel": 0.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0,
+                    "custom": 0.0
+                },
+                "sound_kg": 10,
+                "warning": null
+            },
+            "alloc": [
+                10000.0,
+                0.0
+            ]
+        },
+        "zero_sound": {
+            "balance": {
+                "input_kg": 10,
+                "sound_kg": 0,
+                "waste_kg": 10,
+                "loss_kg": 0,
+                "loss_pct": 0.0,
+                "out_plus_loss_kg": 10,
+                "diff_kg": 0,
+                "sound_pct": 0.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "cost": {
+                "value_in": 10000.0,
+                "cost_total": 0.0,
+                "recovery_value": 10000.0,
+                "cost_sound": 0.0,
+                "cost_per_kg_sound": null,
+                "sub_values": {
+                    "deformed_fine": 0.0,
+                    "hull": 0.0,
+                    "kernel": 10000.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0
+                },
+                "sound_kg": 0,
+                "warning": null
+            },
+            "alloc": [
+                10000.0
+            ]
+        },
+        "chaft_dombest_majd": {
+            "balance": {
+                "input_kg": 1000,
+                "sound_kg": 800,
+                "waste_kg": 200,
+                "loss_kg": 20,
+                "loss_pct": 2.0,
+                "out_plus_loss_kg": 1000,
+                "diff_kg": 0,
+                "sound_pct": 80.0,
+                "undelivered_kg": 10,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "input_cost_info": {
+                "buy_per_kg": 104000.0,
+                "input_cost_warning": null
+            },
+            "cost": {
+                "value_in": 104000000.0,
+                "cost_total": 3200000.0,
+                "recovery_value": 12900000.0,
+                "cost_sound": 94300000.0,
+                "cost_per_kg_sound": 117875.0,
+                "sub_values": {
+                    "deformed_fine": 0.0,
+                    "hull": 100000.0,
+                    "kernel": 5000000.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 4200000.0,
+                    "dombest": 3600000.0
+                },
+                "sound_kg": 800,
+                "warning": null
+            },
+            "alloc": [
+                94300000.0,
+                4200000.0,
+                3600000.0,
+                100000.0,
+                5000000.0,
+                0.0
+            ]
+        },
+        "auto_loss_ignores_payload": {
+            "balance": {
+                "input_kg": 50.001,
+                "sound_kg": 45.5,
+                "waste_kg": 4.501,
+                "loss_kg": 2.251,
+                "loss_pct": 4.502,
+                "out_plus_loss_kg": 50.001,
+                "diff_kg": 0,
+                "sound_pct": 90.998,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            }
+        },
+        "over_output": {
+            "balance": {
+                "input_kg": 10,
+                "sound_kg": 9,
+                "waste_kg": 1,
+                "loss_kg": -0.5,
+                "loss_pct": -5.0,
+                "out_plus_loss_kg": 10,
+                "diff_kg": 0,
+                "sound_pct": 90.0,
+                "undelivered_kg": null,
+                "over_output": true,
+                "ok": false,
+                "status": "check",
+                "label": "جمع خروجی‌ها از ورودی بیشتر است"
+            }
+        },
+        "missing_input_cost": {
+            "balance": {
+                "input_kg": 100,
+                "sound_kg": 90,
+                "waste_kg": 10,
+                "loss_kg": 0,
+                "loss_pct": 0.0,
+                "out_plus_loss_kg": 100,
+                "diff_kg": 0,
+                "sound_pct": 90.0,
+                "undelivered_kg": null,
+                "over_output": false,
+                "ok": true,
+                "status": "ok",
+                "label": "تراز صحیح"
+            },
+            "input_cost_info": {
+                "buy_per_kg": 60000.0,
+                "input_cost_warning": "missing_input_cost"
+            },
+            "cost": {
+                "value_in": 6000000.0,
+                "cost_total": 0.0,
+                "recovery_value": 10000.0,
+                "cost_sound": 5990000.0,
+                "cost_per_kg_sound": 66555.5556,
+                "sub_values": {
+                    "deformed_fine": 0.0,
+                    "hull": 10000.0,
+                    "kernel": 0.0,
+                    "soil": 0.0,
+                    "discolored": 0.0,
+                    "chaft": 0.0,
+                    "dombest": 0.0
+                },
+                "sound_kg": 90,
+                "warning": null
+            },
+            "alloc": [
+                5990000.0,
+                10000.0
+            ]
+        }
+    },
+    "crack_cost": {
+        "user example": {
+            "init_gram": 47.3,
+            "recv_gram": 46.6,
+            "loss_gram": 0.7,
+            "loss_pct": 1.479915,
+            "unit_cost": 666.083,
+            "expected_kernel_kg": 35.1,
+            "cracked_kg": 75.0,
+            "loss_kg": 0.525,
+            "expected_loss_kg": 0.375,
+            "gram_vs_line": 0.2,
+            "waste_kg": 0.0,
+            "uncracked_cost": 306.6667
+        },
+        "uncracked + hull value + waste": {
+            "init_gram": 47.3,
+            "recv_gram": 46.153846,
+            "loss_gram": 1.146154,
+            "loss_pct": 2.423158,
+            "unit_cost": 655.7778,
+            "expected_kernel_kg": 30.42,
+            "cracked_kg": 65.0,
+            "loss_kg": 0.745,
+            "expected_loss_kg": 0.325,
+            "gram_vs_line": 0.646154,
+            "waste_kg": 3.0,
+            "uncracked_cost": 306.6667
+        },
+        "no gram": {
+            "init_gram": null,
+            "recv_gram": 40.0,
+            "loss_gram": null,
+            "loss_pct": null,
+            "unit_cost": 500.0,
+            "expected_kernel_kg": null,
+            "cracked_kg": 100.0,
+            "loss_kg": null,
+            "expected_loss_kg": null,
+            "gram_vs_line": null,
+            "waste_kg": null,
+            "uncracked_cost": 200.0
+        },
+        "no price": {
+            "init_gram": 45.0,
+            "recv_gram": 44.0,
+            "loss_gram": 1.0,
+            "loss_pct": 2.222222,
+            "unit_cost": null,
+            "expected_kernel_kg": 44.3,
+            "cracked_kg": 100.0,
+            "loss_kg": 1.0,
+            "expected_loss_kg": 0.7,
+            "gram_vs_line": 0.3,
+            "waste_kg": 0.5,
+            "uncracked_cost": null
+        },
+        "no kernel": {
+            "init_gram": 45.0,
+            "recv_gram": null,
+            "loss_gram": null,
+            "loss_pct": null,
+            "unit_cost": null,
+            "expected_kernel_kg": 44.3,
+            "cracked_kg": 100.0,
+            "loss_kg": null,
+            "expected_loss_kg": 0.7,
+            "gram_vs_line": null,
+            "waste_kg": 100.0,
+            "uncracked_cost": 200.0
+        }
+    },
+    "split_cost": {
+        "priced by-product": {
+            "lots": [
+                22125.0,
+                500.0,
+                7375.0
+            ],
+            "residual": 29500.0,
+            "priced": 500.0,
+            "unit": 368.75
+        },
+        "rounding thirds": {
+            "lots": [
+                3333.3,
+                3333.3,
+                3333.4
+            ],
+            "residual": 10000.0,
+            "priced": 0.0,
+            "unit": 100.0
+        },
+        "all priced": {
+            "lots": [
+                1850.0,
+                3150.0
+            ],
+            "residual": 3400.0,
+            "priced": 1600.0,
+            "unit": 85.0
+        },
+        "negative residual": {
+            "lots": [
+                -4000.0,
+                5000.0
+            ],
+            "residual": -4000.0,
+            "priced": 5000.0,
+            "unit": -400.0
+        }
+    },
+    "lot_cartex": {
+        "simple_lot": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 100.0,
+                    "overview": [
+                        {
+                            "lot_id": 1,
+                            "code": "A1",
+                            "party": "علی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-05",
+                            "net_kg": 100.0,
+                            "ounce": 21.0,
+                            "gram": 29.5,
+                            "weight_kg": 100.0,
+                            "remaining_kg": 100.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 1,
+                            "code": "A1",
+                            "party": "علی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-05",
+                            "net_kg": 100.0,
+                            "ounce": 21.0,
+                            "gram": 29.5,
+                            "weight_kg": 100.0,
+                            "remaining_kg": 100.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                }
+            ]
+        },
+        "two_lots_one_kot": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 158.0,
+                    "overview": [
+                        {
+                            "lot_id": 2,
+                            "code": "A2",
+                            "party": "رضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-06",
+                            "net_kg": 30.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 30.0,
+                            "remaining_kg": 0.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "وارد کوت شده · مانده ندارد",
+                            "partial": true
+                        },
+                        {
+                            "lot_id": 1,
+                            "code": "A1",
+                            "party": "علی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-05",
+                            "net_kg": 50.0,
+                            "ounce": 22.0,
+                            "gram": 30.0,
+                            "weight_kg": 50.0,
+                            "remaining_kg": 0.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "وارد کوت شده · مانده ندارد",
+                            "partial": true
+                        },
+                        {
+                            "lot_id": 3,
+                            "code": "K1",
+                            "party": "",
+                            "is_mix": 1,
+                            "entry_date": "2026-11-01",
+                            "net_kg": 78.0,
+                            "ounce": 20.0,
+                            "gram": 31.0,
+                            "weight_kg": 78.0,
+                            "remaining_kg": 78.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "لات کوت · موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [],
+                    "kot": [
+                        {
+                            "kot_id": 3,
+                            "code": "K1",
+                            "date": "2026-11-01",
+                            "total_kg": 80.0,
+                            "weight_kg": 78.0,
+                            "ounce": 20.0,
+                            "gram": 31.0,
+                            "color_key": 3,
+                            "color_idx": 3,
+                            "items": [
+                                {
+                                    "lot_id": 2,
+                                    "code": "A2",
+                                    "party": "رضا",
+                                    "is_mix": 0,
+                                    "entry_date": "2026-10-06",
+                                    "net_kg": 30.0,
+                                    "ounce": null,
+                                    "gram": null,
+                                    "weight_kg": 30.0,
+                                    "remaining_kg": 0.0,
+                                    "kot_id": 3,
+                                    "exit_date": "2026-11-01",
+                                    "exit_type": "kot",
+                                    "exit_label": ""
+                                },
+                                {
+                                    "lot_id": 1,
+                                    "code": "A1",
+                                    "party": "علی",
+                                    "is_mix": 0,
+                                    "entry_date": "2026-10-05",
+                                    "net_kg": 50.0,
+                                    "ounce": 22.0,
+                                    "gram": 30.0,
+                                    "weight_kg": 50.0,
+                                    "remaining_kg": 0.0,
+                                    "kot_id": 3,
+                                    "exit_date": "2026-11-01",
+                                    "exit_type": "kot",
+                                    "exit_label": ""
+                                }
+                            ],
+                            "all_items": [
+                                {
+                                    "lot_id": 2,
+                                    "code": "A2",
+                                    "party": "رضا",
+                                    "type_name": "اکبری",
+                                    "weight_kg": 30.0,
+                                    "entry_date": "2026-10-06",
+                                    "is_mix": 0,
+                                    "ounce": null,
+                                    "gram": null
+                                },
+                                {
+                                    "lot_id": 1,
+                                    "code": "A1",
+                                    "party": "علی",
+                                    "type_name": "اکبری",
+                                    "weight_kg": 50.0,
+                                    "entry_date": "2026-10-05",
+                                    "is_mix": 0,
+                                    "ounce": 22.0,
+                                    "gram": 30.0
+                                }
+                            ]
+                        }
+                    ],
+                    "processed": [],
+                    "exited": []
+                }
+            ]
+        },
+        "sold_out_lot": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 40.0,
+                    "overview": [
+                        {
+                            "lot_id": 4,
+                            "code": "A4",
+                            "party": "احمد",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 40.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 40.0,
+                            "remaining_kg": 0.0,
+                            "sold_kg": 40.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "فروش رفته",
+                            "partial": true
+                        }
+                    ],
+                    "normal": [],
+                    "kot": [],
+                    "processed": [],
+                    "exited": [
+                        {
+                            "lot_id": 4,
+                            "code": "A4",
+                            "party": "احمد",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 40.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 40.0,
+                            "remaining_kg": 0.0,
+                            "sold_kg": 40.0,
+                            "exit_date": "2026-12-05",
+                            "exit_type": "sold",
+                            "exit_label": "فروش رفته",
+                            "partial": false
+                        }
+                    ]
+                }
+            ]
+        },
+        "processed_and_crack": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 140.0,
+                    "overview": [
+                        {
+                            "lot_id": 6,
+                            "code": "A6",
+                            "party": "تقی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-03",
+                            "net_kg": 25.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 25.0,
+                            "remaining_kg": 5.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "وارد فراوری\/شکست شده · موجود در انبار",
+                            "partial": true
+                        },
+                        {
+                            "lot_id": 5,
+                            "code": "A5",
+                            "party": "حسن",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-02",
+                            "net_kg": 60.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 60.0,
+                            "remaining_kg": 0.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "وارد فراوری\/شکست شده · مانده ندارد",
+                            "partial": true
+                        },
+                        {
+                            "lot_id": 9,
+                            "code": "W9",
+                            "party": "حسن",
+                            "is_mix": 0,
+                            "entry_date": "2026-11-11",
+                            "net_kg": 55.0,
+                            "ounce": 23.0,
+                            "gram": 28.0,
+                            "weight_kg": 55.0,
+                            "remaining_kg": 55.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "ساخته‌شده از فراوری\/شکست · موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 6,
+                            "code": "A6",
+                            "party": "تقی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-03",
+                            "net_kg": 25.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 25.0,
+                            "remaining_kg": 5.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": true
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [
+                        {
+                            "group_id": "o8",
+                            "kind": "crack",
+                            "order_id": 8,
+                            "date": "2026-11-12",
+                            "label": "شکسته شده",
+                            "in_workshop": false,
+                            "color_key": 1000008,
+                            "in_kg": 20.0,
+                            "out_kg": 0.0,
+                            "items": [
+                                {
+                                    "lot_id": 6,
+                                    "code": "A6",
+                                    "party": "تقی",
+                                    "is_mix": 0,
+                                    "entry_date": "2026-10-03",
+                                    "net_kg": 25.0,
+                                    "ounce": null,
+                                    "gram": null,
+                                    "weight_kg": 20.0,
+                                    "remaining_kg": 5.0,
+                                    "order_id": 8,
+                                    "exit_date": "2026-11-12",
+                                    "exit_type": "crack",
+                                    "exit_label": ""
+                                }
+                            ],
+                            "outputs": []
+                        },
+                        {
+                            "group_id": "o7",
+                            "kind": "proc",
+                            "order_id": 7,
+                            "date": "2026-11-10",
+                            "label": "فراوری سفارش 7",
+                            "in_workshop": false,
+                            "color_key": 1000007,
+                            "in_kg": 60.0,
+                            "out_kg": 55.0,
+                            "items": [
+                                {
+                                    "lot_id": 5,
+                                    "code": "A5",
+                                    "party": "حسن",
+                                    "is_mix": 0,
+                                    "entry_date": "2026-10-02",
+                                    "net_kg": 60.0,
+                                    "ounce": null,
+                                    "gram": null,
+                                    "weight_kg": 60.0,
+                                    "remaining_kg": 0.0,
+                                    "order_id": 7,
+                                    "exit_date": "2026-11-10",
+                                    "exit_type": "proc",
+                                    "exit_label": ""
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "lot_id": 9,
+                                    "code": "W9",
+                                    "party": "حسن",
+                                    "type_name": "اکبری",
+                                    "weight_kg": 55.0,
+                                    "entry_date": "2026-11-11",
+                                    "ounce": 23.0,
+                                    "gram": 28.0
+                                }
+                            ]
+                        }
+                    ],
+                    "exited": []
+                }
+            ]
+        },
+        "partial_exit": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 130.0,
+                    "overview": [
+                        {
+                            "lot_id": 7,
+                            "code": "A7",
+                            "party": "کاظم",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-04",
+                            "net_kg": 100.0,
+                            "ounce": 22.5,
+                            "gram": 30.0,
+                            "weight_kg": 100.0,
+                            "remaining_kg": 40.0,
+                            "sold_kg": 30.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "وارد کوت شده · موجود در انبار",
+                            "partial": true
+                        },
+                        {
+                            "lot_id": 8,
+                            "code": "K2",
+                            "party": "",
+                            "is_mix": 1,
+                            "entry_date": "2026-11-20",
+                            "net_kg": 30.0,
+                            "ounce": 20.0,
+                            "gram": 31.0,
+                            "weight_kg": 30.0,
+                            "remaining_kg": 30.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "لات کوت · موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 7,
+                            "code": "A7",
+                            "party": "کاظم",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-04",
+                            "net_kg": 100.0,
+                            "ounce": 22.5,
+                            "gram": 30.0,
+                            "weight_kg": 100.0,
+                            "remaining_kg": 40.0,
+                            "sold_kg": 30.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": true
+                        }
+                    ],
+                    "kot": [
+                        {
+                            "kot_id": 8,
+                            "code": "K2",
+                            "date": "2026-11-20",
+                            "total_kg": 30.0,
+                            "weight_kg": 30.0,
+                            "ounce": 20.0,
+                            "gram": 31.0,
+                            "color_key": 8,
+                            "color_idx": 8,
+                            "items": [
+                                {
+                                    "lot_id": 7,
+                                    "code": "A7",
+                                    "party": "کاظم",
+                                    "is_mix": 0,
+                                    "entry_date": "2026-10-04",
+                                    "net_kg": 100.0,
+                                    "ounce": 22.5,
+                                    "gram": 30.0,
+                                    "weight_kg": 30.0,
+                                    "remaining_kg": 40.0,
+                                    "kot_id": 8,
+                                    "exit_date": "2026-11-20",
+                                    "exit_type": "kot",
+                                    "exit_label": ""
+                                }
+                            ],
+                            "all_items": [
+                                {
+                                    "lot_id": 7,
+                                    "code": "A7",
+                                    "party": "کاظم",
+                                    "type_name": "اکبری",
+                                    "weight_kg": 30.0,
+                                    "entry_date": "2026-10-04",
+                                    "is_mix": 0,
+                                    "ounce": 22.5,
+                                    "gram": 30.0
+                                }
+                            ]
+                        }
+                    ],
+                    "processed": [],
+                    "exited": []
+                }
+            ]
+        },
+        "persian_names_sort": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 7.0,
+                    "overview": [
+                        {
+                            "lot_id": 15,
+                            "code": "B6",
+                            "party": "آرش",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 11,
+                            "code": "B2",
+                            "party": "حسين",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 13,
+                            "code": "B4",
+                            "party": "علی‌اکبر",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 12,
+                            "code": "B3",
+                            "party": "علیرضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 10,
+                            "code": "B1",
+                            "party": "کاظم",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 16,
+                            "code": "B7",
+                            "party": "كاوه",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-02",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 14,
+                            "code": "B5",
+                            "party": "",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 15,
+                            "code": "B6",
+                            "party": "آرش",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 11,
+                            "code": "B2",
+                            "party": "حسين",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 13,
+                            "code": "B4",
+                            "party": "علی‌اکبر",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 12,
+                            "code": "B3",
+                            "party": "علیرضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 10,
+                            "code": "B1",
+                            "party": "کاظم",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 16,
+                            "code": "B7",
+                            "party": "كاوه",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-02",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 14,
+                            "code": "B5",
+                            "party": "",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                }
+            ]
+        },
+        "out_of_range": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": []
+        },
+        "type_order": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 3.0,
+                    "overview": [
+                        {
+                            "lot_id": 32,
+                            "code": "T3",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 3.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 3.0,
+                            "remaining_kg": 3.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 32,
+                            "code": "T3",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 3.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 3.0,
+                            "remaining_kg": 3.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                },
+                {
+                    "type_name": "فندقی",
+                    "total_kg": 5.0,
+                    "overview": [
+                        {
+                            "lot_id": 34,
+                            "code": "T5",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 5.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 5.0,
+                            "remaining_kg": 5.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 34,
+                            "code": "T5",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 5.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 5.0,
+                            "remaining_kg": 5.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                },
+                {
+                    "type_name": "کله‌قوچی",
+                    "total_kg": 2.0,
+                    "overview": [
+                        {
+                            "lot_id": 31,
+                            "code": "T2",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 2.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 2.0,
+                            "remaining_kg": 2.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 31,
+                            "code": "T2",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 2.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 2.0,
+                            "remaining_kg": 2.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                },
+                {
+                    "type_name": "آزاد",
+                    "total_kg": 4.0,
+                    "overview": [
+                        {
+                            "lot_id": 33,
+                            "code": "T4",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 4.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 4.0,
+                            "remaining_kg": 4.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 33,
+                            "code": "T4",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 4.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 4.0,
+                            "remaining_kg": 4.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                },
+                {
+                    "type_name": "بادامی",
+                    "total_kg": 1.0,
+                    "overview": [
+                        {
+                            "lot_id": 30,
+                            "code": "T1",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 30,
+                            "code": "T1",
+                            "party": "a",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-01",
+                            "net_kg": 1.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 1.0,
+                            "remaining_kg": 1.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": false
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                }
+            ]
+        },
+        "crack_run_group": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "اکبری",
+                    "total_kg": 150.0,
+                    "overview": [
+                        {
+                            "lot_id": 10,
+                            "code": "A10",
+                            "party": "رضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-10",
+                            "net_kg": 80.0,
+                            "ounce": 24.0,
+                            "gram": 27.0,
+                            "weight_kg": 80.0,
+                            "remaining_kg": 10.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "وارد فراوری\/شکست شده · موجود در انبار",
+                            "partial": true
+                        },
+                        {
+                            "lot_id": 11,
+                            "code": "W11",
+                            "party": "رضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-12-02",
+                            "net_kg": 30.0,
+                            "ounce": null,
+                            "gram": null,
+                            "weight_kg": 30.0,
+                            "remaining_kg": 30.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "ساخته‌شده از فراوری\/شکست · موجود در انبار",
+                            "partial": false
+                        },
+                        {
+                            "lot_id": 12,
+                            "code": "W12",
+                            "party": "رضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-12-02",
+                            "net_kg": 40.0,
+                            "ounce": 25.0,
+                            "gram": 26.0,
+                            "weight_kg": 40.0,
+                            "remaining_kg": 40.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "ساخته‌شده از فراوری\/شکست · موجود در انبار",
+                            "partial": false
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 10,
+                            "code": "A10",
+                            "party": "رضا",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-10",
+                            "net_kg": 80.0,
+                            "ounce": 24.0,
+                            "gram": 27.0,
+                            "weight_kg": 80.0,
+                            "remaining_kg": 10.0,
+                            "sold_kg": 0.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": true
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [
+                        {
+                            "group_id": "r3",
+                            "kind": "crack",
+                            "order_id": 3,
+                            "date": "2026-12-01",
+                            "label": "شکسته شده",
+                            "in_workshop": false,
+                            "color_key": 2000003,
+                            "in_kg": 70.0,
+                            "out_kg": 70.0,
+                            "items": [
+                                {
+                                    "lot_id": 10,
+                                    "code": "A10",
+                                    "party": "رضا",
+                                    "is_mix": 0,
+                                    "entry_date": "2026-10-10",
+                                    "net_kg": 80.0,
+                                    "ounce": 24.0,
+                                    "gram": 27.0,
+                                    "weight_kg": 70.0,
+                                    "remaining_kg": 10.0,
+                                    "order_id": 3,
+                                    "exit_date": "2026-12-01",
+                                    "exit_type": "crack",
+                                    "exit_label": ""
+                                }
+                            ],
+                            "outputs": [
+                                {
+                                    "lot_id": 11,
+                                    "code": "W11",
+                                    "party": "رضا",
+                                    "type_name": "اکبری",
+                                    "weight_kg": 30.0,
+                                    "entry_date": "2026-12-02",
+                                    "ounce": null,
+                                    "gram": null
+                                },
+                                {
+                                    "lot_id": 12,
+                                    "code": "W12",
+                                    "party": "رضا",
+                                    "type_name": "اکبری",
+                                    "weight_kg": 40.0,
+                                    "entry_date": "2026-12-02",
+                                    "ounce": 25.0,
+                                    "gram": 26.0
+                                }
+                            ]
+                        }
+                    ],
+                    "exited": []
+                }
+            ]
+        },
+        "partial_sold_stays_in_stock": {
+            "range": {
+                "from": "2026-09-23",
+                "to": "2027-09-22",
+                "label": "سال پسته‌ای ۱۴۰۵–۱۴۰۶"
+            },
+            "types": [
+                {
+                    "type_name": "فندقی",
+                    "total_kg": 40.0,
+                    "overview": [
+                        {
+                            "lot_id": 20,
+                            "code": "A20",
+                            "party": "مرتضی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-12",
+                            "net_kg": 40.0,
+                            "ounce": 30.0,
+                            "gram": null,
+                            "weight_kg": 40.0,
+                            "remaining_kg": 10.0,
+                            "sold_kg": 30.0,
+                            "exit_date": null,
+                            "exit_type": "overview",
+                            "exit_label": "موجود در انبار",
+                            "partial": true
+                        }
+                    ],
+                    "normal": [
+                        {
+                            "lot_id": 20,
+                            "code": "A20",
+                            "party": "مرتضی",
+                            "is_mix": 0,
+                            "entry_date": "2026-10-12",
+                            "net_kg": 40.0,
+                            "ounce": 30.0,
+                            "gram": null,
+                            "weight_kg": 40.0,
+                            "remaining_kg": 10.0,
+                            "sold_kg": 30.0,
+                            "exit_date": null,
+                            "exit_type": "in_stock",
+                            "exit_label": "",
+                            "partial": true
+                        }
+                    ],
+                    "kot": [],
+                    "processed": [],
+                    "exited": []
+                }
+            ]
+        }
+    },
+    "owner_cartex": {
+        "two_owners_full": {
+            "rows": [
+                {
+                    "date": "2026-10-01",
+                    "event": "send",
+                    "owner": "مالک الف",
+                    "bale_count": 40.0,
+                    "in_kg": 0,
+                    "out_kg": 2000.5,
+                    "ounce": null,
+                    "gram_pct": 45.2,
+                    "dahanbast": null,
+                    "balance_kg": -2000.5,
+                    "balance_total_kg": -2000.5,
+                    "note": "قبض ۱۰۱",
+                    "ref_id": 1
+                },
+                {
+                    "date": "2026-10-01",
+                    "event": "send",
+                    "owner": "مالک ب",
+                    "bale_count": 20.0,
+                    "in_kg": 0,
+                    "out_kg": 980,
+                    "ounce": null,
+                    "gram_pct": 47.0,
+                    "dahanbast": null,
+                    "balance_kg": -980,
+                    "balance_total_kg": -2980.5,
+                    "note": "",
+                    "ref_id": 2
+                },
+                {
+                    "date": "2026-10-05",
+                    "event": "receive",
+                    "owner": "مالک الف",
+                    "bale_count": null,
+                    "in_kg": 860.125,
+                    "out_kg": 0,
+                    "ounce": null,
+                    "gram_pct": 98.1,
+                    "dahanbast": null,
+                    "balance_kg": -1140.375,
+                    "balance_total_kg": -2120.375,
+                    "note": "مغز",
+                    "ref_id": 3
+                },
+                {
+                    "date": "2026-10-07",
+                    "event": "receive",
+                    "owner": "مالک ب",
+                    "bale_count": null,
+                    "in_kg": 440.4,
+                    "out_kg": 0,
+                    "ounce": null,
+                    "gram_pct": null,
+                    "dahanbast": null,
+                    "balance_kg": -539.6,
+                    "balance_total_kg": -1679.975,
+                    "note": "",
+                    "ref_id": 4
+                },
+                {
+                    "date": "2026-10-09",
+                    "event": "adjust",
+                    "owner": "مالک الف",
+                    "bale_count": null,
+                    "in_kg": 12.5,
+                    "out_kg": 0,
+                    "ounce": null,
+                    "gram_pct": null,
+                    "dahanbast": null,
+                    "balance_kg": -1127.875,
+                    "balance_total_kg": -1667.475,
+                    "note": "اصلاح",
+                    "ref_id": null
+                }
+            ],
+            "owners": [
+                {
+                    "owner": "مالک الف",
+                    "opening_kg": 0,
+                    "in_kg": 872.625,
+                    "out_kg": 2000.5,
+                    "balance_kg": -1127.875
+                },
+                {
+                    "owner": "مالک ب",
+                    "opening_kg": 0,
+                    "in_kg": 440.4,
+                    "out_kg": 980,
+                    "balance_kg": -539.6
+                }
+            ],
+            "totals": {
+                "opening_kg": 0,
+                "in_kg": 1313.025,
+                "out_kg": 2980.5,
+                "balance_kg": -1667.475,
+                "opening_total_kg": 0,
+                "balance_total_kg": -1667.475
+            }
+        },
+        "range_filter": {
+            "rows": [
+                {
+                    "date": "2026-10-05",
+                    "event": "receive",
+                    "owner": "مالک الف",
+                    "bale_count": null,
+                    "in_kg": 640.25,
+                    "out_kg": 0,
+                    "ounce": null,
+                    "gram_pct": null,
+                    "dahanbast": null,
+                    "balance_kg": -859.75,
+                    "balance_total_kg": -859.75,
+                    "note": "",
+                    "ref_id": null
+                }
+            ],
+            "owners": [
+                {
+                    "owner": "مالک الف",
+                    "opening_kg": -1500,
+                    "in_kg": 640.25,
+                    "out_kg": 0,
+                    "balance_kg": -859.75
+                }
+            ],
+            "totals": {
+                "opening_kg": -1500,
+                "in_kg": 640.25,
+                "out_kg": 0,
+                "balance_kg": -859.75,
+                "opening_total_kg": -1500,
+                "balance_total_kg": -859.75
+            }
+        }
+    },
+    "workshop_summary": {
+        "orders_count": 3,
+        "delivered_kg": 7000,
+        "input_kg": 9800,
+        "sound_kg": 8060.2,
+        "deformed_fine_kg": 460.5,
+        "hull_kg": 260,
+        "kernel_kg": 155.3,
+        "soil_kg": 85.1,
+        "discolored_kg": 330,
+        "chaft_kg": 60,
+        "dombest_kg": 127.5,
+        "other_kg": 150,
+        "loss_kg": 141.4,
+        "waste_total_kg": 1769.8,
+        "diff_kg": -30,
+        "undelivered_kg": 200,
+        "sound_pct": 82.247,
+        "check_count": 1
+    },
+    "crack_line": {
+        "run_a": {
+            "estimated_kernel_kg": 558,
+            "capacity_kgh": 180.25,
+            "input_kg": 1200,
+            "loss_kg": 659.25,
+            "loss_pct": 54.938,
+            "ap_unconfirmed": 0.567,
+            "stop_count": 2,
+            "stop_total_min": 19.5,
+            "sub_sum_kg": 540.75,
+            "sub_mismatch": false,
+            "non_kernel_kg": 659.25,
+            "real_loss_kg": 28.95,
+            "real_loss_pct": 2.413,
+            "over_output": false,
+            "shortfall_kg": 17.25,
+            "shortfall_pct": 3.091,
+            "sound_pct_input": 25.017,
+            "sound_pct_kernel": 55.515
+        },
+        "run_b": {
+            "estimated_kernel_kg": 352,
+            "capacity_kgh": null,
+            "input_kg": 800,
+            "loss_kg": 454.8,
+            "loss_pct": 56.85,
+            "ap_unconfirmed": null,
+            "stop_count": 1,
+            "stop_total_min": 20,
+            "sub_sum_kg": null,
+            "sub_mismatch": null,
+            "non_kernel_kg": 454.8,
+            "real_loss_kg": 44.8,
+            "real_loss_pct": 5.6,
+            "over_output": false,
+            "shortfall_kg": 6.8,
+            "shortfall_pct": 1.932,
+            "sound_pct_input": null,
+            "sound_pct_kernel": null
+        },
+        "run_empty_kernel": {
+            "estimated_kernel_kg": null,
+            "capacity_kgh": 0.0,
+            "input_kg": 500,
+            "loss_kg": 500,
+            "loss_pct": 100.0,
+            "ap_unconfirmed": null,
+            "stop_count": 0,
+            "stop_total_min": 0,
+            "sub_sum_kg": null,
+            "sub_mismatch": null,
+            "non_kernel_kg": 500,
+            "real_loss_kg": null,
+            "real_loss_pct": null,
+            "over_output": false,
+            "shortfall_kg": null,
+            "shortfall_pct": null,
+            "sound_pct_input": null,
+            "sound_pct_kernel": null
+        }
+    },
+    "crack_summary": {
+        "runs_count": 3,
+        "input_kg": 2500,
+        "kernel_kg": 885.95,
+        "hull_kg": 1010.3,
+        "soil_kg": 30,
+        "sub_kernel_kg": 540.75,
+        "returned_all_kg": 2467,
+        "loss_kg": 1614.05,
+        "loss_pct": 64.562,
+        "kernel_pct": 35.438,
+        "capacity_kgh": 135.188,
+        "run_minutes": 240,
+        "stop_minutes": 0
+    },
+    "crack_pool": {
+        "three_lots": {
+            "7": 60000000,
+            "9": 0,
+            "11": 90000001
+        },
+        "zero_revenue": {
+            "1": 0,
+            "2": 0
+        }
+    }
+}

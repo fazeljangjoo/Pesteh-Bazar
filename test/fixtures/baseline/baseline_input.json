@@ -1,0 +1,39 @@
+{
+  "_note": "Synthetic data only (not real customer data). Inputs for server/public_html/backend/api/baseline_snapshot.php. Do not edit after the baseline is written.",
+  "owner_cartex": [
+    {
+      "name": "two_owners_full",
+      "events": [
+        {"date": "2026-10-01", "ord": 1, "event": "send", "owner": "مالک الف", "bale_count": 40, "out_kg": 2000.5, "gram_pct": 45.2, "note": "قبض ۱۰۱", "ref_id": 1},
+        {"date": "2026-10-01", "ord": 2, "event": "send", "owner": "مالک ب", "bale_count": 20, "out_kg": 980, "gram_pct": 47.0, "ref_id": 2},
+        {"date": "2026-10-05", "ord": 1, "event": "receive", "owner": "مالک الف", "in_kg": 860.125, "gram_pct": 98.1, "note": "مغز", "ref_id": 3},
+        {"date": "2026-10-07", "ord": 1, "event": "receive", "owner": "مالک ب", "in_kg": 440.4, "ref_id": 4},
+        {"date": "2026-10-09", "ord": 1, "event": "adjust", "owner": "مالک الف", "in_kg": 12.5, "note": "اصلاح"}
+      ]
+    },
+    {
+      "name": "range_filter",
+      "from": "2026-10-04",
+      "to": "2026-10-08",
+      "events": [
+        {"date": "2026-10-01", "ord": 1, "event": "send", "owner": "مالک الف", "out_kg": 1500},
+        {"date": "2026-10-05", "ord": 1, "event": "receive", "owner": "مالک الف", "in_kg": 640.25},
+        {"date": "2026-10-09", "ord": 1, "event": "receive", "owner": "مالک الف", "in_kg": 30}
+      ]
+    }
+  ],
+  "workshop_rows": [
+    {"initial_kg": 5000, "input_kg": 4800, "loss_kg": 96.4, "sound_kg": 3910.2, "deformed_fine_kg": 210.5, "hull_kg": 120, "kernel_kg": 85.3, "soil_kg": 40.1, "discolored_kg": 150, "chaft_kg": 60, "dombest_kg": 127.5},
+    {"input_kg": 3000, "loss_kg": 45, "sound_kg": 2550, "deformed_fine_kg": 150, "hull_kg": 90, "kernel_kg": 40, "soil_kg": 25, "discolored_kg": 100},
+    {"initial_kg": 2000, "input_kg": 2000, "loss_kg": 0, "sound_kg": 1600, "deformed_fine_kg": 100, "hull_kg": 50, "kernel_kg": 30, "soil_kg": 20, "discolored_kg": 80, "other_kg": 150}
+  ],
+  "crack_line": [
+    {"name": "run_a", "input_kg": 1200, "gram_pct": 46.5, "kernel_kg": 540.75, "run_minutes": 180, "initial_kernel_kg": 551.2, "stops": [12.5, 7], "sound_kg": 300.2, "wheat_kg": 80.1, "super_fine_kg": 40, "flower_kg": 30.45, "split_kg": 50, "unbreakable_kg": 20, "pink_kg": 10, "waste_kernel_kg": 10, "hull_kg": 600.3, "soil_kg": 30},
+    {"name": "run_b", "input_kg": 800, "gram_pct": 44, "kernel_kg": 345.2, "run_minutes": 0, "stops": [{"minutes": 20}], "hull_kg": 410},
+    {"name": "run_empty_kernel", "input_kg": 500, "gram_pct": null, "run_minutes": 60}
+  ],
+  "crack_pool": [
+    {"name": "three_lots", "revenue_by_lot": {"11": 120000000, "7": 80000000, "9": -5000000}, "pool_rial": 150000001},
+    {"name": "zero_revenue", "revenue_by_lot": {"1": 0, "2": 0}, "pool_rial": 1000}
+  ]
+}
