@@ -312,7 +312,10 @@ class ProcessingScreen extends StatefulWidget {
 }
 
 class _ProcessingScreenState extends State<ProcessingScreen> {
-  String _dir = kProcPaid;
+  // v89: کارکن فقط بخش‌هایی را می‌بیند که دسترسی دارد (برون‌سپاری/امانی: فراوری؛ کارگاه داخلی: کارگاه)
+  static bool get _canOrders => StaffPerms.I.canAny(const <String>['processing.create', 'processing.manage']);
+  static bool get _canWorkshop => StaffPerms.I.canAny(const <String>['workshop.view', 'workshop.operate', 'workshop.manage', 'workshop.crack']);
+  String _dir = _canOrders || !_canWorkshop ? kProcPaid : kProcInternal;
   bool _onlyOpen = false; // فاز ۲: فیلتر «عملیات باز» در تب کارگاه داخلی
   bool _loading = true;
   String? _error;
@@ -402,17 +405,17 @@ class _ProcessingScreenState extends State<ProcessingScreen> {
             Wrap(
               spacing: 8,
               children: <Widget>[
-                ChoiceChip(
+                if (_canOrders) ChoiceChip(
                   label: const Text('برون‌سپاری (کالای ما نزد فراوری‌کننده)'),
                   selected: _dir == kProcPaid,
                   onSelected: (_) => setState(() => _dir = kProcPaid),
                 ),
-                ChoiceChip(
+                if (_canOrders) ChoiceChip(
                   label: const Text('فراوری امانی (کالای مشتری نزد ما)'),
                   selected: _dir == kProcReceived,
                   onSelected: (_) => setState(() => _dir = kProcReceived),
                 ),
-                ChoiceChip(
+                if (_canWorkshop) ChoiceChip(
                   label: const Text('کارگاه داخلی'),
                   selected: _dir == kProcInternal,
                   onSelected: (_) => setState(() => _dir = kProcInternal),

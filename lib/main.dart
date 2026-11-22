@@ -187,6 +187,13 @@ class _HomeShellState extends State<HomeShell> {
   int _i = activeTab.value;
   final _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  static const List<NavigationDestination> _kDest = <NavigationDestination>[
+          NavigationDestination(icon: Icon(Icons.home_outlined), label: 'خانه'),
+          NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), label: 'خرید'),
+          NavigationDestination(icon: Icon(Icons.sell_outlined), label: 'فروش'),
+          NavigationDestination(icon: Icon(Icons.warehouse_outlined), label: 'موجودی'),
+  ];
+
   static const _pages = [
     HomeScreen(),
     PurchasesScreen(),
@@ -211,6 +218,7 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   void _deskTab(int v) {
+    if (!StaffPerms.I.tabAllowed(v)) return; // v89
     activeTab.value = v;
     _deskNav.currentState?.popUntil((Route<dynamic> r) => r.isFirst);
   }
@@ -232,6 +240,7 @@ class _HomeShellState extends State<HomeShell> {
                 const Divider(height: 1),
               ],
               // فراوری: بخش مستقل منو (قبلاً آیکن کوچک بالای صفحهٔ انبار بود)
+              if (StaffPerms.I.canAny(const <String>['processing.create', 'processing.manage', 'workshop.view', 'workshop.operate', 'workshop.manage', 'workshop.crack'])) // v89
               ListTile(
                 leading: const Icon(Icons.precision_manufacturing_outlined),
                 title: const Text('فراوری'),
@@ -293,6 +302,7 @@ class _HomeShellState extends State<HomeShell> {
                     _push(context, MaterialPageRoute(builder: (_) => const DataHealthScreen()));
                   },
                 ),
+              if (StaffPerms.I.can('dues.view')) // v89
               ListTile(
                 leading: const Icon(Icons.event_note_outlined),
                 title: const Text('سررسیدها'),
@@ -310,6 +320,7 @@ class _HomeShellState extends State<HomeShell> {
                     _push(context, MaterialPageRoute<void>(builder: (_) => const PayrollHomeScreen()));
                   },
                 ),
+              if (StaffPerms.I.canAny(const <String>['parties.view', 'parties.create'])) // v89
               ListTile(
                 leading: const Icon(Icons.people_alt_outlined),
                 title: const Text('طرف‌حساب‌ها'),
@@ -326,7 +337,7 @@ class _HomeShellState extends State<HomeShell> {
                   return Column(
                     children: [
                       for (final n in names)
-                        if (!kHiddenEntityMenu.contains(n))
+                        if (!kHiddenEntityMenu.contains(n) && (!StaffPerms.I.isStaff || StaffPerms.I.canAny(<String>[if (kEntityRegistry[n]?.permCreate != null) kEntityRegistry[n]!.permCreate!, if (kEntityRegistry[n]?.permEdit != null) kEntityRegistry[n]!.permEdit!]))) // v89
                         ListTile(
                           leading: const Icon(Icons.list_alt_outlined),
                           title: Text(kEntityRegistry[n]?.label ?? n),
@@ -357,6 +368,7 @@ class _HomeShellState extends State<HomeShell> {
                     _push(context, MaterialPageRoute<void>(builder: (_) => const ImportScreen()));
                   },
                 ),
+              if (StaffPerms.I.can('settings.manage')) // v89
               ListTile(
                 leading: const Icon(Icons.print_outlined),
                 title: const Text('تنظیمات چاپ'),
@@ -365,6 +377,7 @@ class _HomeShellState extends State<HomeShell> {
                   showPrintSettings(context);
                 },
               ),
+              if (StaffPerms.I.can('settings.manage')) // v89
               ListTile(
                 leading: const Icon(Icons.business_outlined),
                 title: const Text('مشخصات شرکت و قالب فاکتور'),
@@ -373,6 +386,7 @@ class _HomeShellState extends State<HomeShell> {
                   _push(context, MaterialPageRoute<void>(builder: (_) => const CompanySettingsScreen()));
                 },
               ),
+              if (StaffPerms.I.canAny(const <String>['sales.create', 'sales.update'])) // v89
               ListTile(
                 leading: const Icon(Icons.request_quote_outlined),
                 title: const Text('پیش‌فاکتورها'),
@@ -381,6 +395,7 @@ class _HomeShellState extends State<HomeShell> {
                   _push(context, MaterialPageRoute<void>(builder: (_) => const ProformaListScreen()));
                 },
               ),
+              if (StaffPerms.I.canAny(const <String>['dues.view', 'dues.mark_paid'])) // v89
               ListTile(
                 leading: const Icon(Icons.receipt_outlined),
                 title: const Text('مدیریت چک'),
@@ -389,6 +404,7 @@ class _HomeShellState extends State<HomeShell> {
                   _push(context, MaterialPageRoute<void>(builder: (_) => const ChequeListScreen()));
                 },
               ),
+              if ((StaffPerms.I.canPriceIn('purchases') || StaffPerms.I.canPriceIn('sales')) && StaffPerms.I.canAny(const <String>['purchases.create', 'sales.create'])) // v89
               ListTile(
                 leading: const Icon(Icons.handshake_outlined),
                 title: const Text('دلال‌ها و کمیسیون'),
@@ -397,6 +413,7 @@ class _HomeShellState extends State<HomeShell> {
                   _push(context, MaterialPageRoute<void>(builder: (_) => const BrokerScreen()));
                 },
               ),
+              if (StaffPerms.I.canAny(const <String>['purchases.return', 'sales.return'])) // v89
               ListTile(
                 leading: const Icon(Icons.assignment_return_outlined),
                 title: const Text('برگشت‌ها'),
@@ -414,6 +431,7 @@ class _HomeShellState extends State<HomeShell> {
                     _push(context, MaterialPageRoute<void>(builder: (_) => const StockCountListScreen()));
                   },
                 ),
+              if (StaffPerms.I.can('stock.transfer')) // v89
               ListTile(
                 leading: const Icon(Icons.swap_horiz),
                 title: const Text('انتقال بین انبارها'),
@@ -422,6 +440,7 @@ class _HomeShellState extends State<HomeShell> {
                   _push(context, MaterialPageRoute<void>(builder: (_) => const StockTransferScreen()));
                 },
               ),
+              if (StaffPerms.I.can('profit.view')) // v89
               ListTile(
                 leading: const Icon(Icons.assessment_outlined),
                 title: const Text('گزارش سود و زیان'),
@@ -432,6 +451,7 @@ class _HomeShellState extends State<HomeShell> {
               ),
               if (Platform.isWindows) ...[
                 const Divider(height: 1),
+                if (!StaffPerms.I.isStaff) // v89: پشتیبان‌گیری فقط مالک
                 ListTile(
                   leading: const Icon(Icons.backup_outlined),
                   title: const Text('پشتیبان‌گیری'),
@@ -449,6 +469,7 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
               ],
+              if (StaffPerms.I.canAny(const <String>['accounting.view', 'settings.manage'])) // v89
               FeatureGate(
                 feature: 'fx.rates',
                 child: ListTile(
@@ -460,6 +481,7 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
               ),
+              if (StaffPerms.I.canAny(const <String>['accounting.view', 'settings.manage'])) // v89
               FeatureGate(
                 feature: 'fx.rates',
                 child: ListTile(
@@ -471,6 +493,7 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
               ),
+              if (StaffPerms.I.can('accounting.view')) // v89
               FeatureGate(
                 feature: 'fx.documents',
                 child: ListTile(
@@ -494,6 +517,7 @@ class _HomeShellState extends State<HomeShell> {
                     },
                   ),
                 ),
+              if (StaffPerms.I.can('accounting.view')) // v89
               FeatureGate(
                 feature: 'gold.coa',
                 child: ListTile(
@@ -505,6 +529,7 @@ class _HomeShellState extends State<HomeShell> {
                   },
                 ),
               ),
+              if (StaffPerms.I.can('accounting.view')) // v89
               FeatureGate(
                 feature: 'gold.vouchers',
                 child: ListTile(
@@ -672,6 +697,7 @@ class _HomeShellState extends State<HomeShell> {
                     },
                   ),
                 ),
+              if (StaffPerms.I.can('accounting.view')) // v89
               FeatureGate(
                 feature: 'gold.vouchers',
                 child: ListTile(
@@ -707,6 +733,7 @@ class _HomeShellState extends State<HomeShell> {
                     },
                   ),
                 ),
+              if (StaffPerms.I.can('fy.manage')) // v89
               FeatureGate(
                 feature: 'gold.fiscal_years',
                 child: ListTile(
@@ -719,6 +746,7 @@ class _HomeShellState extends State<HomeShell> {
                 ),
               ),
               const Divider(height: 1),
+              if (!StaffPerms.I.isStaff) // v89: فقط مالک
               ListTile(
                 leading: const Icon(Icons.verified_user_outlined),
                 title: const Text('اشتراک من'),
@@ -757,7 +785,7 @@ class _HomeShellState extends State<HomeShell> {
           settings: st,
           builder: (_) => ValueListenableBuilder<int>(
             valueListenable: activeTab,
-            builder: (BuildContext c, int v, Widget? _) => IndexedStack(index: v, children: _pages),
+            builder: (BuildContext c, int v, Widget? _) => IndexedStack(index: StaffPerms.I.tabAllowed(v) ? v : 0, children: _pages),
           ),
         ),
       ),
@@ -767,7 +795,7 @@ class _HomeShellState extends State<HomeShell> {
   Widget _buildMobile(BuildContext context) {
     return Scaffold(
       key: _scaffoldKey,
-      body: IndexedStack(index: _i, children: _pages),
+      body: IndexedStack(index: StaffPerms.I.tabAllowed(_i) ? _i : 0, children: _pages),
       floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
       floatingActionButton: FloatingActionButton.small(
         heroTag: 'moreMenu',
@@ -781,17 +809,13 @@ class _HomeShellState extends State<HomeShell> {
         ),
       ),
       bottomNavigationBar: NavigationBar(
-        selectedIndex: _i,
-        onDestinationSelected: (v) {
+        selectedIndex: StaffPerms.I.allowedTabs.indexOf(_i) < 0 ? 0 : StaffPerms.I.allowedTabs.indexOf(_i), // v89: فقط تب‌های مجاز
+        onDestinationSelected: (int p) {
+          final int v = StaffPerms.I.allowedTabs[p];
           activeTab.value = v; // تب جدید در صورت نیاز داده‌هایش را تازه می‌کند
           setState(() => _i = v);
         },
-        destinations: const [
-          NavigationDestination(icon: Icon(Icons.home_outlined), label: 'خانه'),
-          NavigationDestination(icon: Icon(Icons.shopping_cart_outlined), label: 'خرید'),
-          NavigationDestination(icon: Icon(Icons.sell_outlined), label: 'فروش'),
-          NavigationDestination(icon: Icon(Icons.warehouse_outlined), label: 'موجودی'),
-        ],
+        destinations: <NavigationDestination>[for (final int k in StaffPerms.I.allowedTabs) _kDest[k]],
       ),
     );
   }

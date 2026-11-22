@@ -36,7 +36,7 @@ class AccessRole {
         id: (j['id'] as num).toInt(),
         name: '${j['name'] ?? ''}',
         perms: _strs(j['perms']),
-        fields: _modes(j['field_rules'])..removeWhere((String k, String v) => v == 'show'),
+        fields: _modes(j['field_rules'])..removeWhere((String k, String v) => v == 'hide'), // v89: فقط قسمت‌های باز
         system: j['is_system'] == true,
       );
 }
@@ -256,21 +256,21 @@ class SectionAccessEditor extends StatelessWidget {
           ],
           if (s.fields.isNotEmpty) ...<Widget>[
             const Divider(height: 8),
-            Align(alignment: AlignmentDirectional.centerStart, child: Text('قسمت‌های فرم', style: TextStyle(color: th.hintColor, fontWeight: FontWeight.w600))),
+            Align(alignment: AlignmentDirectional.centerStart, child: Text('قسمت‌های فرم (فقط قسمت‌های «نمایش» و «قفل» برای کارکن دیده می‌شوند)', style: TextStyle(color: th.hintColor, fontWeight: FontWeight.w600))),
             for (final AccessOption f in s.fields)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
                 child: Row(children: <Widget>[
-                  Expanded(child: Row(children: <Widget>[Flexible(child: Text(f.label)), if (base != null) _changedMark(context, (base!.fields[f.key] ?? 'show') != (draft.fields[f.key] ?? 'show'))])),
+                  Expanded(child: Row(children: <Widget>[Flexible(child: Text(f.label)), if (base != null) _changedMark(context, (base!.fields[f.key] ?? 'hide') != (draft.fields[f.key] ?? 'hide'))])),
                   SegmentedButton<String>(
                     showSelectedIcon: false,
                     style: const ButtonStyle(visualDensity: VisualDensity.compact),
                     segments: <ButtonSegment<String>>[
                       for (final String m in kFieldModes) ButtonSegment<String>(value: m, label: Text(kFieldModeLabels[m]!, style: const TextStyle(fontSize: 12))),
                     ],
-                    selected: <String>{draft.fields[f.key] ?? 'show'},
+                    selected: <String>{draft.fields[f.key] ?? 'hide'}, // v89: باز نشده = پنهان
                     onSelectionChanged: (Set<String> v) => _emit((AccessDraft d) {
-                      if (v.first == 'show') {
+                      if (v.first == 'hide') {
                         d.fields.remove(f.key);
                       } else {
                         d.fields[f.key] = v.first;
@@ -598,7 +598,7 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
       final Map<String, String> uf = <String, String>{};
       for (final AccessSection s in widget.data.sections) {
         for (final AccessOption f in s.fields) {
-          final String want = d.fields[f.key] ?? 'show', fromRoles = b.fields[f.key] ?? 'show';
+          final String want = d.fields[f.key] ?? 'hide', fromRoles = b.fields[f.key] ?? 'hide'; // v89
           if (want != fromRoles) uf[f.key] = want;
         }
       }

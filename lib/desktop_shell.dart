@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'edition.dart' show EditionBadge;
 import 'live_query.dart' show activeTab;
+import 'perms.dart' show StaffPerms; // v89
 import 'sync_service.dart';
 
 const Color _kBrand = Color(0xFF5B7F2A);
@@ -394,6 +395,7 @@ class _Sidebar extends StatelessWidget {
               child: Column(
                 children: <Widget>[
                   for (int i = 0; i < tabs.length; i++)
+                    if (StaffPerms.I.tabAllowed(i)) // v89
                     _NavItem(
                       icon: tabs[i].icon,
                       selectedIcon: tabs[i].selectedIcon,

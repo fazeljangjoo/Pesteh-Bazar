@@ -33,9 +33,9 @@ void main() {
     expect(draft.perms.contains('purchases.create'), isTrue);
     await tap(find.widgetWithText(SwitchListTile, 'نمایش قیمت‌ها و مبالغ در این بخش'));
     expect(draft.perms.contains('price.purchases'), isTrue);
-    await t.tap(find.text('پنهان').at(5)); // ششمین قسمت فرم (v89: پایه، گرم/انس، فی، فروشنده، درصدها، هزینه): هزینهٔ کارگر و حمل
+    await t.tap(find.text('نمایش').at(5)); // v89: پیش‌فرض پنهان ⇒ بازکردن // ششمین قسمت فرم (v89: پایه، گرم/انس، فی، فروشنده، درصدها، هزینه): هزینهٔ کارگر و حمل
     await t.pumpAndSettle();
-    expect(draft.fields, <String, String>{'purchase.costs': 'hide'});
+    expect(draft.fields, <String, String>{'purchase.costs': 'show'});
     await tap(find.widgetWithText(FilterChip, 'خرید'));
     expect(draft.perms, isEmpty); // خاموش‌کردن بخش ⇒ گزینه‌ها، قیمت و قسمت‌های فرم پاک
     expect(draft.fields, isEmpty);

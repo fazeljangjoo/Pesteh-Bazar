@@ -26,16 +26,36 @@ class StaffPerms {
   }
 
   /// v87: حالت یک قسمت فرم برای کاربر فعلی: show | lock | hide (مالک ⇒ همیشه show). از account.status (staff.fields).
+  /// v89: سرور تازه (fields_mode = allow) فقط قسمت‌های باز را می‌فرستد ⇒ قسمتی که نیامده پنهان است.
   String fieldMode(String key) {
     final s = current.value;
     if (s == null) return 'show';
     final f = s['fields'];
     if (f is Map) {
       final v = f[key];
-      if (v == 'lock' || v == 'hide') return '$v';
+      if (v == 'show' || v == 'lock' || v == 'hide') return '$v';
     }
-    return 'show';
+    return s['fields_mode'] == 'allow' ? 'hide' : 'show';
   }
+
+  /// v89: یکی از این مجوزها کافی است
+  bool canAny(List<String> keys) => keys.any(can);
+
+  /// v89: تب‌های اصلی (۰ خانه، ۱ خرید، ۲ فروش، ۳ انبار): کارکن فقط تب‌هایی را می‌بیند که دسترسی دارد
+  bool tabAllowed(int i) {
+    switch (i) {
+      case 1:
+        return canAny(const <String>['purchases.view', 'purchases.create']);
+      case 2:
+        return canAny(const <String>['sales.view', 'sales.create', 'sales.update']);
+      case 3:
+        return canAny(const <String>['stock.view', 'stock.count', 'stock.transfer', 'warehouses.view']);
+      default:
+        return true;
+    }
+  }
+
+  List<int> get allowedTabs => <int>[for (int i = 0; i < 4; i++) if (tabAllowed(i)) i];
 
   bool fieldShown(String key) => fieldMode(key) != 'hide';
   bool fieldEditable(String key) => fieldMode(key) == 'show';

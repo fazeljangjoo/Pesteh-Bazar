@@ -162,34 +162,25 @@ AccessSection? accessSectionOf(String key, [List<AccessSection> sections = kAcce
 const List<String> kFieldModes = <String>['show', 'lock', 'hide'];
 const Map<String, String> kFieldModeLabels = <String, String>{'show': 'نمایش', 'lock': 'قفل', 'hide': 'پنهان'};
 
-/// آینهٔ pb_field_rules_merge: بازترین حالت بین نقش‌ها (قسمتی که در یک نقش قاعده ندارد = show).
+/// آینهٔ pb_field_rules_merge (v89 «فقط آنچه باز شده»): هر نقش فقط قسمت‌های باز (show/lock)؛ بازترین حالت بین نقش‌ها؛ نبودِ کلید = پنهان.
 Map<String, String> accessMergeFields(List<Map<String, String>> lists) {
-  if (lists.isEmpty) return <String, String>{};
-  const Map<String, int> rank = <String, int>{'show': 0, 'lock': 1, 'hide': 2};
-  Map<String, String>? o;
+  final Map<String, String> o = <String, String>{};
   for (final Map<String, String> l in lists) {
-    if (o == null) {
-      o = Map<String, String>.from(l);
-      continue;
-    }
-    final Map<String, String> n = <String, String>{};
-    o.forEach((String k, String v) {
-      final String? w = l[k];
-      if (w == null) return;
-      n[k] = (rank[v] ?? 0) <= (rank[w] ?? 0) ? v : w;
+    l.forEach((String k, String v) {
+      if (v != 'show' && v != 'lock') return;
+      if (!o.containsKey(k) || v == 'show') o[k] = v;
     });
-    o = n;
   }
-  return o ?? <String, String>{};
+  return o;
 }
 
-/// آینهٔ pb_access_effective: اجتماع مجوز نقش‌ها + اضافه − کم‌شده؛ قسمت‌ها: ادغام نقش‌ها و سپس قاعدهٔ کارکن (show = آزاد).
+/// آینهٔ pb_access_effective: اجتماع مجوز نقش‌ها + اضافه − کم‌شده؛ قسمت‌ها: ادغام نقش‌ها و سپس قاعدهٔ کارکن (hide = بستن؛ خروجی فقط show/lock).
 ({Set<String> perms, Map<String, String> fields}) accessEffective(
     List<Set<String>> rolePerms, List<Map<String, String>> roleFields, Set<String> grants, Set<String> denies, Map<String, String> userFields) {
   final Set<String> p = <String>{for (final Set<String> l in rolePerms) ...l, ...grants}..removeAll(denies);
   final Map<String, String> f = accessMergeFields(roleFields);
   userFields.forEach((String k, String v) {
-    if (v == 'show') {
+    if (v == 'hide') {
       f.remove(k);
     } else {
       f[k] = v;
