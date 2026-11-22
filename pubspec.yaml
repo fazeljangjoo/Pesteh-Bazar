@@ -30,6 +30,7 @@ dependencies:
   crypto: ^3.0.3
   ffi: ^2.1.0                  # DPAPI ویندوز برای رمزگذاری توکن
   image: ^4.2.0                # کوچک‌کردن عکس خرید روی ویندوز
+  fl_chart: 1.1.1
 
 dev_dependencies:
   flutter_test:

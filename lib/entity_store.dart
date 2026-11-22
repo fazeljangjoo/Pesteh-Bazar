@@ -7,7 +7,7 @@ import 'db.dart';
 
 /// Bump when [kEntityRegistry] changes in a way the server must know about (informational; the server
 /// stays the authority: only entities it exports/lists are shown, see [EntityStore.visibleNames]).
-const int kEntityRegistryVersion = 3; // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
+const int kEntityRegistryVersion = 4; // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
 
 /// One field of an entity (mirrors a column spec of `server/backend/api/entities.php`).
 /// type: string | text | int | bigint | decimal | bool | date | datetime | enum | ref | json
@@ -418,7 +418,137 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
     permEdit: 'intake.confirm',
     permDelete: 'intake.confirm',
   ),
+  // v90 — بازاریابی بین‌المللی (آینهٔ marketing.php). فیلدهای staff_id/owner/status را سرور مهر می‌زند.
+  'mk_leads': EntitySpec(
+    'mk_leads',
+    'مشتری بازاریابی',
+    <EntityField>[
+      EntityField('name', 'نام شرکت/مشتری', 'string', required: true, max: 150),
+      EntityField('contact', 'شخص رابط', 'string', max: 120),
+      EntityField('country', 'کشور', 'string', max: 2),
+      EntityField('city', 'شهر', 'string', max: 80),
+      EntityField('phone', 'تلفن/واتساپ', 'string', max: 40),
+      EntityField('email', 'ایمیل', 'string', max: 120),
+      EntityField('source', 'منبع', 'enum', values: <String>['expo', 'website', 'linkedin', 'b2b', 'referral', 'cold', 'social', 'other'], defaultValue: 'other'),
+      EntityField('products', 'محصول مورد علاقه', 'string', max: 200),
+      EntityField('est_tons', 'حجم تخمینی (تن)', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('stage', 'مرحله', 'enum', values: <String>['lead', 'contacted', 'negotiation', 'proforma', 'won', 'lost'], defaultValue: 'lead'),
+      EntityField('lost_reason', 'دلیل از دست رفتن', 'enum', values: <String>['price', 'quality', 'competitor', 'no_reply', 'payment', 'shipping', 'other']),
+      EntityField('owner_staff_id', 'مسئول', 'int', vmin: 0),
+      EntityField('owner_name', 'نام مسئول', 'string', max: 120),
+      EntityField('prev_owner_staff_id', 'مسئول قبلی', 'int', vmin: 0),
+      EntityField('creator_staff_id', 'سازنده', 'int', vmin: 0),
+      EntityField('next_followup_at', 'پیگیری بعدی', 'datetime'),
+      EntityField('stage_at', 'زمان آخرین تغییر مرحله', 'datetime'),
+      EntityField('note', 'یادداشت', 'text', max: 3000),
+    ],
+    search: <String>['name', 'contact', 'city', 'phone', 'email', 'products'],
+    listFields: <String>['name', 'country', 'stage'],
+    permCreate: 'marketing.entry',
+    permEdit: 'marketing.entry',
+    permDelete: 'marketing.manage',
+  ),
+  'mk_activities': EntitySpec(
+    'mk_activities',
+    'پیگیری بازاریابی',
+    <EntityField>[
+      EntityField('lead_uid', 'مشتری', 'ref', ref: 'mk_leads', required: true),
+      EntityField('staff_id', 'بازاریاب', 'int', vmin: 0),
+      EntityField('staff_name', 'نام بازاریاب', 'string', max: 120),
+      EntityField('at', 'زمان', 'datetime', required: true),
+      EntityField('kind', 'نوع', 'enum', values: <String>['call', 'message', 'email', 'meeting', 'sample', 'proforma', 'note', 'stage'], defaultValue: 'call'),
+      EntityField('from_stage', 'از مرحله', 'enum', values: <String>['lead', 'contacted', 'negotiation', 'proforma', 'won', 'lost']),
+      EntityField('to_stage', 'به مرحله', 'enum', values: <String>['lead', 'contacted', 'negotiation', 'proforma', 'won', 'lost']),
+      EntityField('result', 'نتیجه', 'string', max: 500),
+    ],
+    search: <String>['result'],
+    orderCol: 'at',
+    listFields: <String>['kind', 'at', 'result'],
+    permCreate: 'marketing.entry',
+    permEdit: 'marketing.entry',
+    permDelete: 'marketing.entry',
+  ),
+  'mk_sales': EntitySpec(
+    'mk_sales',
+    'فروش بازاریابی',
+    <EntityField>[
+      EntityField('lead_uid', 'مشتری', 'ref', ref: 'mk_leads', required: true),
+      EntityField('staff_id', 'بازاریاب', 'int', vmin: 0),
+      EntityField('staff_name', 'نام بازاریاب', 'string', max: 120),
+      EntityField('date', 'تاریخ فروش', 'date', required: true),
+      EntityField('tons', 'تناژ', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('deal_value', 'مبلغ قرارداد', 'decimal', scale: 2, vmin: 0, vmax: 1e13),
+      EntityField('ccy', 'ارز', 'string', max: 3),
+      EntityField('product', 'محصول', 'string', max: 120),
+      EntityField('collected', 'وصول شد', 'bool', defaultValue: false),
+      EntityField('collected_at', 'تاریخ وصول', 'date'),
+      EntityField('status', 'وضعیت', 'enum', values: <String>['pending', 'confirmed', 'rejected'], defaultValue: 'pending'),
+      EntityField('confirmed_by', 'تأییدکننده', 'string', max: 120),
+      EntityField('confirmed_at', 'زمان تأیید', 'datetime'),
+      EntityField('note', 'یادداشت', 'string', max: 500),
+    ],
+    search: <String>['product', 'note'],
+    orderCol: 'date',
+    listFields: <String>['date', 'tons', 'status'],
+    permCreate: 'marketing.entry',
+    permEdit: 'marketing.entry',
+    permDelete: 'marketing.entry',
+  ),
+  'mk_targets': EntitySpec(
+    'mk_targets',
+    'هدف بازاریابی',
+    <EntityField>[
+      EntityField('staff_id', 'بازاریاب', 'int', vmin: 0, required: true),
+      EntityField('month', 'ماه', 'string', max: 7, required: true),
+      EntityField('follow_ups', 'پیگیری', 'decimal', scale: 2, vmin: 0, vmax: 100000),
+      EntityField('new_leads', 'لید جدید', 'decimal', scale: 2, vmin: 0, vmax: 100000),
+      EntityField('negotiations', 'مذاکره', 'decimal', scale: 2, vmin: 0, vmax: 100000),
+      EntityField('proformas', 'پیش‌فاکتور', 'decimal', scale: 2, vmin: 0, vmax: 100000),
+      EntityField('sales', 'فروش', 'decimal', scale: 2, vmin: 0, vmax: 100000),
+      EntityField('tons', 'تناژ', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+    ],
+    search: <String>['month'],
+    orderCol: 'month',
+    listFields: <String>['month', 'staff_id'],
+    permCreate: 'marketing.manage',
+    permEdit: 'marketing.manage',
+    permDelete: 'marketing.manage',
+  ),
+  'mk_settings': EntitySpec(
+    'mk_settings',
+    'تنظیمات بازاریابی',
+    <EntityField>[
+      EntityField('w_lead', 'w_lead', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('w_negotiation', 'w_negotiation', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('w_proforma', 'w_proforma', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('w_sale', 'w_sale', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('w_ton', 'w_ton', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('w_collection', 'w_collection', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('no_sale_factor', 'no_sale_factor', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('per_sale_deduct', 'per_sale_deduct', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('stale_days', 'stale_days', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('p_lead', 'p_lead', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('p_contacted', 'p_contacted', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('p_negotiation', 'p_negotiation', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('p_proforma', 'p_proforma', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('t_follow_ups', 't_follow_ups', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('t_new_leads', 't_new_leads', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('t_negotiations', 't_negotiations', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('t_proformas', 't_proformas', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('t_sales', 't_sales', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+      EntityField('t_tons', 't_tons', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
+    ],
+    permCreate: 'marketing.manage',
+    permEdit: 'marketing.manage',
+    permDelete: 'marketing.manage',
+  ),
 };
+
+/// v90: کلیدهای تنظیمات بازاریابی (آینهٔ pb_mk_default_settings)
+const List<String> kMkSettingKeys = <String>[
+  'w_lead', 'w_negotiation', 'w_proforma', 'w_sale', 'w_ton', 'w_collection', 'no_sale_factor', 'per_sale_deduct', 'stale_days',
+  'p_lead', 'p_contacted', 'p_negotiation', 'p_proforma', 't_follow_ups', 't_new_leads', 't_negotiations', 't_proformas', 't_sales', 't_tons',
+];
 
 /// Local mirror of generic entities (table `entity_rows`, one JSON blob per row) + offline queue hooks.
 ///
@@ -592,7 +722,8 @@ class EntityStore {
 
   /// Save (create when [uid] is null). Returns the row uid. Throws [ArgumentError] with a Persian message
   /// when validation fails. The row is stored locally at once and queued for the server.
-  Future<String> save(String entity, Map<String, dynamic> data, {String? uid}) async {
+  /// [patch] = true ⇒ فقط همین فیلدها برای سرور فرستاده می‌شوند (نه کل ردیف محلی)؛ برای تغییر یک وضعیت بدون بازنویسی تغییرات تازه‌تر دیگران.
+  Future<String> save(String entity, Map<String, dynamic> data, {String? uid, bool patch = false}) async {
     final spec = kEntityRegistry[entity];
     if (spec == null) throw ArgumentError('بخش نامعتبر است');
     final clean = _clean(spec, data);
@@ -628,9 +759,9 @@ class EntityStore {
             'updated_at': now,
           },
           conflictAlgorithm: ConflictAlgorithm.replace);
-      // send the full merged state (last write wins)
+      // send the full merged state (last write wins) · v90: patch ⇒ فقط فیلدهای تغییرکرده
       final payload = <String, dynamic>{'entity': entity, 'uid': id, 'data': merged};
-      await _upsertSaveOp(t, id, payload);
+      await _upsertSaveOp(t, id, payload, patch: (patch && ex.isNotEmpty) ? <String, dynamic>{'entity': entity, 'uid': id, 'data': clean} : null);
     });
     AppDb.I.version.value++;
     return id;
@@ -674,7 +805,8 @@ class EntityStore {
     return r.isNotEmpty;
   }
 
-  Future<void> _upsertSaveOp(DatabaseExecutor t, String uid, Map<String, dynamic> payload) async {
+  /// [patch]: فقط وقتی عملیات ذخیرهٔ دیگری برای همین ردیف در صف نیست فرستاده می‌شود (وگرنه کل ردیف تا داده‌های آن عملیات گم نشود).
+  Future<void> _upsertSaveOp(DatabaseExecutor t, String uid, Map<String, dynamic> payload, {Map<String, dynamic>? patch}) async {
     final ex = await t.query('sync_ops',
         columns: ['seq'],
         where: "action='entity.save' AND state='pending' AND payload LIKE ?",
@@ -683,7 +815,7 @@ class EntityStore {
     if (ex.isNotEmpty) {
       await AppDb.I.entityUpdateOp(t, (ex.first['seq'] as num).toInt(), payload);
     } else {
-      await AppDb.I.entityEnqueue(t, 'entity.save', payload);
+      await AppDb.I.entityEnqueue(t, 'entity.save', patch ?? payload);
     }
   }
 
@@ -787,7 +919,7 @@ class EntityStore {
         if (uid is! String || uid.isEmpty) continue;
         final rv = int.tryParse('${raw['rev']}') ?? 0;
         if (rv > top) top = rv;
-        if (raw['deleted_at'] != null) {
+        if (raw['deleted_at'] != null || raw['deleted'] == true) { // v90: entity.changes کلید «deleted» (بولی) می‌فرستد، نه deleted_at
           changed += await t.delete(table, where: 'entity=? AND uid=?', whereArgs: [entity, uid]);
           continue;
         }

@@ -4,6 +4,7 @@ import 'payroll_ui.dart'; // T11.4
 import 'dart:async';
 import 'perms.dart'; // T02.2
 import 'user_badge.dart'; // v89
+import 'marketing_ui.dart' show MarketingHomeScreen; // v90
 import 'cartex_shell.dart' show CartexShell; // نقش «کارتکس»
 import 'workshop_operator_shell.dart'; // کارگاه ۳-ب
 import 'access_ui.dart' show AccessHomeScreen; // v87
@@ -323,6 +324,16 @@ class _HomeShellState extends State<HomeShell> {
                   onTap: () {
                     _closeMenu(context);
                     _push(context, MaterialPageRoute<void>(builder: (_) => const PayrollHomeScreen()));
+                  },
+                ),
+              if (StaffPerms.I.canAny(const <String>['marketing.entry', 'marketing.manage', 'marketing.reports'])) // v90
+                ListTile(
+                  leading: const Icon(Icons.travel_explore_outlined),
+                  title: const Text('بازاریابی بین‌المللی'),
+                  subtitle: const Text('مشتری‌ها، پیگیری، فروش و داشبورد گزارش', style: TextStyle(fontSize: 11.5)),
+                  onTap: () {
+                    _closeMenu(context);
+                    _push(context, MaterialPageRoute<void>(builder: (_) => const MarketingHomeScreen()));
                   },
                 ),
               if (StaffPerms.I.canAny(const <String>['parties.view', 'parties.create'])) // v89

@@ -145,6 +145,11 @@ const List<AccessSection> kAccessSections = <AccessSection>[
     AccessOption('profit.view', 'سود و زیان'),
     AccessOption('audit.view', 'گزارش ممیزی'),
   ], fields: <AccessOption>[]),
+  AccessSection(key: 'marketing', label: 'بازاریابی بین‌المللی', price: null, perms: <AccessOption>[ // v90
+    AccessOption('marketing.entry', 'ثبت مشتری، پیگیری و فروش خود'),
+    AccessOption('marketing.manage', 'مدیریت همهٔ مشتری‌ها، سپردن، تأیید فروش، هدف‌ها و امتیاز'),
+    AccessOption('marketing.reports', 'دیدن گزارش‌ها و داشبورد همهٔ بازاریاب‌ها'),
+  ], fields: <AccessOption>[]),
   AccessSection(key: 'admin', label: 'مدیریت', price: null, perms: <AccessOption>[
     AccessOption('settings.manage', 'تنظیمات'),
     AccessOption('users.manage', 'کارکنان، نقش‌ها و دسترسی‌ها'),

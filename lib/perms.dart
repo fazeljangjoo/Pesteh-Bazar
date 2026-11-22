@@ -190,6 +190,9 @@ const Map<String, String> kPermLabels = <String, String>{
   'tax.view': 'مشاهدهٔ گزارش‌های مالیاتی',
   'settings.manage': 'تنظیمات',
   'users.manage': 'مدیریت کارکنان و نقش‌ها',
+  'marketing.entry': 'بازاریابی: ثبت مشتری، پیگیری و فروش خود', // v90
+  'marketing.manage': 'بازاریابی: مدیریت همه، تأیید فروش و هدف‌ها',
+  'marketing.reports': 'بازاریابی: داشبورد گزارش همه',
   'audit.view': 'مشاهدهٔ گزارش ممیزی',
   'ounce.intake': 'ثبت پذیرش پسته در اتاق انس',
   'workshop.view': 'مشاهدهٔ عملیات کارگاه',

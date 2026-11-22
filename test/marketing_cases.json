@@ -1,0 +1,10 @@
+{
+  "_doc": "v90 — امتیاز ارزیابی بازاریابی (همان شیت ارزیابی ۱۴۰۵). مشترک: marketing_selftest.php و test/marketing_calc_test.dart در هر دو برنامه.",
+  "score": [
+    {"name": "Nooshin Karimi, Ordibehesht (one sale)", "in": {"new_leads": 11, "negotiations": 64, "proformas": 1, "sales": 1, "tons": 20, "collections": 1}, "total": 1355, "final": 1305},
+    {"name": "Alireza Abdollahpour, Ordibehesht (no sale)", "in": {"new_leads": 31, "negotiations": 119, "proformas": 0, "sales": 0, "tons": 0, "collections": 0}, "total": 1940, "final": 776},
+    {"name": "Nooshin Karimi, Mordad", "in": {"new_leads": 8, "negotiations": 39, "proformas": 2, "sales": 1, "tons": 22, "collections": 1}, "total": 1009, "final": 959},
+    {"name": "Koorosh Tajadod, Ordibehesht", "in": {"new_leads": 0, "negotiations": 19, "proformas": 0, "sales": 0, "tons": 0, "collections": 0}, "total": 285, "final": 114},
+    {"name": "empty month", "in": {"new_leads": 0, "negotiations": 0, "proformas": 0, "sales": 0, "tons": 0, "collections": 0}, "total": 0, "final": 0}
+  ]
+}

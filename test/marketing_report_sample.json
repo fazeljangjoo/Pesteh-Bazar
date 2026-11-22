@@ -1,0 +1,655 @@
+{
+    "full": {
+        "from": "2026-11-01",
+        "to": "2026-11-21",
+        "prev_from": "2026-10-11",
+        "prev_to": "2026-10-31",
+        "granularity": "day",
+        "kpis": {
+            "current": {
+                "follow_ups": 2,
+                "new_leads": 3,
+                "negotiations": 1,
+                "proformas": 0,
+                "sales": 1,
+                "tons": 20,
+                "collections": 1
+            },
+            "previous": {
+                "follow_ups": 0,
+                "new_leads": 0,
+                "negotiations": 0,
+                "proformas": 0,
+                "sales": 0,
+                "tons": 0,
+                "collections": 0
+            },
+            "target": {
+                "follow_ups": 140,
+                "new_leads": 70,
+                "negotiations": 0,
+                "proformas": 1.4,
+                "sales": 21,
+                "tons": 35
+            },
+            "score": {
+                "points": {
+                    "new_leads": 15,
+                    "negotiations": 15,
+                    "proformas": 0,
+                    "sales": 70,
+                    "tons": 140,
+                    "collections": 100
+                },
+                "total": 340,
+                "final": 290
+            },
+            "rate_proforma": 0,
+            "rate_sale": 1,
+            "open_leads": 1,
+            "value_by_ccy": {
+                "USD": 150000
+            }
+        },
+        "funnel": {
+            "lead": 3,
+            "contacted": 2,
+            "negotiation": 2,
+            "proforma": 1,
+            "won": 1,
+            "lost": 1
+        },
+        "trend": [
+            {
+                "key": "2026-11-01",
+                "follow_ups": 0,
+                "new_leads": 1,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-02",
+                "follow_ups": 1,
+                "new_leads": 1,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-03",
+                "follow_ups": 0,
+                "new_leads": 1,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-04",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-05",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-06",
+                "follow_ups": 1,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-07",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-08",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-09",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-10",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 1,
+                "tons": 20
+            },
+            {
+                "key": "2026-11-11",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-12",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-13",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-14",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-15",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-16",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-17",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-18",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-19",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-20",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-21",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            }
+        ],
+        "board": [
+            {
+                "staff_id": 1,
+                "name": "Ali",
+                "counts": {
+                    "follow_ups": 1,
+                    "new_leads": 1,
+                    "negotiations": 1,
+                    "proformas": 0,
+                    "sales": 1,
+                    "tons": 20,
+                    "collections": 1
+                },
+                "target": {
+                    "follow_ups": 70,
+                    "new_leads": 35,
+                    "negotiations": 0,
+                    "proformas": 0.7,
+                    "sales": 10.5,
+                    "tons": 17.5
+                },
+                "score": {
+                    "points": {
+                        "new_leads": 5,
+                        "negotiations": 15,
+                        "proformas": 0,
+                        "sales": 70,
+                        "tons": 140,
+                        "collections": 100
+                    },
+                    "total": 330,
+                    "final": 280
+                },
+                "total_leads": 1,
+                "open_leads": 0,
+                "rate_negotiation": 1,
+                "rate_proforma": 0,
+                "rate_sale": 1,
+                "rank": 1
+            },
+            {
+                "staff_id": 2,
+                "name": "Nooshin",
+                "counts": {
+                    "follow_ups": 1,
+                    "new_leads": 2,
+                    "negotiations": 0,
+                    "proformas": 0,
+                    "sales": 0,
+                    "tons": 0,
+                    "collections": 0
+                },
+                "target": {
+                    "follow_ups": 70,
+                    "new_leads": 35,
+                    "negotiations": 0,
+                    "proformas": 0.7,
+                    "sales": 10.5,
+                    "tons": 17.5
+                },
+                "score": {
+                    "points": {
+                        "new_leads": 10,
+                        "negotiations": 0,
+                        "proformas": 0,
+                        "sales": 0,
+                        "tons": 0,
+                        "collections": 0
+                    },
+                    "total": 10,
+                    "final": 4
+                },
+                "total_leads": 2,
+                "open_leads": 1,
+                "rate_negotiation": 0,
+                "rate_proforma": null,
+                "rate_sale": null,
+                "rank": 2
+            }
+        ],
+        "countries": [
+            {
+                "country": "TR",
+                "leads": 1,
+                "new_leads": 1,
+                "won": 1,
+                "sales": 1,
+                "tons": 20
+            },
+            {
+                "country": "CN",
+                "leads": 2,
+                "new_leads": 2,
+                "won": 0,
+                "sales": 0,
+                "tons": 0
+            }
+        ],
+        "sources": [
+            {
+                "source": "linkedin",
+                "leads": 2,
+                "won": 0,
+                "win_rate": 0
+            },
+            {
+                "source": "expo",
+                "leads": 1,
+                "won": 1,
+                "win_rate": 1
+            }
+        ],
+        "lost_reasons": [
+            {
+                "reason": "price",
+                "count": 1
+            }
+        ],
+        "aging": [
+            {
+                "stage": "lead",
+                "avg_days": 2,
+                "leads": 1
+            },
+            {
+                "stage": "contacted",
+                "avg_days": null,
+                "leads": 0
+            },
+            {
+                "stage": "negotiation",
+                "avg_days": 18.6,
+                "leads": 1
+            },
+            {
+                "stage": "proforma",
+                "avg_days": null,
+                "leads": 0
+            }
+        ],
+        "stale": [
+            {
+                "uid": "b",
+                "name": "Kevin",
+                "country": "CN",
+                "stage": "negotiation",
+                "owner": "Nooshin",
+                "idle_days": 15,
+                "next_followup_at": "2026-11-20 09:00:00"
+            }
+        ],
+        "overdue": [
+            {
+                "uid": "b",
+                "name": "Kevin",
+                "country": "CN",
+                "stage": "negotiation",
+                "owner": "Nooshin",
+                "idle_days": 15,
+                "next_followup_at": "2026-11-20 09:00:00"
+            }
+        ],
+        "today": [],
+        "heatmap": [
+            {
+                "staff_id": 1,
+                "name": "Ali",
+                "cells": {
+                    "2026-11-02": 1
+                }
+            },
+            {
+                "staff_id": 2,
+                "name": "Nooshin",
+                "cells": {
+                    "2026-11-06": 1
+                }
+            }
+        ],
+        "forecast_tons": 3,
+        "pending_sales": [
+            {
+                "uid": "s2",
+                "lead_uid": "a",
+                "lead": "Muze",
+                "staff": "Ali",
+                "date": "2026-11-18",
+                "tons": 5,
+                "deal_value": 40000,
+                "ccy": "USD"
+            }
+        ],
+        "staff": [
+            {
+                "id": 1,
+                "name": "Ali"
+            },
+            {
+                "id": 2,
+                "name": "Nooshin"
+            }
+        ],
+        "scope": "team"
+    },
+    "empty": {
+        "from": "2026-11-01",
+        "to": "2026-11-21",
+        "prev_from": "2026-10-11",
+        "prev_to": "2026-10-31",
+        "granularity": "day",
+        "kpis": {
+            "current": {
+                "follow_ups": 0,
+                "new_leads": 0,
+                "negotiations": 0,
+                "proformas": 0,
+                "sales": 0,
+                "tons": 0,
+                "collections": 0
+            },
+            "previous": {
+                "follow_ups": 0,
+                "new_leads": 0,
+                "negotiations": 0,
+                "proformas": 0,
+                "sales": 0,
+                "tons": 0,
+                "collections": 0
+            },
+            "target": {
+                "follow_ups": 0,
+                "new_leads": 0,
+                "negotiations": 0,
+                "proformas": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            "score": {
+                "points": {
+                    "new_leads": 0,
+                    "negotiations": 0,
+                    "proformas": 0,
+                    "sales": 0,
+                    "tons": 0,
+                    "collections": 0
+                },
+                "total": 0,
+                "final": 0
+            },
+            "rate_proforma": null,
+            "rate_sale": null,
+            "open_leads": 0,
+            "value_by_ccy": []
+        },
+        "funnel": {
+            "lead": 0,
+            "contacted": 0,
+            "negotiation": 0,
+            "proforma": 0,
+            "won": 0,
+            "lost": 0
+        },
+        "trend": [
+            {
+                "key": "2026-11-01",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-02",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-03",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-04",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-05",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-06",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-07",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-08",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-09",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-10",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-11",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-12",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-13",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-14",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-15",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-16",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-17",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-18",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-19",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-20",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            },
+            {
+                "key": "2026-11-21",
+                "follow_ups": 0,
+                "new_leads": 0,
+                "sales": 0,
+                "tons": 0
+            }
+        ],
+        "board": [],
+        "countries": [],
+        "sources": [],
+        "lost_reasons": [],
+        "aging": [
+            {
+                "stage": "lead",
+                "avg_days": null,
+                "leads": 0
+            },
+            {
+                "stage": "contacted",
+                "avg_days": null,
+                "leads": 0
+            },
+            {
+                "stage": "negotiation",
+                "avg_days": null,
+                "leads": 0
+            },
+            {
+                "stage": "proforma",
+                "avg_days": null,
+                "leads": 0
+            }
+        ],
+        "stale": [],
+        "overdue": [],
+        "today": [],
+        "heatmap": [],
+        "forecast_tons": 0,
+        "pending_sales": []
+    }
+}
