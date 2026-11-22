@@ -104,8 +104,8 @@ class _CrackLineReportScreenState extends State<CrackLineReportScreen> {
       rows: <List<String>>[for (final Map<String, dynamic> r in _items) _opRow(r)],
       filePrefix: 'crack_lines_report',
       pageNumbers: true,
-      footnote: 'افت گرم = گرم اولیه − گرم دریافتی (گرم دریافتی = مغز × ۱۰۰ ÷ وزن شکسته‌شده = ورودی − نشکن). اختلاف مثبت = پرتی واقعی بیشتر از اعلامی خط. '
-          'میانگین‌های هر خط موزون به وزن شکسته‌شده‌اند. ضایعات = ورودی − جمع خروجی‌ها.',
+      footnote: 'افت گرم = گرم اولیه − گرم دریافتی (گرم دریافتی = مغز × ۱۰۰ ÷ ورودی؛ نشکن فقط ثبت می‌شود). اختلاف مثبت = پرتی واقعی بیشتر از اعلامی خط. '
+          'میانگین‌های هر خط موزون به وزن ورودی‌اند. ضایعات = ورودی − جمع خروجی‌ها.',
     );
     if (!mounted) return;
     await PdfOutput.show(context, file);

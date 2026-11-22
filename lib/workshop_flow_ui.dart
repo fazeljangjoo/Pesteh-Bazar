@@ -1258,7 +1258,6 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
       crackCost: crackCost,
       lineLoss: line,
       uncrackedKg: uncr,
-      hullValue: hullVal + uncrAdj, // v87: + اختلاف بهای نشکن با P
       outKg: _outKg,
     );
     // بسته ⇒ مقدار ذخیره‌شدهٔ سرور (همان که روی لات مغز نشسته)
@@ -1288,7 +1287,7 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
           if (kernel > 0) ...<Widget>[
             if (r.expectedKernelKg != null) _kvRow('مغز مورد انتظار (طبق گرم پرتی خط)', '${_kg(r.expectedKernelKg)} کیلو'),
             _kvRow('گرم اولیه', r.initGram == null ? none : _f2(r.initGram!)),
-            _kvRow('گرم دریافتی${uncr > 0 ? ' (روی ${_kg(r.crackedKg)} کیلو شکسته‌شده)' : ''}', r.recvGram == null ? '—' : _f2(r.recvGram!)),
+            _kvRow('گرم دریافتی (مغز ÷ کل ورودی)', r.recvGram == null ? '—' : _f2(r.recvGram!)),
             _kvRow('افت گرم', r.lossGram == null ? none : _f2(r.lossGram!), color: (r.lossGram ?? 0) > 0 ? Colors.red : null),
             _kvRow('گرم پرتی اعلامی خط', line == null ? '—' : _f2(line)),
             if (cmp != null) Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: Text(cmp, style: TextStyle(color: cmpColor, fontWeight: FontWeight.bold))),
@@ -1303,13 +1302,13 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
             if (uncr > 0)
               _kvRow(uncrAdj.abs() > 0.005 ? 'بهای نشکن (واردشده)' : 'بهای هر کیلو نشکن (= P)',
                   uncrAdj.abs() > 0.005 ? 'ارزش ${Fmt.money(uncr * (buy ?? 0) - uncrAdj, label: false)}' : (buy == null ? '—' : Fmt.money(buy, label: false))),
-            if (hullVal > 0) _kvRow('ارزش پوست (کسر از بهای مغز)', Fmt.money(hullVal, label: false)),
+            if (hullVal > 0) _kvRow('ارزش پوست (بر بهای مغز اثری ندارد)', Fmt.money(hullVal, label: false)),
             Row(children: <Widget>[
               Expanded(child: Text('هزینهٔ شکست هر کیلو مغز: ${Fmt.money(crackCost, label: false)}')),
               if (_open && StaffPerms.I.fieldEditable('ws.costs')) TextButton.icon(onPressed: _busy ? null : _editCosts, icon: const Icon(Icons.edit, size: 18), label: const Text('ثبت هزینه')),
             ]),
             _kvRow('بهای تمام‌شدهٔ هر کیلو مغز', unit == null ? '—' : Fmt.money(unit, label: false), strong: true),
-            Text('ارزش ضایعات و پرتی (وزن گم‌شده) روی بهای مغز می‌نشیند؛ نشکن با همان قیمت ورودی برمی‌گردد.',
+            Text('بهای مغز = بهای کل پستهٔ ورودی ÷ وزن مغز + هزینهٔ شکست؛ ضایعات و پرتی هم روی مغز می‌نشیند. پوست و نشکن روی بهای مغز اثری ندارند (نشکن = بهای واردشده یا قیمت ورودی).',
                 style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
             if ('${_d['input_cost_warning'] ?? ''}' == 'missing_input_cost') const Text(kWsMissingInputCost, style: TextStyle(color: Colors.orange)),
           ],
@@ -2318,7 +2317,7 @@ class _CloseDialogState extends State<_CloseDialog> {
             if (_crack) ...<Widget>[
               gap,
               Text('بهای مغز با فرمول شکست حساب می‌شود (هزینهٔ شکست هر کیلو مغز: '
-                  '${Fmt.money(ReturnsHelp.d(widget.detail['crack_cost_per_kg']), label: false)}). نشکن با قیمت ورودی برمی‌گردد. قیمت پوست را وارد کنید (اختیاری؛ از بهای مغز کم می‌شود).'),
+                  '${Fmt.money(ReturnsHelp.d(widget.detail['crack_cost_per_kg']), label: false)}). بهای مغز = بهای کل ورودی ÷ مغز + هزینهٔ شکست. نشکن = بهای واردشده یا قیمت ورودی. قیمت پوست اختیاری است و روی بهای مغز اثری ندارد.'),
             ],
             if (_single) ...<Widget>[
               gap,

@@ -1125,8 +1125,9 @@ WsCrackEstimate wsCrackEstimate(List<Map<String, num?>> inputs, num? lossGram) {
 }
 
 /// v80/v81 — اطلاعات خروجی عملیات «شکست» (آینهٔ `pb_ws_crack_result`؛ توضیح کامل فرمول‌ها در workshop_calc.php):
-///   وزن شکسته‌شده = ورودی − نشکن · گرم دریافتی = مغز × ۱۰۰ ÷ وزن شکسته‌شده · افت گرم = G − گرم دریافتی
-///   وزن پرتی = افت گرم ÷ ۱۰۰ × وزن شکسته‌شده · برآورد وزن پرتی = گرم پرتی خط ÷ ۱۰۰ × وزن شکسته‌شده · اختلاف با خط = افت گرم − گرم پرتی خط
+///   v88: نشکن فقط ثبت می‌شود ⇒ گرم و پرتی روی کل ورودی: گرم دریافتی = مغز × ۱۰۰ ÷ ورودی · افت گرم = G − گرم دریافتی
+///   مغز مورد انتظار = (G − گرم پرتی خط) ÷ ۱۰۰ × ورودی (همان «برآورد مغز» بالای فرم) · وزن پرتی = افت گرم ÷ ۱۰۰ × ورودی · برآورد وزن پرتی = گرم پرتی خط ÷ ۱۰۰ × ورودی
+///   v88: بهای هر کیلو مغز = (P × کل ورودی) ÷ مغز + هزینهٔ شکست؛ پوست و نشکن هیچ اثری روی بهای مغز ندارند (هر کدام بهای خودش را دارد: نشکن = بهای واردشده یا P). [hullValue] دیگر استفاده نمی‌شود.
 ///   ضایعات = ورودی − Σ خروجی‌ها · بهای هر کیلو مغز = (P × وزن شکسته‌شده − ارزش پوست) ÷ مغز + هزینهٔ شکست · بهای نشکن = P
 class WsCrackResult {
   const WsCrackResult({
@@ -1170,9 +1171,10 @@ WsCrackResult wsCrackResult({
 }) {
   final double? g = (gram != null && gram > 0) ? gram.toDouble() : null;
   final double cracked = (inKg - (uncrackedKg > 0 ? uncrackedKg : 0)).toDouble().clamp(0, double.infinity).toDouble();
-  final double? recv = (cracked > 0 && kernelKg > 0) ? kernelKg * 100 / cracked : null;
+  final double base = inKg.toDouble() > 0 ? inKg.toDouble() : 0; // v88: پایهٔ گرم و پرتی = کل ورودی (نشکن اثری ندارد)
+  final double? recv = (base > 0 && kernelKg > 0) ? kernelKg * 100 / base : null;
   final double? loss = (g != null && recv != null) ? g - recv : null;
-  final double? unit = (cracked > 0 && kernelKg > 0 && buyPerKg != null && buyPerKg > 0) ? (buyPerKg * cracked - hullValue) / kernelKg + crackCost : null;
+  final double? unit = (base > 0 && kernelKg > 0 && buyPerKg != null && buyPerKg > 0) ? (buyPerKg * base) / kernelKg + crackCost : null; // v88: کل ورودی؛ بدون کسر پوست/نشکن
   final double? line = (lineLoss != null && lineLoss >= 0) ? lineLoss.toDouble() : null;
   return WsCrackResult(
     initGram: g,
@@ -1180,10 +1182,10 @@ WsCrackResult wsCrackResult({
     lossGram: loss,
     lossPct: (g != null && loss != null) ? loss * 100 / g : null,
     unitCost: unit == null ? null : (unit * 10000).round() / 10000,
-    expectedKernelKg: (g != null && line != null && cracked > 0) ? (g - line) / 100 * cracked : null,
+    expectedKernelKg: (g != null && line != null && base > 0) ? (g - line) / 100 * base : null,
     crackedKg: cracked,
-    lossKg: loss == null ? null : loss / 100 * cracked,
-    expectedLossKg: (line != null && cracked > 0) ? line / 100 * cracked : null,
+    lossKg: loss == null ? null : loss / 100 * base,
+    expectedLossKg: (line != null && base > 0) ? line / 100 * base : null,
     gramVsLine: (loss != null && line != null) ? loss - line : null,
     wasteKg: outKg == null ? null : ((inKg - outKg) * 1000).round() / 1000,
     uncrackedCost: (buyPerKg != null && buyPerKg > 0) ? (buyPerKg * 10000).round() / 10000 : null,

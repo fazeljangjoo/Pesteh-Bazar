@@ -45,15 +45,15 @@
             },
             "expect": {
                 "init_gram": 47.3,
-                "recv_gram": 46.15384615384615,
-                "loss_gram": 1.1461538461538439,
-                "loss_pct": 2.423158237111721,
-                "unit_cost": 655.7778,
-                "expected_kernel_kg": 30.419999999999998,
+                "recv_gram": 40.0,
+                "loss_gram": 7.299999999999997,
+                "loss_pct": 15.433403805496825,
+                "unit_cost": 774.6667,
+                "expected_kernel_kg": 35.099999999999994,
                 "cracked_kg": 65.0,
-                "loss_kg": 0.7449999999999984,
-                "expected_loss_kg": 0.325,
-                "gram_vs_line": 0.6461538461538439,
+                "loss_kg": 5.474999999999998,
+                "expected_loss_kg": 0.375,
+                "gram_vs_line": 6.799999999999997,
                 "waste_kg": 3.0,
                 "uncracked_cost": 306.6667
             }

@@ -1182,6 +1182,18 @@ class AppDb {
   /// [discardQueue]=false: اگر همزمان عملیاتی در صف باشد (کاربر حین دریافت چیزی ثبت کرده)
   /// چیزی جایگزین نمی‌شود و false برمی‌گردد تا هیچ تغییر محلی گم نشود.
   /// [discardQueue]=true: صف (شامل خطاها) دور ریخته می‌شود و سرور مرجع قرار می‌گیرد.
+  /// v88: ستون‌های NOT NULL بدون مقدار پیش‌فرض ⇒ مقدار جایگزین (عددی ۰، متنی '') وقتی سرور مقدار را نفرستاده
+  /// (مثلاً قیمت خرید برای کارکنی که نمایش قیمت این بخش را ندارد). ستون‌های دارای DEFAULT را خود SQLite پر می‌کند.
+  static Future<Map<String, Object>> _notNullDefaults(DatabaseExecutor t, String table) async {
+    final Map<String, Object> out = <String, Object>{};
+    for (final Map<String, Object?> c in await t.rawQuery('PRAGMA table_info($table)')) {
+      if ((c['notnull'] as num? ?? 0).toInt() != 1 || c['dflt_value'] != null || (c['pk'] as num? ?? 0).toInt() > 0) continue;
+      final String type = ((c['type'] as String?) ?? '').toUpperCase();
+      out[c['name'] as String] = (type.contains('INT') || type.contains('REAL') || type.contains('NUM') || type.contains('FLOA') || type.contains('DOUB')) ? 0 : '';
+    }
+    return out;
+  }
+
   Future<bool> replaceAllFromServer(Map<String, dynamic> tables,
       {bool discardQueue = false, String? exportedAt, Map<String, dynamic>? entities, Map<String, dynamic>? docs}) async {
     // تا وقتی فرم/صفحهٔ ثبتی باز است، داده‌ها زیر دست کاربر عوض نمی‌شوند (دریافت بعداً انجام می‌شود)
@@ -1257,6 +1269,7 @@ class AppDb {
         final cols = e.$2;
         final rows = tables[table];
         if (rows is! List) continue;
+        final Map<String, Object> notNull = await _notNullDefaults(t, table); // v88: ستون پوشانده/حذف‌شده (مثلاً قیمت برای کارکن) ⇒ ۰
         final b = t.batch();
         for (final raw in rows) {
           if (raw is! Map) continue;
@@ -1265,6 +1278,9 @@ class AppDb {
             if (raw.containsKey(c)) row[c] = _coerce(c, raw[c]);
           }
           if (row['id'] == null) continue;
+          notNull.forEach((String c, Object v) {
+            if (c != 'id' && row[c] == null) row[c] = v;
+          });
           if (table == 'purchases') {
             final id = row['id'] as int;
             final hv = raw['has_photo'];
