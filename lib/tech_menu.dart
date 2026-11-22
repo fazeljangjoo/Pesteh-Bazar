@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'alerts_ui.dart' show AlertsMenuTile, AlertsScreen, WebhooksScreen; // فاز ۲
 import 'anomaly_ui.dart' show AnomalyListScreen;
 import 'api_keys_ui.dart' show ApiKeysScreen; // فاز ۳
+import 'blend_opt_ui.dart' show BlendOptimizerScreen; // فاز ۴
 import 'perms.dart' show StaffPerms;
 import 'tech_features.dart';
 
@@ -38,6 +39,17 @@ List<Widget> techMenuTiles(BuildContext context, void Function(Widget screen) op
           title: const Text('وب‌هوک‌ها'),
           subtitle: const Text('ارسال رویدادها به سامانه‌های دیگر', style: TextStyle(fontSize: 11.5)),
           onTap: () => open(const WebhooksScreen()),
+        ),
+      ),
+    // فاز ۴: بهینه‌ساز کوت‌ریزی (برنامه‌ریزی خطی)
+    if (StaffPerms.I.can('stock.view'))
+      TechGate(
+        flag: 'blend_optimizer',
+        child: ListTile(
+          leading: const Icon(Icons.auto_graph),
+          title: const Text('بهینه‌ساز کوت‌ریزی (پیشرفته)'),
+          subtitle: const Text('ارزان‌ترین ترکیب لات‌ها با قیدهای کیفی', style: TextStyle(fontSize: 11.5)),
+          onTap: () => open(const BlendOptimizerScreen()),
         ),
       ),
     // فاز ۳: کلیدهای API
