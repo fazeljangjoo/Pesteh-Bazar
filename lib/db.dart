@@ -590,6 +590,12 @@ class AppDb {
   Future<void> debugCreate(Database d) => _onCreate(d, schemaVersion);
   @visibleForTesting
   Future<void> debugUpgrade(Database d, int oldV) => _onUpgrade(d, oldV, schemaVersion);
+  /// v90 (test only): use an already-created database as the open account database.
+  @visibleForTesting
+  void debugUseDb(Database d, {String phone = '09000000000'}) {
+    _db = d;
+    _phone = phone;
+  }
 
   Future<void> _onCreate(Database d, int v) async {
     await d.execute('''

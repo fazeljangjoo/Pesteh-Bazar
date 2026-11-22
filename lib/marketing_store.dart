@@ -115,7 +115,8 @@ class MkStore {
   /// فروش تازه/ویرایش. بازاریاب ⇒ همیشه «منتظر تأیید»؛ اولین فروش، مرحلهٔ کارت را «فروش» می‌کند.
   Future<String> saveSale(String leadUid, Map<String, dynamic> data, {String? uid}) async {
     final Map<String, dynamic> d = <String, dynamic>{...data, 'lead_uid': leadUid};
-    if (uid == null) {
+    // v90: فرم یک uid از پیش می‌سازد تا «ذخیره»ی دوباره (پس از خطا) همان فروش را ویرایش کند، نه فروش دوم بسازد
+    if (uid == null || await EntityStore.I.get(salesE, uid) == null) {
       d['staff_id'] = myId;
       d['staff_name'] = myName;
     }

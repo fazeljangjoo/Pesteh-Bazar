@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart' show AppDb;
+import 'entity_store.dart' show EntityStore;
 import 'import_engine.dart' show kMkLeadImportKind;
 import 'import_screen.dart';
 import 'marketing_calc.dart';
@@ -874,6 +875,7 @@ class _MkSaleFormScreenState extends State<MkSaleFormScreen> {
   late DateTime _date = DateTime.tryParse('${widget.sale?['date'] ?? ''}') ?? DateTime.now();
   late bool _collected = widget.sale?['collected'] == true;
   late DateTime _colAt = DateTime.tryParse('${widget.sale?['collected_at'] ?? ''}') ?? DateTime.now();
+  late final String _uid = (widget.sale?['uid'] as String?) ?? EntityStore.newUid(); // v90: ذخیرهٔ دوباره ⇒ همان فروش
   bool _busy = false;
 
   @override
@@ -898,7 +900,7 @@ class _MkSaleFormScreenState extends State<MkSaleFormScreen> {
         'collected': _collected,
         'collected_at': _collected ? MkStore.ymd(_colAt) : null,
         'note': _note.text,
-      }, uid: widget.sale?['uid'] as String?);
+      }, uid: _uid);
       if (!mounted) return;
       if (!MkStore.I.isManager) snack(context, 'فروش ثبت شد؛ پس از تأیید مدیر بازاریابی در امتیاز شمرده می‌شود');
       Navigator.pop(context);

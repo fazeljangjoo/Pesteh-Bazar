@@ -668,12 +668,15 @@ class EntityStore {
   // ======================= write (local + queue) =======================
 
   /// Client-side validation mirroring the server rules. Returns a Persian message or null when OK.
-  String? validate(EntitySpec spec, Map<String, dynamic> data) {
+  /// [existing] = stored row when [data] is a partial update: a required field that [data] does not touch is
+  /// checked against the stored value (like the server's pb_entity_validate). Clearing it is still an error.
+  String? validate(EntitySpec spec, Map<String, dynamic> data, {Map<String, dynamic>? existing}) {
+    bool blank(Object? v) => v == null || (v is String && v.trim().isEmpty);
     for (final f in spec.fields) {
       final v = data[f.key];
-      final empty = v == null || (v is String && v.trim().isEmpty);
+      final empty = blank(v);
       if (empty) {
-        if (f.required) return '«${f.label}» الزامی است';
+        if (f.required && !(existing != null && !data.containsKey(f.key) && !blank(existing[f.key]))) return '«${f.label}» الزامی است';
         continue;
       }
       if (f.type == 'string' || f.type == 'text') {
@@ -727,8 +730,6 @@ class EntityStore {
     final spec = kEntityRegistry[entity];
     if (spec == null) throw ArgumentError('بخش نامعتبر است');
     final clean = _clean(spec, data);
-    final err = validate(spec, clean);
-    if (err != null) throw ArgumentError(err);
     final id = uid ?? newUid();
     final d = await AppDb.I.db;
     final now = DateTime.now().toIso8601String();
@@ -747,6 +748,9 @@ class EntityStore {
           if (f.defaultValue != null) merged[f.key] = f.defaultValue;
         }
       }
+      // v90: یک ردیف موجود با چند فیلد (تغییر مرحله، تأیید فروش، سپردن) ⇒ فیلدهای الزامیِ دست‌نخورده از ردیف ذخیره‌شده؛ خطا ⇒ تراکنش برمی‌گردد
+      final err = validate(spec, clean, existing: ex.isNotEmpty ? merged : null);
+      if (err != null) throw ArgumentError(err);
       merged.addAll(clean);
       await t.insert(
           table,
