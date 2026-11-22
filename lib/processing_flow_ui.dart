@@ -2,7 +2,10 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'doc_drafts.dart' show DocDraftsLocal, DraftRestoreBanner; // v87: پیش‌نویس
+import 'access_catalog.dart' show FieldGate; // v87
 import 'fmt.dart' show Fmt;
+import 'perms.dart' show StaffPerms;
 import 'form_settings.dart' show FormSettingsLocal;
 import 'processing_ui.dart' show ProcessingStore;
 import 'returns_ui.dart' show ReturnsHelp;
@@ -212,8 +215,102 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
     }
   }
 
+  // ── v87: پیش‌نویس (دستی + ذخیرهٔ خودکار هنگام ترک فرم) ──
+  bool _done = false;
+  int? _draftId;
+  String get _draftType => _paid ? 'proc_paid' : 'proc_received';
+  bool get _hasInput =>
+      _party.text.trim().isNotEmpty || _op != null || _paidIns.any((_PaidIn r) => r.lot != null || r.kg.text.trim().isNotEmpty) ||
+      _recIns.any((_RecIn r) => r.gross.text.trim().isNotEmpty || r.catId != null);
+  String get _draftTitle => '${_paid ? 'برون‌سپاری' : 'فراوری امانی'}${_op == null ? '' : ' ${kWsOpLabels[_op]}'}${_party.text.trim().isEmpty ? '' : ' — ${_party.text.trim()}'}';
+
+  Map<String, dynamic> _draftData() => <String, dynamic>{
+        'party': _party.text, 'note': _note.text, 'fee': _fee.text, 'other': _other.text, 'receipt': _receiptNo.text, 'declared': _declared.text,
+        'ext_party': _extParty.text, 'ext_fee': _extFee.text, 'date': _date.toIso8601String(), 'op': _op, 'basis': _basis, 'line': _line,
+        'kind': _kind, 'ext': _ext, 'wh': _wh,
+        'paid': <Map<String, dynamic>>[
+          for (final _PaidIn r in _paidIns) <String, dynamic>{'lot': r.lot, 'kg': r.kg.text, 'small': r.small.text, 'large': r.large.text, 'all': r.all},
+        ],
+        'rec': <Map<String, dynamic>>[
+          for (final _RecIn r in _recIns)
+            <String, dynamic>{
+              'cat': r.catId, 'kind': r.kind, 'gross': r.gross.text, 'small': r.small.text, 'large': r.large.text, 'ounce': r.ounce.text, 'gram': r.gram.text,
+              'pct': <String, String>{for (final MapEntry<String, TextEditingController> e in r.pct.entries) e.key: e.value.text},
+            },
+        ],
+      };
+
+  void _applyDraft(int id, Map<String, dynamic> d) {
+    String t(Object? v) => v == null ? '' : '$v';
+    setState(() {
+      _draftId = id;
+      _party.text = t(d['party']);
+      _note.text = t(d['note']);
+      _fee.text = t(d['fee']);
+      _other.text = t(d['other']);
+      _receiptNo.text = t(d['receipt']);
+      _declared.text = t(d['declared']);
+      _extParty.text = t(d['ext_party']);
+      _extFee.text = t(d['ext_fee']);
+      _date = DateTime.tryParse(t(d['date'])) ?? _date;
+      _op = kWsOpenTypes.contains(d['op']) ? '${d['op']}' : null;
+      _basis = d['basis'] == 'fixed' ? 'fixed' : 'per_kg';
+      _line = d['line'] as String?;
+      _kind = d['kind'] as String?;
+      if (_kind != null && !_kinds.contains(_kind)) _kinds = <String>[..._kinds, _kind!];
+      _ext = d['ext'] == true;
+      if (d['wh'] is String && _whs.any((WhOption w) => w.uid == d['wh'])) _wh = d['wh'] as String;
+      for (final _PaidIn r in _paidIns) {
+        r.dispose();
+      }
+      _paidIns.clear();
+      for (final Object? x in (d['paid'] as List<dynamic>? ?? const <dynamic>[])) {
+        if (x is! Map) continue;
+        _paidIns.add(_PaidIn()
+          ..lot = (x['lot'] != null && _info.containsKey('${x['lot']}')) ? '${x['lot']}' : null
+          ..kg.text = t(x['kg'])
+          ..small.text = t(x['small'])
+          ..large.text = t(x['large'])
+          ..all = x['all'] == true);
+      }
+      if (_paidIns.isEmpty) _paidIns.add(_PaidIn());
+      for (final _RecIn r in _recIns) {
+        r.dispose();
+      }
+      _recIns.clear();
+      for (final Object? x in (d['rec'] as List<dynamic>? ?? const <dynamic>[])) {
+        if (x is! Map) continue;
+        final _RecIn r = _RecIn()
+          ..catId = (x['cat'] as num?)?.toInt()
+          ..kind = x['kind'] as String?;
+        r.gross.text = t(x['gross']);
+        r.small.text = t(x['small']);
+        r.large.text = t(x['large']);
+        r.ounce.text = t(x['ounce']);
+        r.gram.text = t(x['gram']);
+        final Object? pc = x['pct'];
+        if (pc is Map) {
+          for (final MapEntry<String, TextEditingController> e in r.pct.entries) {
+            e.value.text = t(pc[e.key]);
+          }
+        }
+        _recIns.add(r);
+      }
+      if (_recIns.isEmpty) _recIns.add(_RecIn());
+    });
+  }
+
+  Future<void> _saveDraft() async {
+    await DocDraftsLocal.saveOrReplace(_draftType, _draftTitle, _draftData(), replaceId: _draftId);
+    _done = true;
+    if (!mounted) return;
+    _snack(context, 'پیش‌نویس ذخیره شد (بدون اثر روی انبار و حساب‌ها)');
+    Navigator.pop(context);
+  }
+
   @override
   void dispose() {
+    if (!_isEdit && !_done && _hasInput) DocDraftsLocal.autosave(_draftType, _draftTitle, _draftData()); // v87
     for (final TextEditingController c in <TextEditingController>[_party, _note, _fee, _other, _receiptNo, _declared, _extParty, _extFee]) {
       c.dispose();
     }
@@ -401,6 +498,8 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
       }
       final String label = '${_isEdit ? 'ویرایش ' : ''}${_paid ? 'برون‌سپاری' : 'فراوری امانی'} (${kWsOpLabels[_op]}): $party';
       final bool queued = await ProcessingStore.write(_isEdit ? 'processing.update' : 'processing.create', payload, label);
+      _done = true; // v87
+      if (_draftId != null) await DocDraftsLocal.delete(_draftId!);
       if (!mounted) return;
       msg(queued ? 'آفلاین ذخیره شد؛ پس از اتصال ارسال می‌شود' : 'ثبت شد');
       Navigator.pop(context, true);
@@ -671,6 +770,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
           if (_op == 'production' || _op == 'crack') _third(),
         ];
         return ListView(padding: const EdgeInsets.all(14), children: <Widget>[
+          if (!_isEdit) DraftRestoreBanner(docType: _draftType, onRestore: _applyDraft), // v87
           if (row)
             Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
               for (int i = 0; i < head.length; i++) ...<Widget>[if (i > 0) const SizedBox(width: 8), Expanded(child: head[i])],
@@ -698,7 +798,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
             gap,
             Text(_paid ? 'اجرت و هزینه‌ها (بستانکار فراوری‌کننده؛ روی بهای خروجی‌ها)' : 'اجرت و هزینه‌ها (بدهکار مشتری)', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
-            Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
+            FieldGate(field: 'proc.fee', child: Wrap(spacing: 8, runSpacing: 8, children: <Widget>[
               SizedBox(
                 width: 180,
                 child: DropdownButtonFormField<String>(
@@ -731,14 +831,14 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
                   onChanged: (_) => setState(() {}),
                 ),
               ),
-            ]),
-            Padding(
+            ])),
+            FieldGate(field: 'proc.fee', child: Padding(
               padding: const EdgeInsets.only(top: 6),
               child: Text('${_paid ? 'بستانکار فراوری‌کننده' : 'بدهکار مشتری'}: ${Fmt.money(_feeTotal, label: false)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-            ),
+            )),
             if (_paid) ...<Widget>[
               gap,
-              TextField(controller: _receiptNo, decoration: _dec('شمارهٔ قبض (اختیاری)')),
+              FieldGate(field: 'proc.receipt', child: TextField(controller: _receiptNo, decoration: _dec('شمارهٔ قبض (اختیاری)'))),
             ],
             if (!_paid) ...<Widget>[
               gap,
@@ -761,12 +861,12 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
                   Expanded(child: TextField(controller: _extParty, decoration: _dec('فراوری‌کنندهٔ بیرونی'))),
                   const SizedBox(width: 8),
                   Expanded(
-                    child: TextField(
+                    child: FieldGate(field: 'proc.fee', child: TextField(
                       controller: _extFee,
                       keyboardType: _numKb,
                       inputFormatters: <ThousandsInputFormatter>[ThousandsInputFormatter()],
                       decoration: _dec('کرایهٔ فراوری‌کنندهٔ بیرونی (کل)'),
-                    ),
+                    )),
                   ),
                 ]),
             ],
@@ -778,6 +878,10 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
               icon: const Icon(Icons.save_outlined),
               label: Text(_saving ? 'در حال ثبت…' : 'ثبت سفارش'),
             ),
+            if (!_isEdit) ...<Widget>[
+              const SizedBox(height: 8),
+              OutlinedButton.icon(onPressed: _saving ? null : _saveDraft, icon: const Icon(Icons.edit_note), label: const Text('ذخیره به‌عنوان پیش‌نویس')),
+            ],
           ],
         ]);
       }),
@@ -949,6 +1053,7 @@ List<Widget> procOpInfo(BuildContext context, Map<String, dynamic> d, {bool show
         recvKg: outKg,
         avgOunce: wsWeightedAvg(og, 'ounce'),
         avgGram: wsWeightedAvg(og, 'gram'),
+        gramOut: procAvgOg(outs)['gram'], // v87
         buyPerKg: showMoney && !rec && inKg > 0 && inCost > 0 ? inCost / inKg : null));
   } else if (outs.isNotEmpty) {
     final double waste = ((inKg - outKg) * 1000).round() / 1000;
@@ -1329,10 +1434,10 @@ List<Widget> procChainSection(BuildContext context, Map<String, dynamic> d,
   String? hint;
   if (status == 'in_progress') hint = 'پس از «دریافت خروجی» شکست، خروجی‌ها را در همین فرایند به تولید (سورت) بفرستید.';
   // v86: شکست امانی ⇒ شیفت‌ها (شیفت، تاریخ، اپراتور، ساعت شروع/پایان) + جمع ساعات و شیفت‌ها
-  final Widget? shiftsCard = rec && op == 'crack'
+  final Widget? shiftsCard = rec && op == 'crack' && StaffPerms.I.fieldShown('proc.shifts') // v87
       ? WsShiftsCard(
           shifts: ReturnsHelp.maps(d['shifts']),
-          editable: canCreate,
+          editable: canCreate && StaffPerms.I.fieldEditable('proc.shifts'),
           hint: status == 'in_progress' ? 'پیش از دریافت خروجی‌ها، شیفت‌های کار خط شکست را وارد کنید.' : null,
           onSave: (List<Map<String, dynamic>> v) async {
             try {
@@ -1350,7 +1455,7 @@ List<Widget> procChainSection(BuildContext context, Map<String, dynamic> d,
     procChainCard(
       context,
       d,
-      onSend: canCreate && ready ? send : null,
+      onSend: canCreate && ready && StaffPerms.I.fieldEditable('proc.chain') ? send : null, // v87
       hint: hint ?? (rec && ready && ReturnsHelp.maps(d['children']).isNotEmpty ? '«تحویل به مشتری» در این شکست فقط ماندهٔ فرستاده‌نشده به تولید را تحویل می‌دهد.' : null),
       onOpen: (Map<String, dynamic> c) => openOrder(ReturnsHelp.d(c['id']).toInt()),
       onOpenParent: d['parent'] is Map ? () => openOrder(ReturnsHelp.d((d['parent'] as Map)['id']).toInt()) : null,
@@ -1361,7 +1466,7 @@ List<Widget> procChainSection(BuildContext context, Map<String, dynamic> d,
 
 /// v85: کادر رطوبت آبخندان (کم‌بود / وزن اضافه‌شده و درصد رطوبت با علامت) + میانگین انس و گرم ارسالی.
 /// [buyPerKg] فقط برای دارندهٔ مجوز بها: ارزش کم‌بود (= کم‌بود × فی ورودی) که روی بار می‌نشیند.
-List<Widget> wsMoistureRows(BuildContext context, {required double sentKg, required double recvKg, double? avgOunce, double? avgGram, double? buyPerKg}) {
+List<Widget> wsMoistureRows(BuildContext context, {required double sentKg, required double recvKg, double? avgOunce, double? avgGram, double? buyPerKg, double? gramOut}) {
   Widget kv(String k, String v, {bool strong = false, Color? color}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(children: <Widget>[
@@ -1385,6 +1490,15 @@ List<Widget> wsMoistureRows(BuildContext context, {required double sentKg, requi
     kv('درصد رطوبت', pct, strong: true, color: m == null || m.diffKg == 0 ? null : (m.shortage ? Colors.red : Colors.green)),
     if (m != null && m.shortage) Text('کم‌بود وزن به این دلیل است که پستهٔ تحویلی رطوبت کمتری دارد (درصد منفی = کم‌بود × ۱۰۰ ÷ وزن ارسالی).', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
     if (m != null && m.added) Text('پستهٔ تحویلی رطوبت بیشتری دارد (درصد مثبت = وزن اضافه‌شده × ۱۰۰ ÷ وزن ارسالی).', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+    // v87: مقایسهٔ گرم ورودی و خروجی + گرم برآوردی (گرم ورودی ± درصد کم‌بود/زیادبود)
+    if (avgGram != null || gramOut != null) ...<Widget>[
+      const Divider(),
+      kv('گرم ورودی', avgGram == null ? '—' : _f2(avgGram)),
+      kv('گرم خروجی (ثبت‌شده؛ مبنای اصلی)', gramOut == null ? '—' : _f2(gramOut), strong: true),
+      if (avgGram != null && gramOut != null) kv('اختلاف گرم (خروجی − ورودی)', '${gramOut - avgGram > 0 ? '+' : (gramOut - avgGram < 0 ? '−' : '')}${_f2((gramOut - avgGram).abs())}'),
+      if (wsAbEstimatedGram(avgGram, m) != null)
+        kv('گرم برآوردی (گرم ورودی ${m!.shortage ? '−' : '+'} ${_f2(m.pct.abs())}٪)', _f2(wsAbEstimatedGram(avgGram, m)!)),
+    ],
   ];
 }
 
@@ -1413,12 +1527,17 @@ List<List<String>> procReportRows(Map<String, dynamic> d, {double? inKg0}) {
   final double inKg = inKg0 ?? ReturnsHelp.d(d['input_kg']);
   final double outKg = outs.fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg']));
   double sum(String g) => outs.where((Map<String, dynamic> r) => r['grade'] == g).fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg']));
-  final Map<String, double?> ai = procAvgOg(ins), ao = procAvgOg(outs);
+  // v87: شکست ⇒ انس/گرم نشکن جدا (فقط ثبت؛ در میانگین خروجی و مغز و پرتی اثری ندارد)
+  final List<Map<String, dynamic>> uncr = op == 'crack' ? outs.where((Map<String, dynamic> r) => r['grade'] == 'uncracked').toList() : <Map<String, dynamic>>[];
+  final Map<String, double?> ai = procAvgOg(ins), ao = procAvgOg(op == 'crack' ? outs.where((Map<String, dynamic> r) => r['grade'] != 'uncracked').toList() : outs);
+  final Map<String, double?> au = procAvgOg(uncr);
   final List<List<String>> x = <List<String>>[
     if (ai['ounce'] != null) <String>['میانگین انس ورودی', faNum(ai['ounce']!, dec: 2)],
     if (ai['gram'] != null) <String>['میانگین گرم ورودی', _f2(ai['gram']!)],
-    if (ao['ounce'] != null) <String>['میانگین انس خروجی', faNum(ao['ounce']!, dec: 2)],
-    if (ao['gram'] != null) <String>['میانگین گرم خروجی', _f2(ao['gram']!)],
+    if (ao['ounce'] != null && op != 'abkhandan') <String>['میانگین انس خروجی', faNum(ao['ounce']!, dec: 2)],
+    if (ao['gram'] != null && op != 'abkhandan') <String>['میانگین گرم خروجی', _f2(ao['gram']!)],
+    if (au['ounce'] != null) <String>['انس نشکن (ثبت)', faNum(au['ounce']!, dec: 2)],
+    if (au['gram'] != null) <String>['گرم نشکن (ثبت)', _f2(au['gram']!)],
   ];
   if (outs.isNotEmpty && op != 'abkhandan') {
     final double w = ((inKg - outKg) * 1000).round() / 1000;
@@ -1448,6 +1567,11 @@ List<List<String>> procReportRows(Map<String, dynamic> d, {double? inKg0}) {
         <String>['وزن ارسالی / دریافتی', '${_kg(inKg)} / ${_kg(outKg)} کیلو'],
         <String>[m.shortage ? 'کم‌بود وزن' : 'وزن اضافه‌شده', '${_kg(m.absKg)} کیلو', 'b'],
         <String>['درصد رطوبت', '${m.pct > 0 ? '+' : (m.pct < 0 ? '−' : '')}${_f2(m.pct.abs())}٪', 'b'],
+        // v87: گرم ورودی و خروجی + گرم برآوردی
+        if (ai['gram'] != null) <String>['گرم ورودی', _f2(ai['gram']!)],
+        if (ao['gram'] != null) <String>['گرم خروجی (ثبت‌شده؛ مبنای اصلی)', _f2(ao['gram']!), 'b'],
+        if (ai['gram'] != null && ao['gram'] != null) <String>['اختلاف گرم (خروجی − ورودی)', _f2(ao['gram']! - ai['gram']!)],
+        if (wsAbEstimatedGram(ai['gram'], m) != null) <String>['گرم برآوردی (ورودی ± درصد وزن)', _f2(wsAbEstimatedGram(ai['gram'], m)!)],
       ]);
     }
   }

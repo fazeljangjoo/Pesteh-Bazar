@@ -5,7 +5,6 @@ import 'fmt.dart' show Fmt;
 import 'db.dart';
 import 'correction_ui.dart' show showCorrectionDialog;
 import 'doc_drafts.dart' show DraftsScreen;
-import 'form_settings.dart' show FormSettingsLocal;
 import 'grade_lines_ui.dart' show GradeCostRows;
 import 'vouchers_links.dart';
 import 'list_filter.dart';
@@ -43,7 +42,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
   // v86: فیلتر فروخته‌شده در هر دو تب (همه / بدون فروخته‌شده / فقط فروخته‌شده) + «کوت‌های هم‌گروه زیر هم» در تب کوت و فراوری
   String _soldMode = 'hide';
   bool _groupMix = false;
-  static const Map<String, String> _soldModes = <String, String>{'all': 'همه', 'hide': 'بدون فروخته‌شده', 'only': 'فقط فروخته‌شده'};
+  // v87: نام‌های ساده: موجود / فروخته‌شده / همه
 
   /// v86: خریدها + کیلوی فروش/کوت/برگشت + گروه کوت ⇒ «کوت‌ریزی یا فراوری‌شده» = بخشی از وزن به کوت رفته یا (خالص − مانده − فروش − کوت − برگشت) به فراوری.
   Future<List<Map<String, dynamic>>> _load() async {
@@ -325,7 +324,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
           title: const Text('خرید'),
           actions: <Widget>[
             FutureBuilder<bool>(
-              future: FormSettingsLocal.isOn('draft'), // S35.T35.9b
+              future: Future<bool>.value(true), // v87: پیش‌نویس همیشه در دسترس (قبلاً FormSettingsLocal 'draft')
               builder: (BuildContext c, AsyncSnapshot<bool> s) => s.data == true
                   ? IconButton(
                       tooltip: 'پیش‌نویس‌ها',
@@ -392,21 +391,16 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                     onChanged: (f) => setState(() => _filter = f),
                     shown: filtered.length,
                     total: all.length,
+                    // v87: وضعیت فروش و ترتیب کوت‌ها داخل «فیلتر و ترتیب» (نه بالای صفحه)
+                    extras: [
+                      DocFilterExtra(key: 'sold', title: 'نمایش', options: const {'hide': 'موجود', 'only': 'فروخته‌شده', 'all': 'همه'}, value: _soldMode),
+                      DocFilterExtra(key: 'group', title: 'ترتیب کوت‌ها (تب کوت و فراوری)', options: const {'date': 'طبق تاریخ', 'together': 'هم‌گروه‌ها کنار هم'}, value: _groupMix ? 'together' : 'date'),
+                    ],
+                    onExtras: (m) => setState(() {
+                      _soldMode = m['sold'] ?? _soldMode;
+                      _groupMix = m['group'] == 'together';
+                    }),
                   ),
-                ),
-                // v86: فروخته‌شده‌ها (هر دو تب) + کوت‌های هم‌گروه زیر هم (تب کوت و فراوری)
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 2, 12, 2),
-                  child: Wrap(spacing: 6, runSpacing: 4, crossAxisAlignment: WrapCrossAlignment.center, children: [
-                    for (final e in _soldModes.entries)
-                      ChoiceChip(label: Text(e.value), selected: _soldMode == e.key, onSelected: (_) => setState(() => _soldMode = e.key)),
-                    FilterChip(
-                      avatar: const Icon(Icons.merge_type, size: 18),
-                      label: const Text('کوت‌های هم‌گروه زیر هم'),
-                      selected: _groupMix,
-                      onSelected: (v) => setState(() => _groupMix = v),
-                    ),
-                  ]),
                 ),
                 Expanded(
                   child: TabBarView(children: [

@@ -18,7 +18,7 @@ const Map<String, String> kCrLotLabels = <String, String>{
 };
 
 /// تفکیک مغز (AA..AH): همراه با «مغز» (U) لات نمی‌شود (مغز دو بار شمرده می‌شود).
-const Set<String> kCrLotSub = <String>{'sound_kg', 'wheat_kg', 'super_fine_kg', 'flower_kg', 'split_kg', 'unbreakable_kg', 'pink_kg', 'waste_kernel_kg'};
+const Set<String> kCrLotSub = <String>{'sound_kg', 'wheat_kg', 'super_fine_kg', 'flower_kg', 'split_kg', 'pink_kg', 'waste_kernel_kg'}; // v87: ناشکن جدا
 
 class CrLotItem {
   final String field;

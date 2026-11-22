@@ -311,7 +311,7 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
             final mixedAll = all.where(isMixRow).toList();
             final kindItems = _showCons ? consAll : (_showMixed ? mixedAll : boughtAll);
             final otherKindItems = _showCons ? <Map<String, dynamic>>[] : (_showMixed ? boughtAll : mixedAll);
-            final bool canCost = StaffPerms.I.can('price.view');
+            final bool canCost = StaffPerms.I.canPriceIn('stock') /* v87 */;
 
             // «موجود» مثل وب: هنوز وزنی از خودش مانده، یا مقداری از آن داخل مخلوطِ فروش‌نرفته است
             bool avail(Map<String, dynamic> p) => ((p['remaining'] as num?) ?? 0).toDouble() > 1e-6;
@@ -586,7 +586,7 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
       'کد پسته: ${l['code'] ?? '-'}',
       if (mixKind == 3)
         'امانی ${(l['seller'] ?? '').toString().isEmpty ? '' : '(${l['seller']}) '}از ${jalaliDate(l['date'] as String)}'
-      else if (StaffPerms.I.can('price.view'))
+      else if (StaffPerms.I.canPriceIn('stock') /* v87 */)
         '${mixKind == 0 ? 'خرید' : 'ساخت'} ${jalaliDate(l['date'] as String)}  •  بهای تمام‌شدهٔ هر کیلو ${Fmt.money(l['price'] as num, label: false)}'
             '${rem > 1e-6 ? '  •  ارزش مانده ${Fmt.money(rem * (l['price'] as num).toDouble(), label: false)}' : ''}'
       else

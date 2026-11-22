@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'access_catalog.dart' show FieldGate; // v87: قسمت‌های قفل/پنهان فرم
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'db.dart';
@@ -456,7 +457,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
         ['جمع وزن برداشته‌شده (خالص)', '${faNum(_takenSum)} کیلو', 'b'],
         ['میانگین گرم ورودی', a.gram == null ? 'قابل محاسبه نیست' : faNum(a.gram!, dec: 2)],
         ['میانگین انس ورودی', a.ounce == null ? 'قابل محاسبه نیست' : faNum(a.ounce!, dec: 2)],
-        if (StaffPerms.I.can('price.view')) ['میانگین فی ورودی', a.price == null ? 'قابل محاسبه نیست' : faNum(a.price!, dec: 0)],
+        if (StaffPerms.I.canPriceIn('mixing') /* v87 */) ['میانگین فی ورودی', a.price == null ? 'قابل محاسبه نیست' : faNum(a.price!, dec: 0)],
         ['لات جدید', '$cat ${_baseType ?? ''} — ${_typeName.text.trim()}'],
         ['وزن نهایی لات جدید (خالص)', '${faNum(net)} کیلو', 'b'],
         ['ضایعات / خاک', '${faNum(waste)} کیلو${_takenSum > 0 ? ' (${faNum(waste * 100 / _takenSum, dec: 2)}٪)' : ''}'],
@@ -774,7 +775,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
             ]),
             WarehousePicker(label: 'انبار لات جدید', value: _warehouseUid, useLast: !_isEdit, onChanged: (v) => _warehouseUid = v),
             OuncePicker(value: _ounceUid, onChanged: (v) => _ounceUid = v),
-            textField(_note, 'توضیحات (اختیاری)', lines: 2),
+            FieldGate(field: 'mix.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2)),
             const SizedBox(height: 8),
             Wrap(spacing: 8, runSpacing: 8, children: [
               if (!_isEdit)

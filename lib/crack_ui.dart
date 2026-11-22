@@ -397,7 +397,7 @@ class _CrackFormScreenState extends State<CrackFormScreen> {
 
     String pct(double? v) => v == null ? '' : '${faNum(v, dec: 2)}٪';
     return _group('تراز واقعی', <Widget>[
-      _readOnly('افت واقعی = L−(U+V+W)', kgPct(c.realLossKg, c.realLossPct)),
+      _readOnly('افت واقعی = L−(U+V+W+ناشکن)', kgPct(c.realLossKg, c.realLossPct)),
       _gap(),
       _readOnly('کسری مغز نسبت به برآورد (N−U)', kgPct(c.shortfallKg, c.shortfallPct)),
       _gap(),

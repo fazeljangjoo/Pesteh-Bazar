@@ -103,6 +103,15 @@ class DocListFilter {
 }
 
 /// نوار فیلتر بالای لیست: پیکان‌های جابه‌جایی سال پسته‌ای + دکمهٔ فیلتر (ترتیب و بازهٔ دلخواه)
+/// v87: گزینهٔ اضافهٔ «فیلتر و ترتیب» یک فهرست (مثلاً وضعیت فروش، ترتیب کوت‌ها).
+class DocFilterExtra {
+  const DocFilterExtra({required this.key, required this.title, required this.options, required this.value});
+  final String key;
+  final String title;
+  final Map<String, String> options; // مقدار ⇒ برچسب (اولی = پیش‌فرض)
+  final String value;
+}
+
 class DocListFilterBar extends StatelessWidget {
   const DocListFilterBar({
     super.key,
@@ -110,7 +119,13 @@ class DocListFilterBar extends StatelessWidget {
     required this.onChanged,
     required this.shown,
     required this.total,
+    this.extras = const <DocFilterExtra>[],
+    this.onExtras,
   });
+
+  /// v87: گزینه‌های اضافهٔ همین فهرست در برگهٔ «فیلتر و ترتیب».
+  final List<DocFilterExtra> extras;
+  final ValueChanged<Map<String, String>>? onExtras;
 
   final DocListFilter value;
   final ValueChanged<DocListFilter> onChanged;
@@ -122,12 +137,14 @@ class DocListFilterBar extends StatelessWidget {
   final int total;
 
   Future<void> _openSheet(BuildContext context) async {
-    final DocListFilter? r = await showModalBottomSheet<DocListFilter>(
+    final (DocListFilter, Map<String, String>)? r = await showModalBottomSheet<(DocListFilter, Map<String, String>)>(
       context: context,
       isScrollControlled: true,
-      builder: (BuildContext ctx) => _FilterSheet(initial: value),
+      builder: (BuildContext ctx) => _FilterSheet(initial: value, extras: extras),
     );
-    if (r != null) onChanged(r);
+    if (r == null) return;
+    onChanged(r.$1);
+    if (extras.isNotEmpty) onExtras?.call(r.$2);
   }
 
   @override
@@ -183,7 +200,8 @@ class DocListFilterBar extends StatelessWidget {
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 4),
             child: Text(
-              '${toFaDigits('$shown')} مورد از ${toFaDigits('$total')}  •  ${value.newestFirst ? 'جدیدترین اول' : 'قدیمی‌ترین اول'}',
+              '${toFaDigits('$shown')} مورد از ${toFaDigits('$total')}  •  ${value.newestFirst ? 'جدیدترین اول' : 'قدیمی‌ترین اول'}'
+              '${extras.map((DocFilterExtra e) => '  •  ${e.options[e.value] ?? e.value}').join()}',
               style: tt.bodySmall,
             ),
           ),
@@ -194,8 +212,9 @@ class DocListFilterBar extends StatelessWidget {
 }
 
 class _FilterSheet extends StatefulWidget {
-  const _FilterSheet({required this.initial});
+  const _FilterSheet({required this.initial, this.extras = const <DocFilterExtra>[]});
   final DocListFilter initial;
+  final List<DocFilterExtra> extras;
 
   @override
   State<_FilterSheet> createState() => _FilterSheetState();
@@ -206,6 +225,7 @@ class _FilterSheetState extends State<_FilterSheet> {
   late bool _all;
   late DateTime _from;
   late DateTime _to;
+  late final Map<String, String> _ex = <String, String>{for (final DocFilterExtra e in widget.extras) e.key: e.value};
 
   @override
   void initState() {
@@ -240,6 +260,18 @@ class _FilterSheetState extends State<_FilterSheet> {
               selected: <bool>{_newest},
               onSelectionChanged: (Set<bool> s) => setState(() => _newest = s.first),
             ),
+            for (final DocFilterExtra e in widget.extras) ...<Widget>[
+              const SizedBox(height: 14),
+              Text(e.title),
+              const SizedBox(height: 6),
+              SegmentedButton<String>(
+                segments: <ButtonSegment<String>>[
+                  for (final MapEntry<String, String> o in e.options.entries) ButtonSegment<String>(value: o.key, label: Text(o.value)),
+                ],
+                selected: <String>{_ex[e.key] ?? e.value},
+                onSelectionChanged: (Set<String> s) => setState(() => _ex[e.key] = s.first),
+              ),
+            ],
             const SizedBox(height: 16),
             Row(children: <Widget>[
               const Expanded(child: Text('بازهٔ زمانی (تقویم شمسی)')),
@@ -285,7 +317,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                       ? null
                       : () => Navigator.pop(
                             context,
-                            DocListFilter(newestFirst: _newest, from: _all ? null : _from, to: _all ? null : _to),
+                            (DocListFilter(newestFirst: _newest, from: _all ? null : _from, to: _all ? null : _to), Map<String, String>.from(_ex)),
                           ),
                   child: const Text('اعمال'),
                 ),

@@ -43,7 +43,7 @@ double _wsNum(String s) => double.tryParse(_wsEn(s).trim()) ?? 0.0;
 double wsParseNum(String s) => _wsNum(s);
 
 /// دیدن/ثبت بهای کارگاه: price.view + workshop.cost (مالک همیشه).
-bool wsCanCost() => StaffPerms.I.can('price.view') && StaffPerms.I.can('workshop.cost');
+bool wsCanCost() => StaffPerms.I.canPriceIn('workshop') && StaffPerms.I.can('workshop.cost'); // v87: قیمت بخش کارگاه
 
 /// فیلدهای قابل‌ورود بها. فاز ۱ (مجد): «قیمت خرید هر کیلو» (V) دیگر وارد نمی‌شود (فقط‌نمایش با [kWsBuyLabel])؛ چفت و دهنبست با قیمت جدا.
 const List<List<String>> kWsCostFields = <List<String>>[

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
-import 'lot_chain_ui.dart' show LotChainScreen; // v86
+import 'lot_chain_ui.dart' show LotChainScreen, editLotSpecs; // v86 + v87
 import 'vouchers_links.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -973,6 +973,14 @@ Future<void> showSeparationLotSheet(BuildContext context, Map<String, dynamic> l
             },
             icon: const Icon(Icons.print_outlined),
             label: const Text('چاپ برچسب A6'),
+          ),
+          OutlinedButton.icon( // v87: ویرایش انس و گرم لات (مثلاً نشکن شکست)
+            onPressed: () async {
+              Navigator.pop(ctx);
+              await editLotSpecs(context, l);
+            },
+            icon: const Icon(Icons.tune),
+            label: Text('انس و گرم${l['ounce'] == null && l['gram'] == null ? '' : ' (انس ${l['ounce'] ?? '—'} / گرم ${l['gram'] ?? '—'})'}'),
           ),
         ]),
       ),
