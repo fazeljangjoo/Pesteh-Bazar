@@ -3,6 +3,7 @@ import 'cheque_ui.dart';
 import 'payroll_ui.dart'; // T11.4
 import 'dart:async';
 import 'perms.dart'; // T02.2
+import 'user_badge.dart'; // v89
 import 'cartex_shell.dart' show CartexShell; // نقش «کارتکس»
 import 'workshop_operator_shell.dart'; // کارگاه ۳-ب
 import 'access_ui.dart' show AccessHomeScreen; // v87
@@ -234,8 +235,12 @@ class _HomeShellState extends State<HomeShell> {
                   child: Text('پسته بازار', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
                 ),
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 6),
                   child: Align(alignment: AlignmentDirectional.centerStart, child: EditionBadge()),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+                  child: Align(alignment: AlignmentDirectional.centerStart, child: UserRoleLine()), // v89: نام و نقش
                 ),
                 const Divider(height: 1),
               ],
@@ -746,6 +751,15 @@ class _HomeShellState extends State<HomeShell> {
                 ),
               ),
               const Divider(height: 1),
+              if (StaffPerms.I.isStaff) // v89: خروج کارکن («اشتراک من» برایش پنهان است)
+                ListTile(
+                  leading: const Icon(Icons.logout),
+                  title: const Text('خروج از حساب'),
+                  onTap: () {
+                    _closeMenu(context);
+                    staffLogout(context);
+                  },
+                ),
               if (!StaffPerms.I.isStaff) // v89: فقط مالک
               ListTile(
                 leading: const Icon(Icons.verified_user_outlined),

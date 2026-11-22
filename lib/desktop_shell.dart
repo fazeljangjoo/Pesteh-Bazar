@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'edition.dart' show EditionBadge;
+import 'user_badge.dart' show UserRoleLine; // v89
 import 'live_query.dart' show activeTab;
 import 'perms.dart' show StaffPerms; // v89
 import 'sync_service.dart';
@@ -452,7 +453,7 @@ class _SidebarHeader extends StatelessWidget {
       ),
     );
     return Container(
-      height: collapsed ? 72 : 92,
+      height: collapsed ? 72 : 112, // v89: + خط نام و نقش
       padding: EdgeInsets.symmetric(horizontal: collapsed ? 0 : 16),
       decoration: const BoxDecoration(
         gradient: LinearGradient(colors: <Color>[_kBrandDark, _kBrand], begin: Alignment.topRight, end: Alignment.bottomLeft),
@@ -472,6 +473,8 @@ class _SidebarHeader extends StatelessWidget {
                           style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold)),
                       SizedBox(height: 6),
                       Align(alignment: AlignmentDirectional.centerStart, child: _BadgeOnDark()),
+                      SizedBox(height: 6),
+                      Align(alignment: AlignmentDirectional.centerStart, child: UserRoleLine(onDark: true)),
                     ],
                   ),
                 ),

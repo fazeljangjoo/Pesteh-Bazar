@@ -364,6 +364,29 @@ class LicenseService {
     return _finishLogin(n, r.data);
   }
 
+  /// v89: بازیابی رمز کارکن — ارسال کد به شمارهٔ ثبت‌شدهٔ کارکن. masked = شمارهٔ پوشانده (۰۹۱۲•••۴۵۶۷).
+  Future<({String? error, String? masked})> staffResetSend(String ownerPhone, String username) async {
+    if (!isValidPhone(ownerPhone)) return (error: 'شماره موبایل مالک را درست وارد کنید (مثال: 09123456789)', masked: null);
+    if (username.trim().isEmpty) return (error: 'نام کاربری کارکن را وارد کنید', masked: null);
+    final r = await _post('staff_reset.php', <String, dynamic>{'step': 'send', 'phone': normalizePhone(ownerPhone), 'username': username.trim()});
+    if (r.netError != null) return (error: r.netError, masked: null);
+    final String? masked = r.data['masked'] as String?;
+    if (r.status != 200) return (error: (r.data['error'] as String?) ?? 'ارسال کد ناموفق بود؛ دوباره تلاش کنید.', masked: masked);
+    return (error: null, masked: masked);
+  }
+
+  /// v89: بازیابی رمز کارکن — کد + رمز تازه. null = موفق.
+  Future<String?> staffResetConfirm(String ownerPhone, String username, String code, String password) async {
+    if (code.trim().isEmpty) return 'کد پیامکی را وارد کنید';
+    if (password.length < 6) return 'رمز تازه حداقل ۶ نویسه است';
+    final r = await _post('staff_reset.php', <String, dynamic>{
+      'step': 'confirm', 'phone': normalizePhone(ownerPhone), 'username': username.trim(), 'code': code.trim(), 'password': password,
+    });
+    if (r.netError != null) return r.netError;
+    if (r.status != 200) return (r.data['error'] as String?) ?? 'تغییر رمز ناموفق بود؛ دوباره تلاش کنید.';
+    return null;
+  }
+
   /// ورود کارکن: شمارهٔ مالک + نام کاربری + رمز (staff_login.php). نتیجه: null = موفق، وگرنه متن خطا.
   Future<String?> signInStaff(String ownerPhone, String username, String password) async {
     if (ownerPhone.trim().isEmpty) return 'شماره موبایل مالک را وارد کنید';

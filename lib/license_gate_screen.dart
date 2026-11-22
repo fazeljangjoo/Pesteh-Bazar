@@ -11,6 +11,7 @@ import 'notify_service.dart';
 import 'sync_service.dart';
 import 'license_guard.dart';
 import 'license_service.dart';
+import 'staff_reset_screen.dart'; // v89
 import 'local_backup.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -648,6 +649,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                 ),
               ],
+              if (_step == _LoginStep.pass && _asStaff) Center(child: TextButton.icon(
+                    key: const ValueKey('login_staff_forgot'),
+                    onPressed: _loading
+                        ? null
+                        : () => Navigator.push(context, MaterialPageRoute<bool>(builder: (_) => StaffResetScreen(ownerPhone: _phone.text, username: _user.text))),
+                    icon: const Icon(Icons.lock_reset, size: 18),
+                    label: const Text('رمز را فراموش کرده‌ام'), // v89: بازیابی با پیامک به شمارهٔ کارکن
+                  )),
               if (_step == _LoginStep.phone || (_step == _LoginStep.pass && !_asStaff)) ...[
                 const SizedBox(height: 4),
                 Center(

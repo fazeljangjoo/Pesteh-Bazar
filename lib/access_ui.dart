@@ -546,6 +546,7 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
   late final TextEditingController _name = TextEditingController(text: '${_s?['name'] ?? ''}');
   late final TextEditingController _user = TextEditingController(text: '${_s?['username'] ?? ''}');
   final TextEditingController _pass = TextEditingController();
+  late final TextEditingController _phone = TextEditingController(text: '${_s?['phone'] ?? ''}'); // v89: بازیابی رمز با پیامک
   late bool _active = _s == null || _s['active'] == true;
   late final Set<int> _roles = <int>{
     if (_s != null)
@@ -570,6 +571,7 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
     _name.dispose();
     _user.dispose();
     _pass.dispose();
+    _phone.dispose();
     super.dispose();
   }
 
@@ -636,6 +638,7 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
         'perm_grants': (normEff.difference(base).toList()..sort()),
         'perm_denies': (base.difference(normEff).toList()..sort()),
         'field_rules': _ufields,
+        'phone': _phone.text.trim(), // v89
         if (EditionService.I.edition.isGold) 'allowed_fy_ids': _fyIds?.toList(),
       });
       if (mounted) Navigator.pop(context, true);
@@ -692,6 +695,18 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
           controller: _pass,
           obscureText: true,
           decoration: InputDecoration(labelText: _s == null ? 'رمز اولیه (حداقل ۶ نویسه)' : 'رمز تازه (خالی = بدون تغییر)', border: const OutlineInputBorder()),
+        ),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _phone,
+          keyboardType: TextInputType.phone,
+          textDirection: TextDirection.ltr,
+          decoration: const InputDecoration(
+            labelText: 'شمارهٔ موبایل کارکن (اختیاری)',
+            helperText: 'اگر کارکن رمزش را فراموش کند، کد بازیابی به همین شماره پیامک می‌شود',
+            border: OutlineInputBorder(),
+            prefixIcon: Icon(Icons.phone_iphone),
+          ),
         ),
         if ('${_s?['staff_code'] ?? ''}'.isNotEmpty)
           Padding(padding: const EdgeInsets.only(top: 6), child: Text('کد پرسنلی: ${_s!['staff_code']}', style: TextStyle(color: th.hintColor))),

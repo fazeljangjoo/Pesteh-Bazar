@@ -1,4 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:pesteh_bazar/perms.dart';
+import 'package:pesteh_bazar/staff_reset_screen.dart';
+import 'package:pesteh_bazar/user_badge.dart';
 import 'package:pesteh_bazar/access_catalog.dart';
 import 'package:pesteh_bazar/db.dart';
 
@@ -22,5 +26,21 @@ void main() {
     final List<String> keys = accessSectionOf('sales')!.fields.map((AccessOption o) => o.key).toList();
     expect(keys.first, 'sale.price');
     expect(keys, containsAll(<String>['sale.buyer', 'sale.costs', 'sale.fin', 'sale.note']));
+  });
+
+  testWidgets('v89: name and role line under the badge; owner shows «مالک»', (WidgetTester t) async {
+    StaffPerms.I.current.value = <String, dynamic>{'name': 'علی رضایی', 'role': 'اتاق انس + انباردار', 'perms': <String>[]};
+    await t.pumpWidget(const MaterialApp(home: Scaffold(body: UserRoleLine())));
+    expect(find.text('علی رضایی — اتاق انس + انباردار'), findsOneWidget);
+    StaffPerms.I.current.value = null;
+    await t.pump();
+    expect(find.text('مالک'), findsOneWidget);
+  });
+
+  testWidgets('v89: staff password reset screen starts with owner phone, username and send button', (WidgetTester t) async {
+    await t.pumpWidget(const MaterialApp(home: StaffResetScreen(ownerPhone: '09120000000', username: 'ali')));
+    expect(find.text('09120000000'), findsOneWidget);
+    expect(find.text('ali'), findsOneWidget);
+    expect(find.text('ارسال کد پیامکی'), findsOneWidget);
   });
 }
