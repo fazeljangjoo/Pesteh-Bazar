@@ -2,6 +2,8 @@
 import 'package:flutter/material.dart';
 
 import 'db.dart' show AppDb;
+import 'import_engine.dart' show kMkLeadImportKind;
+import 'import_screen.dart';
 import 'marketing_calc.dart';
 import 'marketing_dashboard_ui.dart';
 import 'marketing_store.dart';
@@ -129,6 +131,10 @@ class _MkLeadsViewState extends State<MkLeadsView> {
                     onChanged: (String v) => setState(() => _q = v),
                   ),
                 ),
+                if (MkStore.I.canEntry) ...<Widget>[
+                  const SizedBox(width: 4),
+                  IconButton(tooltip: 'اضافه کردن از اکسل', icon: const Icon(Icons.upload_file), onPressed: () => _open(const MkImportScreen())),
+                ],
                 if (wide) ...<Widget>[
                   const SizedBox(width: 8),
                   SegmentedButton<bool>(
@@ -184,6 +190,21 @@ class _MkLeadsViewState extends State<MkLeadsView> {
       ),
     );
   }
+}
+
+/// v90 — «اضافه کردن از اکسل»: همان جادوی ورود اطلاعات، فقط برای مشتری‌های بازاریابی (اعتبارسنجی دوباره و تکراری‌ها روی سرور).
+class MkImportScreen extends StatelessWidget {
+  const MkImportScreen({super.key});
+  @override
+  Widget build(BuildContext context) => ImportScreen(
+        fixedKind: kMkLeadImportKind,
+        perms: const <String>['marketing.entry', 'marketing.manage'],
+        hint: '۱. «دانلود قالب» را بزنید و هر مشتری را در یک ردیف بنویسید (ردیف نمونه را پاک کنید).\n'
+            '۲. کشور: نام فارسی یا کد دوحرفی (مثل AE). مرحله فقط لید جدید، ارتباط گرفته، مذاکره یا پیش‌فاکتور. پیگیری بعدی: مثل ۱۴۰۵/۰۹/۱۰.\n'
+            '۳. «مسئول» را خالی بگذارید تا مشتری به نام خودتان ثبت شود؛ سپردن به بازاریاب دیگر فقط با مدیر است (نام دقیقاً مثل فهرست کارکنان).\n'
+            '۴. مشتری تکراری (همان نام، تلفن یا ایمیل) رد می‌شود، مگر گزینهٔ «رکوردهای تکراری به‌روزرسانی شوند» را روشن کنید؛ مرحله با اکسل عوض نمی‌شود.\n'
+            '۵. مشتری‌های واردشده در «مشتری جدید»، قیف و امتیاز شمرده نمی‌شوند؛ پیگیری و فروش بعدی آن‌ها مثل بقیه امتیاز دارد.',
+      );
 }
 
 class _Empty extends StatelessWidget {

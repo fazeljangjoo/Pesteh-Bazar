@@ -5,6 +5,7 @@ import 'edition.dart';
 import 'excel_io.dart';
 import 'import_engine.dart';
 import 'perms.dart';
+import 'sync_service.dart';
 import 'warehouse_ui.dart' show StockApi;
 import 'widgets.dart';
 
@@ -12,13 +13,19 @@ import 'widgets.dart';
 // T13.2b: server check (dry run) + final commit via import.commit (idempotent by import_batch_id) + result report.
 class ImportScreen extends StatefulWidget {
   final String? initialKind; // S35.T35.4b: preselect a kind (e.g. 'grade_prices')
-  const ImportScreen({super.key, this.initialKind});
+  /// v90: one fixed kind that is not in the general list (e.g. marketing leads); hides the kind picker.
+  final ImpKind? fixedKind;
+  /// v90: any-of permissions for [fixedKind] (default: parties.create).
+  final List<String>? perms;
+  /// v90: short help shown above the buttons.
+  final String? hint;
+  const ImportScreen({super.key, this.initialKind, this.fixedKind, this.perms, this.hint});
   @override
   State<ImportScreen> createState() => _ImportScreenState();
 }
 
 class _ImportScreenState extends State<ImportScreen> {
-  late ImpKind _kind = kImportKinds.firstWhere((ImpKind k) => k.id == widget.initialKind, orElse: () => kImportKinds.first);
+  late ImpKind _kind = widget.fixedKind ?? kImportKinds.firstWhere((ImpKind k) => k.id == widget.initialKind, orElse: () => kImportKinds.first);
   ImpSheet? _sheet;
   String _fileName = '';
   Map<String, int> _map = <String, int>{};
@@ -43,6 +50,7 @@ class _ImportScreenState extends State<ImportScreen> {
       if (!dry && r['committed'] == true) {
         _batchId = _newBatchId(); // next import (even same file) is a new batch; same-batch retries stay idempotent until then
         snack(context, 'ایمپورت ثبت شد');
+        SyncService.I.syncNow(pull: true); // v90: rows written on the server reach this device's lists now
       }
     } catch (e) {
       if (mounted) snack(context, '${e}'.replaceFirst('Exception: ', ''));
@@ -114,17 +122,28 @@ class _ImportScreenState extends State<ImportScreen> {
 
   @override
   Widget build(BuildContext context) {
-    if (!StaffPerms.I.can('parties.create')) {
+    final String title = widget.fixedKind == null ? 'ورود اطلاعات از اکسل' : 'اضافه کردن از اکسل';
+    if (!(widget.perms != null ? StaffPerms.I.canAny(widget.perms!) : StaffPerms.I.can('parties.create'))) {
       return Scaffold(
-          appBar: AppBar(title: const Text('ورود اطلاعات از اکسل')),
+          appBar: AppBar(title: Text(title)),
           body: const Center(child: Text('مجوز ورود اطلاعات را ندارید')));
     }
     final int bad = _rows.where((ImpRow r) => !r.ok).length;
     return Scaffold(
-      appBar: AppBar(title: const Text('ورود اطلاعات از اکسل')),
+      appBar: AppBar(title: Text(title)),
       body: ListView(
         padding: const EdgeInsets.all(12),
         children: <Widget>[
+          if (widget.fixedKind != null)
+            Text(widget.fixedKind!.label, style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          if (widget.hint != null)
+            Card(
+              elevation: 0,
+              color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
+              margin: const EdgeInsets.only(top: 8, bottom: 4),
+              child: Padding(padding: const EdgeInsets.all(12), child: Text(widget.hint!, style: const TextStyle(fontSize: 13))),
+            ),
+          if (widget.fixedKind == null)
           DropdownButtonFormField<ImpKind>(
             value: _kind,
             decoration: const InputDecoration(labelText: 'نوع اطلاعات', border: OutlineInputBorder()),

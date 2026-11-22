@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:excel/excel.dart';
 
 import 'excel_io.dart';
+import 'marketing_calc.dart' show kMkCountries, kMkOpenStages, kMkSourceLabels, kMkStageLabels;
 import 'utils.dart';
 
 // S13.T13.2a — client side of the import engine: kind schemas, template, xlsx/csv parsing,
@@ -117,6 +118,32 @@ const List<ImpKind> kImportKinds = <ImpKind>[
     ImpField('active', 'فعال', type: ImpType.boolean, enumMap: _kBool, example: 'بله'),
   ], <String>['code']),
 ];
+
+// v90 — بازاریابی بین‌المللی: مشتری‌ها از اکسل. فقط از تب «مشتری‌ها» باز می‌شود (نه از فهرست عمومی بالا).
+// کشور: کد دوحرفی یا نام فارسی؛ منبع و مرحله: برچسب فارسی یا کلید. مرحله فقط مراحل باز (فروش/از دست رفت با اکسل ثبت نمی‌شود).
+Map<String, String> _mkEnum(Map<String, String> keyToLabel, {bool upperValue = false}) => <String, String>{
+      for (final MapEntry<String, String> e in keyToLabel.entries) ...<String, String>{
+        ImportEngine._norm(e.key): upperValue ? e.key.toUpperCase() : e.key,
+        ImportEngine._norm(e.value): upperValue ? e.key.toUpperCase() : e.key,
+      },
+    };
+
+final ImpKind kMkLeadImportKind = ImpKind('mk_leads', 'مشتری‌های بازاریابی بین‌المللی', <ImpField>[
+  const ImpField('name', 'نام شرکت / مشتری', aliases: <String>['نام شرکت', 'نام مشتری', 'نام', 'شرکت', 'مشتری', 'company', 'name'], required: true, max: 150, example: 'Al Noor Trading (نمونه)'),
+  const ImpField('contact', 'شخص رابط', aliases: <String>['رابط', 'نام رابط', 'contact', 'contact person'], max: 120, example: 'Mr. Khalid'),
+  ImpField('country', 'کشور', aliases: <String>['country', 'کد کشور'], type: ImpType.enumeration, enumMap: _mkEnum(kMkCountries, upperValue: true), example: 'امارات'),
+  const ImpField('city', 'شهر', aliases: <String>['city'], max: 80, example: 'دبی'),
+  const ImpField('phone', 'تلفن / واتساپ', aliases: <String>['تلفن', 'واتساپ', 'موبایل', 'شماره تماس', 'phone', 'whatsapp'], max: 40, example: '+971500000000'),
+  const ImpField('email', 'ایمیل', aliases: <String>['email', 'e-mail', 'پست الکترونیک'], max: 120, example: 'sample@example.com'),
+  ImpField('source', 'منبع آشنایی', aliases: <String>['منبع', 'source'], type: ImpType.enumeration, enumMap: _mkEnum(kMkSourceLabels), example: 'نمایشگاه'),
+  const ImpField('products', 'محصول مورد علاقه', aliases: <String>['محصول', 'محصولات', 'products'], max: 200, example: 'خندان، مغز'),
+  const ImpField('est_tons', 'حجم تخمینی خرید (تن)', aliases: <String>['حجم تخمینی (تن)', 'حجم تخمینی', 'تناژ تخمینی', 'tons'], type: ImpType.decimal, example: '20'),
+  ImpField('stage', 'مرحله', aliases: <String>['مرحلهٔ فعلی', 'stage'], type: ImpType.enumeration,
+      enumMap: _mkEnum(<String, String>{for (final String s in kMkOpenStages) s: kMkStageLabels[s]!}), example: 'لید جدید'),
+  const ImpField('owner', 'مسئول', aliases: <String>['بازاریاب', 'بازاریاب مسئول', 'owner'], max: 120),
+  const ImpField('next_followup', 'پیگیری بعدی', aliases: <String>['تاریخ پیگیری بعدی', 'موعد پیگیری', 'next follow-up'], max: 30, example: '1405/09/10'),
+  const ImpField('note', 'یادداشت', aliases: <String>['توضیح', 'note'], max: 3000, example: 'ردیف نمونه؛ پیش از بارگذاری حذف کنید'),
+], <String>['name']);
 
 class ImpSheet {
   final List<String> headers;
