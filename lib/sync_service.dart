@@ -300,6 +300,17 @@ class SyncService {
     return _parsePing(await _call(phone, token, 'sync.version', {if (since != null) 'since_ver': since}, timeoutSec: 10), viaApp: true);
   }
 
+  /// v87: مالک/مدیر دسترسی این کارکن یا نقشش را عوض کرد ⇒ همین حالا دسترسی تازه از account.status (منوها و فرم‌ها فوراً عوض می‌شوند).
+  int? _accessVer;
+  void _onAccessVer(int v) {
+    final int? old = _accessVer;
+    _accessVer = v;
+    if (old != null && old != v && StaffPerms.I.isStaff) {
+      // دسترسی تازه + دریافت دوبارهٔ داده (قیمت‌های بخش تازه‌باز/بسته‌شده در دادهٔ محلی هم درست شود)
+      LicenseService.I.fetchAccountInfo().then((_) => syncNow(pull: true)).catchError((Object _) {});
+    }
+  }
+
   _PingResult _parsePing(_ApiResult r, {required bool viaApp}) {
     if (r.code == 401) {
       LicenseService.I.sessionInvalid.value++; // LicenseGate وضعیت را دوباره بررسی می‌کند
@@ -313,6 +324,8 @@ class SyncService {
     }
     final d = r.data;
     if (r.code != 200 || d == null || d['ver'] == null) throw _ServerError(r.error, r.code);
+    final dynamic av = d['av']; // v87: نسخهٔ دسترسی کارکنان (فقط برای توکن کارکن)
+    if (av is num) _onAccessVer(av.toInt());
     final ch = <SyncChange>[];
     final raw = d['changes'];
     if (raw is List) {

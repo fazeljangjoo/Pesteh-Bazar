@@ -421,7 +421,8 @@ CrackCalc crackCalc({
   // --- S2: تراز واقعی ---
   int subG = 0;
   bool subAny = false;
-  for (final num? v in <num?>[soundKg, wheatKg, superFineKg, flowerKg, splitKg, unbreakableKg, pinkKg, wasteKernelKg]) {
+  // v87: ناشکن (AF) جزو تفکیک مغز نیست؛ فقط ثبت می‌شود و در تراز واقعی مثل پوست و خاک کم می‌شود
+  for (final num? v in <num?>[soundKg, wheatKg, superFineKg, flowerKg, splitKg, pinkKg, wasteKernelKg]) {
     if (v != null) {
       subG += wsGrams(v);
       subAny = true;
@@ -430,8 +431,9 @@ CrackCalc crackCalc({
   final int? aaG = soundKg == null ? null : wsGrams(soundKg);
   final int vG = hullKg == null ? 0 : wsGrams(hullKg); // V خالی = ۰
   final int wG = soilKg == null ? 0 : wsGrams(soilKg); // W خالی = ۰
+  final int afG = unbreakableKg == null ? 0 : wsGrams(unbreakableKg); // v87: ناشکن خالی = ۰
   final int? nG = m == null ? null : (lg * m / 100).round();
-  final int? realG = uN == null ? null : lg - (uN + vG + wG);
+  final int? realG = uN == null ? null : lg - (uN + vG + wG + afG); // v87: + ناشکن
   final int? shortG = (nG == null || uN == null) ? null : nG - uN;
   bool? mismatch;
   if (uN != null && subAny) {
@@ -735,14 +737,15 @@ Map<String, double?> wsumInternal(List<Map<String, dynamic>> rows) {
   };
 }
 
-const List<String> kWsumSubKeys = <String>['sound_kg', 'wheat_kg', 'super_fine_kg', 'flower_kg', 'split_kg', 'unbreakable_kg', 'pink_kg', 'waste_kernel_kg'];
+const List<String> kWsumSubKeys = <String>['sound_kg', 'wheat_kg', 'super_fine_kg', 'flower_kg', 'split_kg', 'pink_kg', 'waste_kernel_kg']; // v87: ناشکن جدا
 
 /// بخش «خط شکست» خلاصه. returned_all_kg = مغز+پوست+خاک+زیرمجموعه‌های مغز (تصمیم کاربر؛ ممکن است دوبار‌شماری باشد ⇒ اجزا هم برمی‌گردند).
 /// ظرفیت (kg/h) = Σمغزِ نوبت‌های دارای زمان × ۶۰ ÷ Σدقیقه.
 Map<String, double?> wsumCrack(List<Map<String, dynamic>> rows) {
-  int inn = 0, k = 0, h = 0, s = 0, sub = 0, ck = 0, cm = 0, rm = 0, sm = 0;
+  int inn = 0, k = 0, h = 0, s = 0, sub = 0, af = 0, ck = 0, cm = 0, rm = 0, sm = 0;
   for (final Map<String, dynamic> x in rows) {
     inn += wsGrams(x['input_kg'] as num?);
+    af += wsGrams(x['unbreakable_kg'] as num?); // v87
     k += wsGrams(x['kernel_kg'] as num?);
     h += wsGrams(x['hull_kg'] as num?);
     s += wsGrams(x['soil_kg'] as num?);
@@ -758,8 +761,8 @@ Map<String, double?> wsumCrack(List<Map<String, dynamic>> rows) {
     }
   }
   return <String, double?>{
-    'runs_count': rows.length.toDouble(), 'input_kg': inn / 1000, 'kernel_kg': k / 1000, 'hull_kg': h / 1000, 'soil_kg': s / 1000, 'sub_kernel_kg': sub / 1000,
-    'returned_all_kg': (k + h + s + sub) / 1000, 'loss_kg': (inn - k) / 1000, 'loss_pct': _wsPct3(inn - k, inn), 'kernel_pct': _wsPct3(k, inn),
+    'runs_count': rows.length.toDouble(), 'input_kg': inn / 1000, 'kernel_kg': k / 1000, 'hull_kg': h / 1000, 'soil_kg': s / 1000, 'sub_kernel_kg': sub / 1000, 'unbreakable_kg': af / 1000,
+    'returned_all_kg': (k + h + s + sub + af) / 1000, 'loss_kg': (inn - k) / 1000, 'loss_pct': _wsPct3(inn - k, inn), 'kernel_pct': _wsPct3(k, inn),
     'capacity_kgh': cm > 0 ? ((ck / 1000) * 60 / (cm / 100) * 1000).round() / 1000 : null, 'run_minutes': rm / 100, 'stop_minutes': sm / 100,
   };
 }
@@ -1271,4 +1274,11 @@ WsShiftTotals wsShiftTotals(List<Map<String, dynamic>> shifts) {
     if (by.containsKey(k)) by[k] = by[k]! + 1;
   }
   return WsShiftTotals(t, shifts.length, by);
+}
+
+/// v87: گرم برآوردی آبخندان = گرم ورودی ± درصد کم‌بود/زیادبود وزن (به همان عدد درصد):
+/// کم‌بود ۱٫۳۲٪ ⇒ ۴۷ − ۱٫۳۲ = ۴۵٫۶۸؛ زیادبود ۱٫۳۲٪ ⇒ ۴۷ + ۱٫۳۲ = ۴۸٫۳۲. مبنای اصلی همان گرم ثبت‌شدهٔ خروجی است.
+double? wsAbEstimatedGram(num? gramIn, WsMoisture? m) {
+  if (gramIn == null || gramIn <= 0 || m == null) return null;
+  return ((gramIn + m.pct) * 100).round() / 100;
 }

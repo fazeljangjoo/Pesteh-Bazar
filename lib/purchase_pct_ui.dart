@@ -70,7 +70,7 @@ class PurchasePctCtl {
   double refGram = 50;
   static double? _cachedRef;
 
-  static bool get canPrice => StaffPerms.I.can('price.view');
+  static bool get canPrice => StaffPerms.I.canPriceIn('purchases'); // v87: قیمت بخش خرید
 
   /// تعریف درصدها (اتاق انس) + گرم مرجع R (سرور؛ آفلاین ⇒ آخرین مقدار یا ۵۰).
   Future<void> init() async {
@@ -147,7 +147,7 @@ class PurchasePctCtl {
       }
     }
     if (sum > 100.0001) return 'جمع درصدها از ۱۰۰ بیشتر است';
-    if (canPrice && baseGram && ((baseGram0 ?? 0) <= 0 || (baseGram0 ?? 0) > 100)) return '«گرم» پستهٔ اصلی را (بیشتر از ۰ تا ۱۰۰) در فرم یا قیمت‌گذاری وارد کنید';
+    if (canPrice && baseGram && ((baseGram0 ?? 0) <= 0 || (baseGram0 ?? 0) > 100)) return '«گرم» پستهٔ اصلی را (بیشتر از ۰ تا ۱۰۰) در فرم خرید وارد کنید';
     return null;
   }
 
@@ -173,7 +173,7 @@ class PurchasePctCtl {
   bool get pricing => canPrice && (baseGram || rows.any((PurchasePctRow r) => r.separate));
 
   /// v85: گرم پستهٔ اصلی برای حالت‌های گرمی: مقدار جدا یا گرم فرم خرید.
-  double? get baseGram0 => _num(baseG.text) ?? gramSource?.call();
+  double? get baseGram0 => gramSource?.call() ?? _num(baseG.text); // v87: گرم فرم خرید
 
   /// v85: برچسب فیلد قیمت فرم خرید بر اساس روش خرید پستهٔ اصلی.
   String priceLabel({required bool pricedRows}) {
@@ -220,7 +220,9 @@ class PurchasePctCtl {
 
 /// بخش «درصدها» (+ قیمت‌گذاری برای مالک/حسابدار) فرم خرید.
 class PurchasePctSection extends StatelessWidget {
-  const PurchasePctSection({super.key, required this.ctl, required this.basePrice, required this.netKg, required this.onChanged, this.readOnly = false});
+  const PurchasePctSection({super.key, required this.ctl, required this.basePrice, required this.netKg, required this.onChanged, this.readOnly = false, this.priceField});
+  /// v87: فیلد «فی» فرم خرید (فقط مالک/حسابدار) ⇒ زیر «روش خرید پستهٔ اصلی» نمایش داده می‌شود.
+  final Widget? priceField;
   final PurchasePctCtl ctl;
   final num? basePrice;
   final double netKg;
@@ -275,15 +277,11 @@ class PurchasePctSection extends StatelessWidget {
                 onChanged();
               },
             ),
+            if (priceField != null) Padding(padding: const EdgeInsets.only(top: 6), child: priceField!),
+            // v87: گرم پستهٔ اصلی همان «گرم» فرم خرید است (دوباره پرسیده نمی‌شود)
             if (ctl.baseGram) ...<Widget>[
-              TextField(
-                controller: ctl.baseG,
-                enabled: !readOnly,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: dec('گرم پستهٔ اصلی (خالی = گرم فرم خرید)',
-                    helper: ctl.gramSource?.call() == null ? 'گرم فرم خرید وارد نشده' : 'گرم فرم خرید: ${_plain(ctl.gramSource!.call()!)}'),
-                onChanged: (_) => onChanged(),
-              ),
+              Text(ctl.gramSource?.call() == null ? '«گرم» را در همین فرم وارد کنید تا فی مؤثر حساب شود' : 'گرم پستهٔ اصلی (از فرم): ${_plain(ctl.gramSource!.call()!)}',
+                  style: TextStyle(color: ctl.gramSource?.call() == null ? Colors.red : Colors.black54)),
               buyModeInfo(context, ctl.baseMode, input: basePrice?.toDouble(), gram: ctl.baseGram0, ref: ctl.refGram),
             ],
             if (ctl.pricing)

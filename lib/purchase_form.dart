@@ -5,13 +5,15 @@ import 'dart:io' show Platform;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'access_catalog.dart' show FieldGate;
+import 'perms.dart'; // v87: قسمت‌های قفل/پنهان فرم
 import 'fin_block_view.dart'; // S35.T35.6f
 import 'package:image/image.dart' as img;
 import 'package:image_picker/image_picker.dart';
 
 import 'db.dart';
 import 'fx_doc_field.dart';
-import 'doc_drafts.dart' show DocDraftsLocal;
+import 'doc_drafts.dart' show DocDraftsLocal, DraftRestoreBanner;
 import 'form_settings.dart' show FormSettingsLocal;
 import 'grade_lines_ui.dart';
 import 'fx_local.dart';
@@ -28,7 +30,10 @@ import 'widgets.dart';
 
 class PurchaseForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
-  const PurchaseForm({super.key, this.existing});
+  /// v87: ادامهٔ پیش‌نویس (داده‌های ذخیره‌شدهٔ فرم) + شناسهٔ پیش‌نویس برای جایگزینی/حذف بعد از ثبت.
+  final Map<String, dynamic>? draft;
+  final int? draftId;
+  const PurchaseForm({super.key, this.existing, this.draft, this.draftId});
   @override
   State<PurchaseForm> createState() => _PurchaseFormState();
 }
@@ -137,6 +142,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
 
   @override
   void dispose() {
+    // v87: ترک فرم وسط کار (بدون ثبت) ⇒ ذخیرهٔ خودکار پیش‌نویس تا اطلاعات وارد‌شده نپرد
+    if (widget.existing == null && !_done && _hasInput) DocDraftsLocal.autosave('purchase', _draftTitle, _draftData());
     _pp.dispose();
     _fxc.dispose();
     _finDisc.dispose();
@@ -164,7 +171,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     super.initState();
     if (LicenseService.I.isFx.value) _initFx();
     _loadWeighSettings();
-    final e = widget.existing;
+    final e = widget.existing ?? widget.draft; // v87: پیش‌نویس هم مثل ویرایش فیلدها را پر می‌کند
+    _draftId = widget.draftId;
     _pp.gramSource = () => parseNum(_gram.text); // v85: گرم پستهٔ اصلی در «فی پایه ۵۰ گرم» / «خرید گرمی»
     _pp.init().then((_) { // v84: تعریف درصدها و گرم مرجع ⇒ ردیف‌های ذخیره‌شده؛ مشخصه‌های درصدی از «مشخصات دلخواه» بیرون می‌روند
       if (!mounted) return;
@@ -256,7 +264,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     if (!mounted) return;
     int? resolved = select;
     bool free = false;
-    final Map<String, dynamic>? ex = widget.existing;
+    final Map<String, dynamic>? ex = widget.existing ?? widget.draft;
     if (resolved == null && ex != null && ex['category_id'] == _categoryId) {
       final wantName = ex['type_name'] as String?;
       for (final t in list) {
@@ -293,7 +301,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       _sackSmallKg = k[0];
       _sackLargeKg = k[1];
       _finOn = fin;
-      _draftOn = draftOn;
+      _draftOn = draftOn || true; // v87: پیش‌نویس همیشه در دسترس است (وسط کار اطلاعات نپرد)
       if (ex != null) {
         final Object? d = ex['discount_amount'] ?? ex['discount']; // S35.T35.6c: prefill
         final Object? w = ex['weighbridge_cost'];
@@ -402,6 +410,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
   }
 
   void _photoSheet() {
+    if (!StaffPerms.I.fieldEditable('purchase.photo')) return; // v87
     showModalBottomSheet(
       context: context,
       builder: (ctx) => SafeArea(
@@ -440,8 +449,55 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     );
   }
 
+  int? _draftId; // v87
+  bool _done = false; // v87: ثبت یا پیش‌نویس انجام شد ⇒ ذخیرهٔ خودکار لازم نیست
+
+  /// v87: دادهٔ پیش‌نویس بدون اعتبارسنجی (هر قدر از فرم پر شده). فی = همان عدد واردشده (پایه)، نه میانگین.
+  Map<String, dynamic> _draftData() => <String, dynamic>{
+        'category_id': _categoryId,
+        'type_name': _suggestTypeName,
+        'ounce': parseNum(_ounce.text),
+        'warehouse_uid': _warehouseUid,
+        'ounce_uid': _ounceUid,
+        'price': MoneyField.stored(_price) ?? 0,
+        'total_weight': parseNum(_total.text) ?? 0,
+        'small_sack_count': parseNum(_smallSack.text) ?? 0,
+        'large_sack_count': parseNum(_largeSack.text) ?? 0,
+        'net_weight': _net,
+        'gram': parseNum(_gram.text),
+        ..._pp.fields(),
+        'custom_specs': () {
+          final List<Map<String, String>> cs = <Map<String, String>>[
+            for (final r in _customSpecs)
+              if (r.label.text.trim().isNotEmpty) <String, String>{'label': r.label.text.trim(), 'value': r.value.text.trim()},
+            ..._pp.specRows(),
+          ];
+          return cs.isEmpty ? null : AppDb.encodeCustomSpecs(cs);
+        }(),
+        'seller': _seller.text.trim().isEmpty ? null : _seller.text.trim(),
+        'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
+        'labor_cost': MoneyField.stored(_laborCost),
+        'transport_cost': MoneyField.stored(_transportCost),
+        'date': DateTime.now().toIso8601String(),
+      };
+
+  bool get _hasInput =>
+      (MoneyField.stored(_price) ?? 0) > 0 || (parseNum(_total.text) ?? 0) > 0 || _seller.text.trim().isNotEmpty || _gram.text.trim().isNotEmpty || _note.text.trim().isNotEmpty;
+
+  String get _draftTitle => '${_seller.text.trim().isEmpty ? '' : '${_seller.text.trim()} — '}${_suggestTypeName.isEmpty ? 'خرید' : _suggestTypeName} — ${faNum(_net)} کیلو';
+
+  Future<void> _saveDraft() async {
+    await DocDraftsLocal.saveOrReplace('purchase', _draftTitle, _draftData(), replaceId: _draftId);
+    _done = true;
+    if (!mounted) return;
+    snack(context, 'پیش‌نویس ذخیره شد (بدون اثر روی انبار و حساب‌ها)');
+    Navigator.pop(context);
+  }
+
+
   Future<void> _save({bool draft = false}) async {
     if (_saving) return;
+    if (draft) return _saveDraft(); // v87: پیش‌نویس بدون اعتبارسنجی
     if (!_form.currentState!.validate()) return;
 
     if (_locked) {
@@ -613,7 +669,11 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     );
     if (!mounted) return;
     setState(() => _saving = false);
-    if (ok) Navigator.pop(context);
+    if (ok) {
+      _done = true; // v87
+      if (_draftId != null) await DocDraftsLocal.delete(_draftId!);
+      if (mounted) Navigator.pop(context);
+    }
   }
 
   @override
@@ -644,6 +704,9 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // v87: پیش‌نویس ذخیره‌شده (دستی یا خودکار) ⇒ ادامه
+            if (!_isEdit && widget.draft == null)
+              DraftRestoreBanner(docType: 'purchase', onRestore: (int id, Map<String, dynamic> data) => Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => PurchaseForm(draft: data, draftId: id)))),
             if (_locked)
               Card(
                 color: Theme.of(context).colorScheme.errorContainer,
@@ -714,7 +777,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
             ),
             const SizedBox(height: 16),
             sectionTitle(context, 'عکس نمونه (اختیاری)'),
-            InkWell(
+            FieldGate(field: 'purchase.photo', child: InkWell(
               onTap: _photoSheet,
               child: Container(
                 height: 140,
@@ -724,7 +787,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                     ? const Center(child: Icon(Icons.add_a_photo_outlined, size: 36))
                     : Image.memory(photoBytes(_photo!), fit: BoxFit.cover, width: double.infinity),
               ),
-            ),
+            )),
             const SizedBox(height: 16),
             IgnorePointer(
               ignoring: _locked,
@@ -748,7 +811,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                   ]),
                   if (_fx && !_isEdit)
                     FxDocFields(c: _fxc, priceLabel: 'فی خرید ارزی (هر کیلو)', onChanged: () => setState(() {})),
-                  if (!_fxc.active && !_useGrades)
+                  if (!_fxc.active && !_useGrades && (!PurchasePctCtl.canPrice || !StaffPerms.I.fieldEditable('purchase.pct'))) // v87: مالک/حسابدار ⇒ فیلد فی زیر «روش خرید» (درصدها قفل/پنهان ⇒ همین‌جا)
                     MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, required: true, onChanged: () => setState(() {})),
                   if (_priceTableOn && !_fxc.active && !_useGrades)
                     PriceSuggestionHint(
@@ -763,7 +826,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                     Expanded(
                         child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
                   ]),
-                  if (_weighOn) ...[
+                  if (_weighOn && StaffPerms.I.fieldShown('purchase.weigh')) FieldGate(field: 'purchase.weigh', child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     sectionTitle(context, 'توزین'),
                     const Padding(
                       padding: EdgeInsets.only(bottom: 4),
@@ -788,7 +851,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                       const SizedBox(width: 8),
                       Expanded(child: textField(_driver, 'راننده')),
                     ]),
-                  ],
+                  ])),
                   Card(
                     color: Theme.of(context).colorScheme.primaryContainer,
                     child: Padding(
@@ -806,7 +869,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                     ),
                   ),
                   const SizedBox(height: 16),
-                  PurchasePctSection(ctl: _pp, basePrice: MoneyField.stored(_price), netKg: _net, onChanged: () => setState(() {})),
+                  FieldGate(field: 'purchase.pct', lockedNote: false, child: PurchasePctSection(ctl: _pp, basePrice: MoneyField.stored(_price), netKg: _net, onChanged: () => setState(() {}),
+                      priceField: (!_fxc.active && !_useGrades && StaffPerms.I.fieldEditable('purchase.pct')) ? MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, required: true, onChanged: () => setState(() {})) : null)),
                   if (preset != 'dombest' && preset != 'khandan') ...[
                     Row(children: [
                       Expanded(child: sectionTitle(context, 'مشخصات (حداکثر ۴ مورد دلخواه)')),
@@ -852,9 +916,9 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
               ),
             ),
             sectionTitle(context, 'سایر'),
-            PartyField(controller: _seller, label: 'فروشنده (اختیاری)'),
-            textField(_note, 'توضیحات (اختیاری)', lines: 2),
-            MoneyField(controller: _laborCost, label: 'هزینه کارگر — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود'),
+            FieldGate(field: 'purchase.seller', child: PartyField(controller: _seller, label: 'فروشنده (اختیاری)')),
+            FieldGate(field: 'purchase.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2)),
+            FieldGate(field: 'purchase.costs', child: MoneyField(controller: _laborCost, label: 'هزینه کارگر — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود')),
             if (_finOn) ...[
               sectionTitle(context, 'بلوک مالی'),
               MoneyField(controller: _finDisc, label: 'تخفیف — اختیاری'),
@@ -870,7 +934,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
               ),
             ],
             if (_finOn && widget.existing != null) FinBlockCard(docType: 'purchase', docId: (widget.existing!['id'] as num?)?.toInt()), // S35.T35.6f
-            MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود'),
+            FieldGate(field: 'purchase.costs', child: MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود')),
             TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v)),
             const SizedBox(height: 8),
             FilledButton.icon(

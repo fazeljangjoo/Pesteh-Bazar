@@ -6,7 +6,7 @@ import 'perms.dart'; // T02.2
 import 'cartex_shell.dart' show CartexShell; // نقش «کارتکس»
 import 'ounce_room_shell.dart'; // S5.T4
 import 'workshop_operator_shell.dart'; // کارگاه ۳-ب
-import 'staff_screens.dart'; // T02.2
+import 'access_ui.dart' show AccessHomeScreen; // v87
 import 'audit_screen.dart'; // T02.3
 import 'data_health_screen.dart'; // T23.2
 import 'dart:io';
@@ -270,10 +270,10 @@ class _HomeShellState extends State<HomeShell> {
               if (StaffPerms.I.can('users.manage'))
                 ListTile(
                   leading: const Icon(Icons.manage_accounts_outlined),
-                  title: const Text('کارکنان و نقش‌ها'),
+                  title: const Text('کارکنان، نقش‌ها و دسترسی‌ها'),
                   onTap: () {
                     _closeMenu(context);
-                    _push(context, MaterialPageRoute(builder: (_) => const StaffUsersScreen()));
+                    _push(context, MaterialPageRoute(builder: (_) => const AccessHomeScreen())); // v87: دسترسی بخش‌محور
                   },
                 ),
               if (StaffPerms.I.can('audit.view'))

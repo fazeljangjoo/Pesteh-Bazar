@@ -975,7 +975,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
       await _load();
       // v86: پایان فرایند ⇒ گزارش PDF (ورودی، خروجی، میانگین‌ها، پرت اعلامی و واقعی، رطوبت، شیفت‌ها)
       if (mounted && '${_d['op_type'] ?? ''}'.isNotEmpty && '${_d['status']}' != 'in_progress' && await askEndReport(context) && mounted) {
-        await procPrintReport(context, _d, money: _can('price.view'));
+        await procPrintReport(context, _d, money: StaffPerms.I.canPriceIn('processing') /* v87 */);
       }
     }
   }
@@ -1021,7 +1021,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
   }
 
   Future<void> _print({required bool fee}) async {
-    if (!fee && !_int && '${_d['op_type'] ?? ''}'.isNotEmpty) return procPrintReport(context, _d, money: _can('price.view')); // v86
+    if (!fee && !_int && '${_d['op_type'] ?? ''}'.isNotEmpty) return procPrintReport(context, _d, money: StaffPerms.I.canPriceIn('processing') /* v87 */); // v86
     final List<dynamic> ins = (_d['inputs'] is List) ? (_d['inputs'] as List<dynamic>) : <dynamic>[];
     final List<dynamic> outs = (_d['outputs'] is List) ? (_d['outputs'] as List<dynamic>) : <dynamic>[];
     final File file;
@@ -1142,7 +1142,8 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
                               _load();
                             }),
                       if (!_int && !_rec) ...<Widget>[
-                        OutsideReceiptCard(order: _d, canEdit: canManage, onEdit: _editReceipt),
+                        if (StaffPerms.I.fieldShown('proc.receipt')) // v87
+                          OutsideReceiptCard(order: _d, canEdit: canManage && StaffPerms.I.fieldEditable('proc.receipt'), onEdit: _editReceipt),
                         const SizedBox(height: 8),
                       ],
                       if (_int) _flowCard(),

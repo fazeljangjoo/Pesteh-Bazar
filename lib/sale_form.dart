@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'access_catalog.dart' show FieldGate; // v87: قسمت‌های قفل/پنهان فرم
+import 'sale_lot_picker.dart' show SaleLotPicker; // v87
 import 'fin_block_view.dart'; // S35.T35.6f
 import 'package:flutter/services.dart';
 
@@ -26,8 +28,6 @@ const double _kLargeSackKg = 0.2;
 /// گرد کردن به ۳ رقم اعشار (جلوگیری از خطای اعشاری مثل 999.3000000000001)
 double _r3(double v) => (v * 1000).round() / 1000;
 
-/// یکسان‌سازی «ي/ك» عربی و «ی/ک» فارسی برای جستجو
-String _norm(String s) => toEnDigits(s.replaceAll('ي', 'ی').replaceAll('ك', 'ک')).trim().toLowerCase();
 
 /// عددی که کاربر تایپ می‌کند از سقف داده‌شده (گونی باقی‌مانده) بیشتر نمی‌شود:
 /// اگر بیشتر شد، خودکار روی همان سقف می‌ایستد.
@@ -88,7 +88,6 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   bool _loading = true;
   bool _saving = false;
   bool _legacyMulti = false; // فروش قدیمیِ چندقلمی (قابل ویرایش نیست)
-  String _query = '';
 
   final _gross = TextEditingController();
   final _small = TextEditingController();
@@ -472,39 +471,13 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     );
   }
 
-  List<Map<String, dynamic>> get _visibleLots {
-    final q = _norm(_query);
-    if (q.isEmpty) return _lots;
-    return _lots.where((e) {
-      if (e['id'] == _selId) return true; // مورد انتخاب‌شده همیشه دیده می‌شود
-      return _norm('${e['code']} ${e['category_name']} ${e['type_name']}').contains(q);
-    }).toList();
-  }
 
   List<Widget> _children(BuildContext context) {
     final w = <Widget>[];
     final lot = _selLot;
 
     w.add(sectionTitle(context, '۱) پستهٔ فروخته‌شده را از انبار انتخاب کنید (هر فروش فقط یک قلم)'));
-    w.add(Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: TextField(
-        decoration: const InputDecoration(
-          labelText: 'جستجو با کد پسته، دسته یا نوع',
-          prefixIcon: Icon(Icons.search),
-          border: OutlineInputBorder(),
-        ),
-        onChanged: (v) => setState(() => _query = v),
-      ),
-    ));
-    final visible = _visibleLots;
-    if (visible.isEmpty) {
-      w.add(const Padding(
-        padding: EdgeInsets.symmetric(vertical: 12),
-        child: Text('نتیجه‌ای پیدا نشد', style: TextStyle(color: Colors.black54)),
-      ));
-    }
-    w.add(Column(children: [for (final e in visible) _lotTile(e)]));
+    w.add(SaleLotPicker(lots: _lots, selectedId: _selId, onSelect: _select, whNames: _whNames, showUsd: _fx)); // v87: انتخاب لات مثل فرم شکست (به‌جای فهرست همهٔ لات‌ها)
 
     if (lot == null) {
       w.add(const Padding(
@@ -534,20 +507,20 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
 
     w.add(const SizedBox(height: 12));
     w.add(KeyedSubtree(
-        key: const ValueKey('buyer'), child: PartyField(controller: _buyer, label: 'خریدار (اختیاری)')));
-    w.add(KeyedSubtree(key: const ValueKey('note'), child: textField(_note, 'توضیحات (اختیاری)', lines: 2)));
+        key: const ValueKey('buyer'), child: FieldGate(field: 'sale.buyer', child: PartyField(controller: _buyer, label: 'خریدار (اختیاری)'))));
+    w.add(KeyedSubtree(key: const ValueKey('note'), child: FieldGate(field: 'sale.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2))));
     w.add(KeyedSubtree(
         key: const ValueKey('laborCost'),
-        child: MoneyField(controller: _laborCost, label: 'هزینه کارگر — اختیاری', hint: 'اگر وارد شود از سود این فروش کم می‌شود')));
+        child: FieldGate(field: 'sale.costs', child: MoneyField(controller: _laborCost, label: 'هزینه کارگر — اختیاری', hint: 'اگر وارد شود از سود این فروش کم می‌شود'))));
     w.add(KeyedSubtree(
         key: const ValueKey('transportCost'),
-        child: MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این فروش کم می‌شود')));
+        child: FieldGate(field: 'sale.costs', child: MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این فروش کم می‌شود'))));
     if (_finOn)
       w.addAll(<Widget>[
         sectionTitle(context, 'بلوک مالی'),
-        MoneyField(controller: _finDisc, label: 'تخفیف — اختیاری'),
-        MoneyField(controller: _finWb, label: 'هزینهٔ باسکول — اختیاری'),
-        DropdownButtonFormField<String>(
+        FieldGate(field: 'sale.fin', child: MoneyField(controller: _finDisc, label: 'تخفیف — اختیاری')),
+        FieldGate(field: 'sale.fin', child: MoneyField(controller: _finWb, label: 'هزینهٔ باسکول — اختیاری')),
+        FieldGate(field: 'sale.fin', child: DropdownButtonFormField<String>(
           value: _finPayer,
           decoration: const InputDecoration(labelText: 'هزینه‌های جانبی بر عهدهٔ'),
           items: const <DropdownMenuItem<String>>[
@@ -555,7 +528,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
             DropdownMenuItem<String>(value: 'party', child: Text('طرف حساب')),
           ],
           onChanged: (String? v) => setState(() => _finPayer = v ?? 'us'),
-        ),
+        )),
       ]);
     if (_finOn && widget.editSaleId != null) w.add(FinBlockCard(docType: 'sale', docId: widget.editSaleId));
     w.add(KeyedSubtree(
@@ -624,39 +597,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     );
   }
 
-  String _lotExtra(Map<String, dynamic> e) {
-    final String ounce = '${e['ounce'] ?? ''}'.trim();
-    final String? wh = _whNames[e['warehouse_uid']];
-    final List<String> parts = <String>[
-      if (ounce.isNotEmpty) 'اونس $ounce',
-      if (wh != null && wh.isNotEmpty) 'انبار $wh',
-    ];
-    return parts.isEmpty ? '' : '\n${parts.join('  •  ')}';
-  }
 
-  Widget _lotTile(Map<String, dynamic> e) {
-    final id = e['id'] as int;
-    final rem = (e['remaining'] as num).toDouble();
-    final selected = _selId == id;
-    final scheme = Theme.of(context).colorScheme;
-    return Card(
-      key: ValueKey('lot$id'),
-      color: selected ? scheme.primaryContainer : null,
-      child: ListTile(
-        onTap: () => _select(id),
-        leading: Icon(selected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-            color: selected ? scheme.primary : null),
-        title: Text('${e['category_name']} - ${e['type_name']}'),
-        subtitle: Text(
-          'کد پسته: ${e['code'] ?? '-'}  •  خرید ${jalaliDate(e['date'] as String)}  •  فی ${faNum(e['price'] as num, dec: 0)}'
-          '${_fx && e['price_usd'] != null ? ' (${faUsd(e['price_usd'] as num, dec: 4)})' : ''}\n'
-          'موجودی (خالص) ${faNum(rem)} کیلو  •  گونی مانده: کوچک ${faNum(e['small_left'] as num)} / بزرگ ${faNum(e['large_left'] as num)}'
-          '${_hintOn ? _lotExtra(e) : ''}',
-        ),
-        isThreeLine: true,
-      ),
-    );
-  }
 
   Widget _sackField(TextEditingController c, String label, double cap) {
     return Padding(

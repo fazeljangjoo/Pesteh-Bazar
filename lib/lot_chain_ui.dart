@@ -2,7 +2,11 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 
+import 'package:sqflite/sqflite.dart' show Database;
+
 import 'code_kind.dart';
+import 'db.dart' show AppDb;
+import 'returns_ui.dart' show ReturnsHelp;
 import 'lot_chain_calc.dart';
 import 'pdf_output.dart' show PdfOutput; // v83: چاپ ردیابی
 import 'pdf_service.dart' show PdfService;
@@ -364,5 +368,51 @@ class _LotChainScreenState extends State<LotChainScreen> {
         ]),
       ),
     );
+  }
+}
+
+/// v87: ویرایش انس و گرم یک لات از انبار (مثلاً نشکن شکست). [l] = ردیف محلی لات (id محلی). آنلاین (lots.specs_save) + به‌روزرسانی محلی.
+Future<bool> editLotSpecs(BuildContext context, Map<String, dynamic> l) async {
+  String t(dynamic v) => v == null ? '' : '$v';
+  final TextEditingController ounce = TextEditingController(text: t(l['ounce']));
+  final TextEditingController gram = TextEditingController(text: t(l['gram']));
+  final bool? ok = await showDialog<bool>(
+    context: context,
+    builder: (BuildContext c) => AlertDialog(
+      title: Text('انس و گرم — ${l['code'] ?? ''}'),
+      content: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+        TextField(controller: ounce, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'انس', border: OutlineInputBorder())),
+        const SizedBox(height: 10),
+        TextField(controller: gram, keyboardType: const TextInputType.numberWithOptions(decimal: true), decoration: const InputDecoration(labelText: 'گرم', border: OutlineInputBorder())),
+        const SizedBox(height: 6),
+        const Text('فقط مشخصهٔ لات است؛ وزن و بها تغییر نمی‌کند.', style: TextStyle(fontSize: 12)),
+      ]),
+      actions: <Widget>[
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('ذخیره')),
+      ],
+    ),
+  );
+  double? n(String s) => s.trim().isEmpty ? null : double.tryParse(_latin(s.trim()).replaceAll('٫', '.'));
+  final double? o = n(ounce.text), g = n(gram.text);
+  ounce.dispose();
+  gram.dispose();
+  if (ok != true || !context.mounted) return false;
+  if ((g != null && (g < 0 || g > 100)) || (o != null && o < 0)) {
+    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('انس یا گرم نامعتبر است')));
+    return false;
+  }
+  try {
+    final int localId = (l['id'] as num).toInt();
+    final int sid = localId > 0 ? await ReturnsHelp.serverId('purchase', localId) : localId;
+    await StockApi.call('lots.specs_save', <String, dynamic>{'id': sid, 'ounce': o, 'gram': g});
+    final Database d = await AppDb.I.db;
+    await d.update('purchases', <String, Object?>{'ounce': o, 'gram': g}, where: 'id = ?', whereArgs: <Object?>[localId]);
+    AppDb.I.version.value++;
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('انس و گرم لات ذخیره شد')));
+    return true;
+  } on StockApiException catch (e) {
+    if (context.mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    return false;
   }
 }

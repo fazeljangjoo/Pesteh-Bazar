@@ -25,6 +25,35 @@ class StaffPerms {
     return p is List && p.contains(key);
   }
 
+  /// v87: حالت یک قسمت فرم برای کاربر فعلی: show | lock | hide (مالک ⇒ همیشه show). از account.status (staff.fields).
+  String fieldMode(String key) {
+    final s = current.value;
+    if (s == null) return 'show';
+    final f = s['fields'];
+    if (f is Map) {
+      final v = f[key];
+      if (v == 'lock' || v == 'hide') return '$v';
+    }
+    return 'show';
+  }
+
+  bool fieldShown(String key) => fieldMode(key) != 'hide';
+  bool fieldEditable(String key) => fieldMode(key) == 'show';
+
+  /// v87: کلید «نمایش قیمت» هر بخش (آینهٔ PB_ACCESS_SECTIONS[*]['price']).
+  static const Map<String, String> sectionPriceKeys = <String, String>{
+    'purchases': 'price.purchases', 'sales': 'price.sales', 'stock': 'price.stock', 'mixing': 'price.mixing', 'consign': 'price.consign',
+    'processing': 'price.processing', 'workshop': 'price.workshop', 'ounce': 'intake.price', 'parties': 'price.parties', 'finance': 'price.finance',
+    'payroll': 'price.payroll', 'orchards': 'price.orchards', 'reports': 'price.reports',
+  };
+
+  /// v87: قیمت در این بخش دیده شود؟ price.view (همهٔ بخش‌ها) یا price.<بخش>.
+  bool canPriceIn(String section) {
+    if (can('price.view')) return true;
+    final String? k = sectionPriceKeys[section];
+    return k != null && can(k);
+  }
+
   /// S5.T4: کارکنی که فقط مجوزهای نقش «اتاق انس» را دارد (مالک و کارکن با هر مجوز مالی، نه).
   bool get isOunceRoomOnly {
     final s = current.value;
