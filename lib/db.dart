@@ -291,21 +291,35 @@ class AppDb {
 
   /// مهاجرت دیتابیس‌های قدیمی: دو ستون گونیِ باقی‌مانده به خرید اضافه می‌شود
   /// و مقدار اولیه‌شان = گونی خرید منهای گونی‌هایی که تا امروز صریحاً کم شده‌اند.
+  /// v89: ستونی که از قبل هست (مثلاً یک نسخهٔ قدیمی‌تر برنامه پایگاه را باز کرد و شمارهٔ نسخه‌اش را پایین آورد) ⇒ خطا نادیده؛ هر خطای دیگر بالا می‌رود.
+  static Future<void> _addColSafe(DatabaseExecutor d, String sql) async {
+    try {
+      await d.execute(sql);
+    } catch (e) {
+      if (!'$e'.toLowerCase().contains('duplicate column')) rethrow;
+    }
+  }
+
+  static Future<bool> _hasCol(DatabaseExecutor d, String table, String col) async {
+    final List<Map<String, Object?>> r = await d.rawQuery('PRAGMA table_info($table)');
+    return r.any((Map<String, Object?> c) => c['name'] == col);
+  }
+
   Future<void> _onUpgrade(Database d, int oldV, int newV) async {
-    if (oldV < 8) {
-      await d.execute('ALTER TABLE purchases ADD COLUMN small_sacks_remaining REAL NOT NULL DEFAULT 0');
-      await d.execute('ALTER TABLE purchases ADD COLUMN large_sacks_remaining REAL NOT NULL DEFAULT 0');
+    if (oldV < 8 && !await _hasCol(d, 'purchases', 'small_sacks_remaining')) { // v89: فقط اگر واقعاً ستون نیست (بعد از اجرای نسخهٔ قدیمی‌تر)
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN small_sacks_remaining REAL NOT NULL DEFAULT 0');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN large_sacks_remaining REAL NOT NULL DEFAULT 0');
       await _backfillSacks(d);
     }
     if (oldV < 9) {
       // پلن ارزی: قیمت دلار هنگام خرید/فروش و فی دلاریِ خرید (داده‌های قدیمی null می‌مانند)
-      await d.execute('ALTER TABLE purchases ADD COLUMN usd_rate REAL');
-      await d.execute('ALTER TABLE purchases ADD COLUMN price_usd REAL');
-      await d.execute('ALTER TABLE sales ADD COLUMN usd_rate REAL');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN usd_rate REAL');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN price_usd REAL');
+      await _addColSafe(d, 'ALTER TABLE sales ADD COLUMN usd_rate REAL');
     }
     if (oldV < 10) {
       // ضایعات/خاکِ مخلوط/جداسازی (مخلوط‌های قدیمی null می‌مانند)
-      await d.execute('ALTER TABLE purchases ADD COLUMN waste REAL');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN waste REAL');
     }
     if (oldV < 11) {
       // طرف‌حساب‌های دستی + دفتر قرض/وام
@@ -314,13 +328,13 @@ class AppDb {
     if (oldV < 12) {
       // سررسید/اقساط قرض + نوع زیردستهٔ مخلوط/جداسازی (برای نمودارهای دقیق‌تر)
       await _createLoanTables(d);
-      await d.execute('ALTER TABLE purchases ADD COLUMN base_type TEXT');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN base_type TEXT');
     }
     if (oldV < 13) {
       // هزینه کارگر و هزینه حمل‌ونقل/باسکول (خرید و فروش) — از سود همان پسته کم می‌شود
       for (final t in ['purchases', 'sales']) {
-        await d.execute('ALTER TABLE $t ADD COLUMN labor_cost REAL');
-        await d.execute('ALTER TABLE $t ADD COLUMN transport_cost REAL');
+        await _addColSafe(d, 'ALTER TABLE $t ADD COLUMN labor_cost REAL');
+        await _addColSafe(d, 'ALTER TABLE $t ADD COLUMN transport_cost REAL');
       }
     }
     if (oldV < 14) {
@@ -333,8 +347,8 @@ class AppDb {
     }
     if (oldV < 16) {
       // انبار و درجه‌بندی اونس هر بار (S01.T01.3/4): uid موجودیت‌های warehouses/ounces؛ null = «انبار اصلی»
-      await d.execute('ALTER TABLE purchases ADD COLUMN warehouse_uid TEXT');
-      await d.execute('ALTER TABLE purchases ADD COLUMN ounce_uid TEXT');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN warehouse_uid TEXT');
+      await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN ounce_uid TEXT');
     }
     if (oldV < 17) {
       // برگشت از خرید/فروش و پیش‌فاکتور (S04.T04.4b): فقط جدول‌های جدید
@@ -343,8 +357,8 @@ class AppDb {
     if (oldV < 18) {
       // مالیات سند (S17.T17.1b، فقط طلایی): انتخاب وضعیت مالیاتی/نرخ؛ null = رفتار قبلی
       for (final t in ['purchases', 'sales']) {
-        await d.execute('ALTER TABLE $t ADD COLUMN tax_status TEXT');
-        await d.execute('ALTER TABLE $t ADD COLUMN tax_rate_milli INTEGER');
+        await _addColSafe(d, 'ALTER TABLE $t ADD COLUMN tax_status TEXT');
+        await _addColSafe(d, 'ALTER TABLE $t ADD COLUMN tax_rate_milli INTEGER');
       }
     }
     if (oldV < 19) {
@@ -360,15 +374,15 @@ class AppDb {
       for (final String t in <String>['sales', 'purchases']) {
         for (final String c in <String>['ccy TEXT', 'fx_rate REAL', 'fx_rate_source TEXT', 'fx_rate_entered_at TEXT']) {
           try {
-            await d.execute('ALTER TABLE $t ADD COLUMN $c');
+            await _addColSafe(d, 'ALTER TABLE $t ADD COLUMN $c');
           } catch (_) {/* ستون از قبل هست */}
         }
       }
       try {
-        await d.execute('ALTER TABLE sales ADD COLUMN total_ccy REAL');
+        await _addColSafe(d, 'ALTER TABLE sales ADD COLUMN total_ccy REAL');
       } catch (_) {}
       try {
-        await d.execute('ALTER TABLE purchases ADD COLUMN price_ccy REAL');
+        await _addColSafe(d, 'ALTER TABLE purchases ADD COLUMN price_ccy REAL');
       } catch (_) {}
     }
     if (oldV < 22) {
@@ -570,6 +584,12 @@ class AppDb {
       }
     }
   }
+
+  /// v89: فقط برای تست ارتقای پایگاه محلی (ساخت + ارتقا از یک نسخهٔ قدیمی‌تر روی همان پایگاه)
+  @visibleForTesting
+  Future<void> debugCreate(Database d) => _onCreate(d, schemaVersion);
+  @visibleForTesting
+  Future<void> debugUpgrade(Database d, int oldV) => _onUpgrade(d, oldV, schemaVersion);
 
   Future<void> _onCreate(Database d, int v) async {
     await d.execute('''
