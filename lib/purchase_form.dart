@@ -121,6 +121,13 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
   bool get _useGrades => _gradesOn && _gc.hasRows && !_fxc.active; // S35.T35.3b: price = weighted average of the grade lines
   double get _priceVal => _fxc.active ? (_fxc.priceStored ?? 0) : (_useGrades ? _gc.weightedPrice : _pctPrice);
 
+  // v89: قسمت‌های فرم بر اساس دسترسی کارکن (پنهان ⇒ اصلاً نمایش داده نمی‌شود؛ مالک ⇒ همه)
+  bool _shown(String f) => StaffPerms.I.fieldShown(f);
+  bool get _priceShown => PurchasePctCtl.canPrice && StaffPerms.I.fieldShown('purchase.price');
+  bool get _priceEditable => _priceShown && StaffPerms.I.fieldEditable('purchase.price');
+  /// خرید تازه یا خریدی که هنوز فی نخورده (بیرون از موجودی)
+  bool get _wasHeld => !_isEdit || ((widget.existing?['stock_hold'] as num?) ?? 0).toInt() == 1;
+
   /// v84: فی خرید = میانگین هر کیلوی قیمت‌گذاری درصدها (مثل قطعی‌سازی اتاق انس) اگر «قیمت جدا»/«خرید گرمی» دارد؛ وگرنه قیمت پایه.
   double get _pctPrice {
     final double base = (MoneyField.stored(_price) ?? 0).toDouble();
@@ -562,8 +569,15 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       }
     }
     if (_priceVal <= 0) {
-      snack(context, 'فی خرید را وارد کنید');
-      return;
+      // v89: بی‌فی ⇒ ثبت می‌شود ولی تا ثبت فی (حسابدار) وارد موجودی و حساب‌ها نمی‌شود. خریدِ واردشده به موجودی بی‌فی نمی‌شود.
+      if (!_wasHeld && _priceEditable) {
+        snack(context, 'فی خرید را وارد کنید');
+        return;
+      }
+      if (_wasHeld && _priceEditable) {
+        final bool okNoPrice = await confirm(context, 'فی خرید وارد نشده است. خرید ثبت می‌شود ولی تا ثبت فی وارد موجودی و حساب‌ها نمی‌شود. ادامه می‌دهید؟');
+        if (!okNoPrice || !mounted) return;
+      }
     }
 
     // اگر تعداد گونی وارد نشده باشد، قبل از ثبت تأیید می‌گیریم
@@ -631,7 +645,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       Navigator.pop(context);
       return;
     }
-    if (!_isEdit) {
+    if (!_isEdit && _priceVal > 0) {
       // S35.T35.9d: gold dry-run preview of the voucher (display-only; never blocks when offline)
       final bool go = await confirmVoucherPreview(context, docType: 'purchase', doc: <String, dynamic>{...data, 'date': DateTime.now().toIso8601String()});
       if (!go || !mounted) return;
@@ -719,7 +733,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                 ),
               ),
             if (_locked) const SizedBox(height: 12),
-            IgnorePointer(
+            if (_shown('purchase.base')) FieldGate(field: 'purchase.base', child: IgnorePointer( // v89
               ignoring: _locked,
               child: Opacity(
                 opacity: _locked ? 0.5 : 1,
@@ -774,9 +788,9 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                     textField(_customTypeCtrl, 'نوع پسته', required: true),
                 ]),
               ),
-            ),
+            )),
             const SizedBox(height: 16),
-            sectionTitle(context, 'عکس نمونه (اختیاری)'),
+            if (_shown('purchase.photo')) sectionTitle(context, 'عکس نمونه (اختیاری)'),
             FieldGate(field: 'purchase.photo', child: InkWell(
               onTap: _photoSheet,
               child: Container(
@@ -789,43 +803,43 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
               ),
             )),
             const SizedBox(height: 16),
-            IgnorePointer(
+            FieldGate(field: 'purchase.base', child: IgnorePointer(
               ignoring: _locked,
               child: Opacity(
                 opacity: _locked ? 0.5 : 1,
                 child: WarehousePicker(
                     value: _warehouseUid, useLast: !_isEdit, onChanged: (String? v) => _warehouseUid = v),
               ),
-            ),
-            OuncePicker(value: _ounceUid, onChanged: (String? v) => _ounceUid = v),
+            )),
+            FieldGate(field: 'purchase.quality', child: OuncePicker(value: _ounceUid, onChanged: (String? v) => _ounceUid = v)),
             IgnorePointer(
               ignoring: _locked,
               child: Opacity(
                 opacity: _locked ? 0.5 : 1,
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                  sectionTitle(context, 'قیمت و وزن'),
-                  Row(children: [
+                  if (_shown('purchase.base') || _shown('purchase.quality') || _priceShown) sectionTitle(context, _priceShown ? 'قیمت و وزن' : 'وزن و مشخصات'),
+                  FieldGate(field: 'purchase.quality', child: Row(children: [
                     Expanded(child: numField(_ounce, 'انس پسته (اختیاری)')),
                     const SizedBox(width: 8),
                     Expanded(child: numField(_gram, 'گرم (اختیاری)', onChanged: () => setState(() {}))),
-                  ]),
-                  if (_fx && !_isEdit)
+                  ])),
+                  if (_fx && !_isEdit && _priceShown)
                     FxDocFields(c: _fxc, priceLabel: 'فی خرید ارزی (هر کیلو)', onChanged: () => setState(() {})),
-                  if (!_fxc.active && !_useGrades && (!PurchasePctCtl.canPrice || !StaffPerms.I.fieldEditable('purchase.pct'))) // v87: مالک/حسابدار ⇒ فیلد فی زیر «روش خرید» (درصدها قفل/پنهان ⇒ همین‌جا)
-                    MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, required: true, onChanged: () => setState(() {})),
-                  if (_priceTableOn && !_fxc.active && !_useGrades)
+                  if (_priceShown && !_fxc.active && !_useGrades && !StaffPerms.I.fieldEditable('purchase.pct')) // v87: فی زیر «روش خرید» (درصدها قفل/پنهان ⇒ همین‌جا) · v89: بی‌دسترسی قیمت ⇒ اصلاً نمی‌آید؛ خالی ⇒ منتظر فی
+                    FieldGate(field: 'purchase.price', child: MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, onChanged: () => setState(() {}))),
+                  if (_priceEditable && _priceTableOn && !_fxc.active && !_useGrades)
                     PriceSuggestionHint(
                         typeName: _suggestTypeName, ounceUid: _ounceUid, onAccept: (num v) => setState(() => MoneyField.setStored(_price, v))), // S35.T35.4
-                  if (_gradesOn && !_fxc.active) GradeLinesEditor(c: _gc, netKg: _net, onChanged: () => setState(() {})),
-                  if (!_fx) fxLockedField('خرید به ارز'),
-                  numField(_total, 'وزن کل (ناخالص) به کیلو', required: true, onChanged: () => setState(() {})),
-                  Row(children: [
+                  if (_priceShown && _gradesOn && !_fxc.active) FieldGate(field: 'purchase.price', child: GradeLinesEditor(c: _gc, netKg: _net, onChanged: () => setState(() {}))),
+                  if (!_fx && _priceShown) fxLockedField('خرید به ارز'),
+                  FieldGate(field: 'purchase.base', child: numField(_total, 'وزن کل (ناخالص) به کیلو', required: true, onChanged: () => setState(() {}))),
+                  FieldGate(field: 'purchase.base', child: Row(children: [
                     Expanded(
                         child: numField(_smallSack, 'تعداد گونی کوچک (۱۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
                     const SizedBox(width: 8),
                     Expanded(
                         child: numField(_largeSack, 'تعداد گونی بزرگ (۲۰۰ گرم)', hint: '0', onChanged: () => setState(() {}))),
-                  ]),
+                  ])),
                   if (_weighOn && StaffPerms.I.fieldShown('purchase.weigh')) FieldGate(field: 'purchase.weigh', child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                     sectionTitle(context, 'توزین'),
                     const Padding(
@@ -852,7 +866,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                       Expanded(child: textField(_driver, 'راننده')),
                     ]),
                   ])),
-                  Card(
+                  if (_shown('purchase.base')) Card(
                     color: Theme.of(context).colorScheme.primaryContainer,
                     child: Padding(
                       padding: const EdgeInsets.all(12),
@@ -860,7 +874,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                         infoRow(_weighOn ? 'تارا' : 'وزن گونی‌ها', '${faNum(_tare)} کیلو'),
                         if (_weighOn && _deductKg > 0) infoRow('کسر کیفیت', '${faNum(_deductKg)} کیلو'),
                         infoRow('وزن پسته (خالص)', '${faNum(_net)} کیلو'),
-                        infoRow('ارزش کل', Fmt.money(_net * _priceVal)),
+                        if (_priceShown) infoRow('ارزش کل', Fmt.money(_net * _priceVal)),
                         if (_fxc.active && _fxc.priceCcyNum != null) ...[
                           infoRow('فی خرید ارزی (هر کیلو)', faCcy(_fxc.ccy!, _fxc.priceCcyNum!, dec: _fxc.decimals)),
                           infoRow('ارزش کل ارزی', faCcy(_fxc.ccy!, _net * _fxc.priceCcyNum!, dec: _fxc.decimals)),
@@ -870,8 +884,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                   ),
                   const SizedBox(height: 16),
                   FieldGate(field: 'purchase.pct', lockedNote: false, child: PurchasePctSection(ctl: _pp, basePrice: MoneyField.stored(_price), netKg: _net, onChanged: () => setState(() {}),
-                      priceField: (!_fxc.active && !_useGrades && StaffPerms.I.fieldEditable('purchase.pct')) ? MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, required: true, onChanged: () => setState(() {})) : null)),
-                  if (preset != 'dombest' && preset != 'khandan') ...[
+                      priceField: (_priceShown && !_fxc.active && !_useGrades && StaffPerms.I.fieldEditable('purchase.pct')) ? FieldGate(field: 'purchase.price', child: MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, onChanged: () => setState(() {}))) : null)),
+                  if (preset != 'dombest' && preset != 'khandan' && _shown('purchase.quality')) ...[
                     Row(children: [
                       Expanded(child: sectionTitle(context, 'مشخصات (حداکثر ۴ مورد دلخواه)')),
                       if (_customSpecs.length < kMaxCustomSpecs)
@@ -915,11 +929,11 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                 ]),
               ),
             ),
-            sectionTitle(context, 'سایر'),
+            if (_shown('purchase.seller') || _shown('purchase.note') || _shown('purchase.costs') || _priceShown) sectionTitle(context, 'سایر'),
             FieldGate(field: 'purchase.seller', child: PartyField(controller: _seller, label: 'فروشنده (اختیاری)')),
             FieldGate(field: 'purchase.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2)),
             FieldGate(field: 'purchase.costs', child: MoneyField(controller: _laborCost, label: 'هزینه کارگر — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود')),
-            if (_finOn) ...[
+            if (_finOn && _priceShown) ...[
               sectionTitle(context, 'بلوک مالی'),
               MoneyField(controller: _finDisc, label: 'تخفیف — اختیاری'),
               MoneyField(controller: _finWb, label: 'هزینهٔ باسکول — اختیاری'),
@@ -933,9 +947,9 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                 onChanged: (String? v) => setState(() => _finPayer = v ?? 'us'),
               ),
             ],
-            if (_finOn && widget.existing != null) FinBlockCard(docType: 'purchase', docId: (widget.existing!['id'] as num?)?.toInt()), // S35.T35.6f
+            if (_finOn && _priceShown && widget.existing != null) FinBlockCard(docType: 'purchase', docId: (widget.existing!['id'] as num?)?.toInt()), // S35.T35.6f
             FieldGate(field: 'purchase.costs', child: MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود')),
-            TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v)),
+            if (_priceShown) FieldGate(field: 'purchase.price', child: TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v))),
             const SizedBox(height: 8),
             FilledButton.icon(
               onPressed: _saving ? null : _save,

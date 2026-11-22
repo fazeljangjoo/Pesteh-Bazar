@@ -40,6 +40,9 @@ const List<AccessSection> kAccessSections = <AccessSection>[
     AccessOption('purchases.return', 'برگشت از خرید'),
     AccessOption('payments.save', 'ثبت پرداخت به فروشنده'),
   ], fields: <AccessOption>[
+    AccessOption('purchase.base', 'اطلاعات پایه (تاریخ، دسته، نوع، وزن، تعداد گونی/عدل، انبار)'), // v89
+    AccessOption('purchase.quality', 'گرم، انس و مشخصات'),
+    AccessOption('purchase.price', 'فی خرید، درجه‌بندی قیمت، بلوک مالی، مالیات و دلالی'),
     AccessOption('purchase.seller', 'فروشنده'),
     AccessOption('purchase.pct', 'درصدها و قیمت‌گذاری درصدها'),
     AccessOption('purchase.costs', 'هزینهٔ کارگر و حمل'),
@@ -56,6 +59,7 @@ const List<AccessSection> kAccessSections = <AccessSection>[
     AccessOption('pos.use', 'صندوق فروش (POS)'),
     AccessOption('receipts.save', 'ثبت دریافت از خریدار'),
   ], fields: <AccessOption>[
+    AccessOption('sale.price', 'فی فروش، درجه‌بندی قیمت، مالیات، دلالی و دریافت'), // v89
     AccessOption('sale.buyer', 'خریدار'),
     AccessOption('sale.costs', 'هزینهٔ کارگر و حمل'),
     AccessOption('sale.fin', 'بلوک مالی (تخفیف، هزینهٔ باسکول)'),
@@ -104,13 +108,8 @@ const List<AccessSection> kAccessSections = <AccessSection>[
     AccessOption('ws.costs', 'ثبت هزینه (اجرت، هزینهٔ شکست)'),
   ]),
   AccessSection(key: 'ounce', label: 'اتاق انس', price: 'intake.price', perms: <AccessOption>[
-    AccessOption('ounce.intake', 'ثبت پذیرش'),
-    AccessOption('ounce.view_own', 'مشاهدهٔ پذیرش‌های خود'),
-    AccessOption('ounce.view_all', 'مشاهدهٔ همهٔ پذیرش‌ها'),
-    AccessOption('ounce.edit_own', 'ویرایش پذیرش خود قبل از قطعی‌شدن'),
-    AccessOption('ounces.view', 'مشاهدهٔ درجه‌بندی انس'),
+    AccessOption('ounces.view', 'مشاهدهٔ درجه‌بندی انس'), // v89: پذیرش اتاق انس غیرفعال (اتاق انس روی خود خرید کار می‌کند)
     AccessOption('ounces.manage', 'تعریف درجه‌بندی انس'),
-    AccessOption('intake.confirm', 'قطعی‌سازی، رد و نمونه'),
   ], fields: <AccessOption>[]),
   AccessSection(key: 'parties', label: 'طرف‌حساب‌ها و پیگیری', price: 'price.parties', perms: <AccessOption>[
     AccessOption('parties.view', 'مشاهدهٔ طرف‌حساب‌ها'),

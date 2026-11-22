@@ -31,7 +31,7 @@ void main() {
     expect(some.contains('price.purchases'), isTrue);
     final Set<String> stale = accessNormalizePrice(<String>{'sales.view', 'price.purchases'}, kAccessSections);
     expect(stale.contains('price.purchases'), isFalse); // بخش انتخاب‌نشده کلید قیمت ندارد
-    final Set<String> ounce = accessNormalizePrice(<String>{'ounce.intake', 'intake.price'}, kAccessSections);
+    final Set<String> ounce = accessNormalizePrice(<String>{'ounces.view', 'intake.price'}, kAccessSections); // v89: پذیرش حذف شد
     expect(ounce.contains('intake.price'), isTrue);
     expect(ounce.contains('price.view'), isFalse); // قیمت اتاق انس جداست
   });

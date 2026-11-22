@@ -3,7 +3,6 @@ import 'dart:io' show Platform;
 import 'package:flutter/material.dart';
 import 'fmt.dart' show Fmt;
 
-import 'intake_list_screen.dart' show PendingIntakesCard; // S6.T4
 import 'sync_screen.dart';
 import 'sync_service.dart';
 import 'sync_status_ui.dart'; // S7
@@ -258,7 +257,6 @@ class HomeScreen extends StatelessWidget {
                     Expanded(
                       flex: 3,
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: const [
-                        PendingIntakesCard(), // S6.T4
                         MessagesCard(),
                         CrmHomeCard(),
                         FeedStockHomeCard(), // مرحلهٔ ۵
@@ -283,7 +281,6 @@ class HomeScreen extends StatelessWidget {
             return ListView(
               padding: const EdgeInsets.all(16),
               children: [
-                const PendingIntakesCard(), // S6.T4
                 const MessagesCard(),
                 const CrmHomeCard(),
                 const FeedStockHomeCard(), // مرحلهٔ ۵

@@ -68,7 +68,8 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         () {
           final int id = (r['id'] as num).toInt();
           final double net = ((r['net_weight'] as num?) ?? 0).toDouble(), rem = ((r['remaining'] as num?) ?? 0).toDouble();
-          final double k = kout[id] ?? 0, proc = net - rem - (sold[id] ?? 0) - k - (ret[id] ?? 0);
+          final bool held = ((r['stock_hold'] as num?) ?? 0).toInt() == 1; // v89: بی‌فی ⇒ هنوز در موجودی نیست (مصرفی هم ندارد)
+          final double k = kout[id] ?? 0, proc = held ? 0.0 : net - rem - (sold[id] ?? 0) - k - (ret[id] ?? 0);
           return <String, dynamic>{...r, 'sold_kg': sold[id] ?? 0.0, 'kout_kg': k, 'proc_kg': proc > 1e-3 ? proc : 0.0, 'used': k > 1e-6 || proc > 1e-3, 'mix_group': k > 1e-6 ? groups[id] : null};
         }(),
     ];
@@ -245,6 +246,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
 
   /// وضعیت کارت: مانده / فروخته‌شده / تمام‌شده در فراوری یا کوت.
   static String _statusText(Map<String, dynamic> p) {
+    if (((p['stock_hold'] as num?) ?? 0).toInt() == 1) return '⏳ منتظر فی — هنوز وارد موجودی نشده'; // v89
     if (AppDb.isAvailable(p)) return 'مانده ${faNum(p['remaining'] as num)} کیلو (خالص)';
     if (_isSold(p)) return 'فروخته‌شده';
     final double kout = ((p['kout_kg'] as num?) ?? 0).toDouble(), proc = ((p['proc_kg'] as num?) ?? 0).toDouble();

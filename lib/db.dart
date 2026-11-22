@@ -42,6 +42,7 @@ const List<(String, List<String>)> _kSnapshot = [
       'warehouse_uid', 'ounce_uid', 'tax_status', 'tax_rate_milli',
       'gross_kg', 'tare_kg', 'quality_deduct_kg', 'weigh_ticket_no', 'vehicle_plate', 'driver_name', // S35.T35.2
       'discount_amount', 'weighbridge_cost', 'side_cost_payer', 'taxable', // S35.T35.6b
+      'stock_hold', // v89: خرید بی‌فی (بیرون از موجودی تا ثبت فی)
       'edit_version' // فاز ۳: نسخهٔ سرور برای base_version (همزمانی)
     ]
   ),
@@ -156,7 +157,7 @@ const Set<String> _kRealCols = {
 };
 const Set<String> _kIntCols = {
   'id', 'category_id', 'mix_purchase_id', 'source_purchase_id', 'purchase_id', 'payment_id', 'sale_id',
-  'receipt_id', 'is_mix', 'paid', 'return_id', 'lot_id', 'reserve', 'proforma_id', 'doc_id', 'edit_version',
+  'receipt_id', 'is_mix', 'paid', 'return_id', 'lot_id', 'reserve', 'proforma_id', 'doc_id', 'edit_version', 'stock_hold',
 };
 
 /// ستون‌های خرید برای لیست‌ها: عکس (base64 سنگین) عمداً انتخاب نمی‌شود؛ فقط has_photo.
@@ -164,7 +165,7 @@ const String _pSel = 'p.id, p.code, p.category_id, p.type_name, p.date, p.ounce,
     'p.small_sack_count, p.large_sack_count, p.small_sacks_remaining, p.large_sacks_remaining, '
     'p.net_weight, p.remaining, p.gram, p.pct_dombest, '
     'p.pct_tuchin, p.pct_crooked, p.pct_khandan, p.custom_specs, p.seller, p.note, p.is_mix, '
-    'p.usd_rate, p.price_usd, p.ccy, p.fx_rate, p.price_ccy, p.fx_rate_source, p.waste, p.base_type, p.labor_cost, p.transport_cost, p.warehouse_uid, p.ounce_uid, p.created_at, p.ord, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
+    'p.usd_rate, p.price_usd, p.ccy, p.fx_rate, p.price_ccy, p.fx_rate_source, p.waste, p.base_type, p.labor_cost, p.transport_cost, p.warehouse_uid, p.ounce_uid, p.created_at, p.ord, p.stock_hold, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
 
 class _SaleV {
   final Map<String, dynamic> row;
@@ -188,7 +189,7 @@ class AppDb {
   /// با هر تغییر داده زیاد می‌شود تا صفحه‌ها بازخوانی شوند
   final ValueNotifier<int> version = ValueNotifier<int>(0);
 
-  static const int schemaVersion = 30; // فاز ۳: edit_version
+  static const int schemaVersion = 31; // v89: purchases.stock_hold
 
   String? _phone;
   Database? _db;
@@ -401,7 +402,20 @@ class AppDb {
     if (oldV < 30) {
       await addEditVersionCols(d); // فاز ۳ (سرور v78): نسخهٔ سند برای تشخیص تعارض همزمانی
     }
+    if (oldV < 31) {
+      await addStockHoldCol(d); // v89
+    }
   }
+
+  /// v89: خرید بی‌فی ⇒ stock_hold=1 (remaining و گونی باقی‌مانده ۰ تا ثبت فی). آینهٔ ستون سرور.
+  static Future<void> addStockHoldCol(DatabaseExecutor d) async {
+    try {
+      await d.execute('ALTER TABLE purchases ADD COLUMN stock_hold INTEGER NOT NULL DEFAULT 0');
+    } catch (_) {/* column already exists */}
+  }
+
+  /// v89: خرید بی‌فی؟ (فی ریالی ≤ ۰ و سند ارزی نیست)
+  static bool purchaseUnpriced(Map<String, dynamic> v) => v['ccy'] == null && ((v['price'] as num?) ?? 0) <= 0;
 
   /// فاز ۳ (سرور v78): `edit_version` روی سندهای آفلاینِ قابل‌ویرایش. NULL = نامعلوم (بدون base_version).
   static Future<void> addEditVersionCols(DatabaseExecutor d) async {
@@ -779,6 +793,7 @@ class AppDb {
     await _addTxFxCols(d); // S28.T28.2b
     await _addCreditUsedCols(d); // S36
     await addEditVersionCols(d); // فاز ۳
+    await addStockHoldCol(d); // v89
     await _createIndexes(d);
     // نکته: دسته‌ها و انواع پیش‌فرض را سرور می‌سازد (bootstrap) و هنگام ورود دریافت می‌شوند.
   }
@@ -1873,13 +1888,15 @@ class AppDb {
           final photo = _cleanPhoto(p['photo']);
           id = await _tempId(t, 'purchases');
           final ord = await _nextOrd(t, 'purchases');
+          final bool hold = purchaseUnpriced(v); // v89: بی‌فی ⇒ تا ثبت فی بیرون از موجودی
           await t.insert('purchases', {
             ...v,
             'id': id,
             'code': 'N${-id}', // کد موقت؛ بعد از ارسال به سرور کد واقعی (KH…) جایگزین می‌شود
-            'remaining': v['net_weight'],
-            'small_sacks_remaining': v['small_sack_count'],
-            'large_sacks_remaining': v['large_sack_count'],
+            'remaining': hold ? 0.0 : v['net_weight'],
+            'small_sacks_remaining': hold ? 0.0 : v['small_sack_count'],
+            'large_sacks_remaining': hold ? 0.0 : v['large_sack_count'],
+            'stock_hold': hold ? 1 : 0,
             'is_mix': 0,
             'photo': photo,
             'photo_pending': 0,
@@ -1916,16 +1933,22 @@ class AppDb {
       if (v.containsKey('warehouse_uid') && v['warehouse_uid'] == null && cur['warehouse_uid'] != null) {
         v['warehouse_uid'] = cur['warehouse_uid'];
       }
+      final bool wasHeld = ((cur['stock_hold'] as num?) ?? 0).toInt() == 1; // v89
+      final bool unpriced = purchaseUnpriced(v);
+      if (!wasHeld && unpriced && ((cur['price'] as num?) ?? 0) > 0) {
+        throw Exception('فی خرید را وارد کنید (خرید ثبت‌شده در موجودی بدون فی نمی‌شود)');
+      }
       final oldNet = (cur['net_weight'] as num).toDouble();
-      final oldRem = (cur['remaining'] as num).toDouble();
+      final oldRem = wasHeld ? oldNet : (cur['remaining'] as num).toDouble();
       final sold = oldNet - oldRem;
       final net = v['net_weight'] as double;
       if (sold > 1e-6 && (net - oldNet).abs() > 1e-6) {
         throw Exception('چون بخشی از این خرید فروخته شده، وزن آن قابل تغییر نیست');
       }
       // گونی‌هایی که تا حالا مصرف شده ثابت می‌ماند؛ فقط سقف جدید (تعداد خرید) عوض می‌شود
-      final usedSmall = (cur['small_sack_count'] as num).toDouble() - (cur['small_sacks_remaining'] as num).toDouble();
-      final usedLarge = (cur['large_sack_count'] as num).toDouble() - (cur['large_sacks_remaining'] as num).toDouble();
+      final usedSmall = wasHeld ? 0.0 : (cur['small_sack_count'] as num).toDouble() - (cur['small_sacks_remaining'] as num).toDouble();
+      final usedLarge = wasHeld ? 0.0 : (cur['large_sack_count'] as num).toDouble() - (cur['large_sacks_remaining'] as num).toDouble();
+      final bool hold = wasHeld && unpriced; // هنوز بی‌فی ⇒ بیرون از موجودی؛ با ثبت فی ⇒ کل وزن و گونی وارد موجودی
       final newSmallRem = (v['small_sack_count'] as double) - usedSmall;
       final newLargeRem = (v['large_sack_count'] as double) - usedLarge;
       if (newSmallRem < -1e-6 || newLargeRem < -1e-6) {
@@ -1933,9 +1956,10 @@ class AppDb {
       }
       final upd = <String, Object?>{
         ...v,
-        'remaining': _r(net - sold, 3),
-        'small_sacks_remaining': math.max(0.0, _r(newSmallRem, 2)),
-        'large_sacks_remaining': math.max(0.0, _r(newLargeRem, 2)),
+        'remaining': hold ? 0.0 : _r(net - sold, 3),
+        'small_sacks_remaining': hold ? 0.0 : math.max(0.0, _r(newSmallRem, 2)),
+        'large_sacks_remaining': hold ? 0.0 : math.max(0.0, _r(newLargeRem, 2)),
+        'stock_hold': hold ? 1 : 0,
       };
       final photoChanged = p.containsKey('photo');
       String? photo;
@@ -3033,7 +3057,7 @@ class AppDb {
 
   /// اقلام فروش: وزن باید مثبت باشد و ردیف‌های تکراری یک خرید ادغام می‌شوند
   /// (وزن و گونی جمع، فی میانگین وزنی) — همان normalizeSaleItems در app.php
-  List<Map<String, dynamic>> _normSaleItems(List<Map<String, dynamic>> items, double fallback) {
+  List<Map<String, dynamic>> _normSaleItems(List<Map<String, dynamic>> items, double fallback, {bool allowZeroPrice = false}) {
     if (items.isEmpty) throw Exception('یک قلم از انبار انتخاب کنید');
     if (items.length != 1) {
       throw Exception('هر فروش فقط از یک قلم انبار ثبت می‌شود؛ برای چند جنس، چند فروش جدا ثبت کنید');
@@ -3045,7 +3069,7 @@ class AppDb {
       if (w <= 0 || w > 1e9) throw Exception('وزن هر قلم فروش باید بزرگ‌تر از صفر باشد');
       final hasPrice = it['item_price'] != null && it['item_price'] != '';
       final price = hasPrice ? _n(it['item_price']) : fallback;
-      if (price <= 0 || price > 1e13) throw Exception('فی فروش نامعتبر است');
+      if ((price <= 0 && !allowZeroPrice) || price < 0 || price > 1e13) throw Exception('فی فروش نامعتبر است');
       final ss = _nn(it['small_sacks']);
       final ls = _nn(it['large_sacks']);
       if ((ss != null && ss < 0) || (ls != null && ls < 0)) throw Exception('تعداد گونی نامعتبر است');
@@ -3077,10 +3101,10 @@ class AppDb {
     ];
   }
 
-  _SaleV _saleValues(Map<String, dynamic> sale, List<Map<String, dynamic>> items) {
+  _SaleV _saleValues(Map<String, dynamic> sale, List<Map<String, dynamic>> items, {bool allowZeroPrice = false}) {
     final fallback = _n(sale['price']);
     if (fallback < 0 || fallback > 1e13) throw Exception('فی فروش نامعتبر است');
-    final norm = _normSaleItems(items, fallback);
+    final norm = _normSaleItems(items, fallback, allowZeroPrice: allowZeroPrice);
     final total = _n(sale['total_weight']);
     final small = _n(sale['small_sack_count']);
     final large = _n(sale['large_sack_count']);
@@ -3314,7 +3338,8 @@ class AppDb {
   }
 
   /// ویرایش فروش: وزن و گونیِ قبلی به همان خرید برمی‌گردد، سپس مقادیر جدید (دوباره اعتبارسنجی‌شده) اعمال می‌شود
-  Future<void> updateSale(int saleId, Map<String, dynamic> sale, List<Map<String, dynamic>> items) async {
+  /// v89: [keepPrice] = کارکنی که فی فروش را نمی‌بیند/نمی‌تواند تغییر دهد ⇒ فی ۰ (پوشانده) مجاز؛ سرور فی ذخیره‌شده را نگه می‌دارد.
+  Future<void> updateSale(int saleId, Map<String, dynamic> sale, List<Map<String, dynamic>> items, {bool keepPrice = false}) async {
     await _write((d) => d.transaction((t) async {
       final curRows = await t.query('sales', where: 'id=?', whereArgs: [saleId]);
       if (curRows.isEmpty) throw Exception('این فروش یافت نشد');
@@ -3322,7 +3347,7 @@ class AppDb {
       final merged = <String, dynamic>{};
       curRows.first.forEach((k, v) => merged[k] = v);
       sale.forEach((k, v) => merged[k] = v);
-      final v = _saleValues(merged, items);
+      final v = _saleValues(merged, items, allowZeroPrice: keepPrice);
       await _restoreSaleItems(t, saleId);
       await t.delete('sale_items', where: 'sale_id=?', whereArgs: [saleId]);
       await _applySaleItems(t, saleId, v.items);

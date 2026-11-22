@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'access_catalog.dart' show FieldGate; // v87: قسمت‌های قفل/پنهان فرم
+import 'perms.dart'; // v89
 import 'sale_lot_picker.dart' show SaleLotPicker; // v87
 import 'fin_block_view.dart'; // S35.T35.6f
 import 'package:flutter/services.dart';
@@ -254,6 +255,10 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   }
   /// فی فروش (واحد ذخیره، تومان تا S29): در سند ارزی = فی ارزی × نرخ ÷ ۱۰
   bool get _useGrades => _gradesOn && _gc.hasRows && !_fxc.active; // S35.T35.3b: price = weighted average of the grade lines
+  // v89: فی فروش فقط برای کسی که قیمت فروش را می‌بیند و قسمت «فی فروش» برایش پنهان نیست
+  bool get _priceShown => StaffPerms.I.canPriceIn('sales') && StaffPerms.I.fieldShown('sale.price');
+  bool get _priceEditable => _priceShown && StaffPerms.I.fieldEditable('sale.price');
+
   double get _priceVal => _fxc.active ? (_fxc.priceStored ?? 0) : (_useGrades ? _gc.weightedPrice : (MoneyField.stored(_price) ?? 0).toDouble());
   double get _revenue => _net * _priceVal;
 
@@ -303,8 +308,9 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       return;
     }
     final price = _priceVal;
-    if (price <= 0) {
-      snack(context, 'فی فروش را وارد کنید');
+    final bool keepPrice = _isEdit && !_priceEditable; // v89: ویرایش بدون دسترسی فی ⇒ سرور فی ذخیره‌شده را نگه می‌دارد
+    if (price <= 0 && !keepPrice) {
+      snack(context, _priceShown ? 'فی فروش را وارد کنید' : 'ثبت فروش تازه به فی نیاز دارد؛ کاربری که دسترسی قیمت فروش دارد باید آن را ثبت کند');
       return;
     }
     final net = _net;
@@ -417,7 +423,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       context,
       () async {
         if (_isEdit) {
-          await AppDb.I.updateSale(widget.editSaleId!, saleData, items);
+          await AppDb.I.updateSale(widget.editSaleId!, saleData, items, keepPrice: keepPrice);
         } else {
           await AppDb.I.insertSale(saleData, items);
         }
@@ -491,18 +497,18 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
           key: ValueKey('swh${lot['id']}'),
           child: SaleWarehouseField(lotId: lot['id'] as int, onChanged: (String? v) => _saleWh = v)));
       w.add(_summaryCard(context));
-      w.add(sectionTitle(context, '۳) فی فروش'));
-      if (_fx) w.add(FxDocFields(c: _fxc, priceLabel: 'فی فروش ارزی (هر کیلو)', onChanged: _changed));
-      if (!_fxc.active && !_useGrades) {
-        w.add(MoneyField(controller: _price, label: 'فی فروش (به ازای هر کیلو)', required: true, onChanged: _changed));
+      if (_priceShown) w.add(sectionTitle(context, '۳) فی فروش'));
+      if (_fx && _priceShown) w.add(FxDocFields(c: _fxc, priceLabel: 'فی فروش ارزی (هر کیلو)', onChanged: _changed));
+      if (_priceShown && !_fxc.active && !_useGrades) {
+        w.add(FieldGate(field: 'sale.price', child: MoneyField(controller: _price, label: 'فی فروش (به ازای هر کیلو)', required: true, onChanged: _changed)));
       }
-      if (_priceTableOn && !_fxc.active && !_useGrades && _selLot != null) {
+      if (_priceEditable && _priceTableOn && !_fxc.active && !_useGrades && _selLot != null) {
         w.add(PriceSuggestionHint(
             typeName: '${_selLot!['type_name']}', ounceUid: _selLot!['ounce_uid'] as String?, onAccept: (num v) { MoneyField.setStored(_price, v); _changed(); })); // S35.T35.4
       }
-      if (_hintOn && _selLot != null) w.add(_profitHint(_selLot!)); // S35.T35.8
-      if (_gradesOn && !_fxc.active) w.add(GradeLinesEditor(c: _gc, netKg: _net, onChanged: _changed)); // S35.T35.3b
-      if (!_fx) w.add(fxLockedField('فروش به ارز'));
+      if (_priceShown && _hintOn && _selLot != null) w.add(_profitHint(_selLot!)); // S35.T35.8
+      if (_priceShown && _gradesOn && !_fxc.active) w.add(FieldGate(field: 'sale.price', child: GradeLinesEditor(c: _gc, netKg: _net, onChanged: _changed))); // S35.T35.3b
+      if (!_fx && _priceShown) w.add(fxLockedField('فروش به ارز'));
     }
 
     w.add(const SizedBox(height: 12));
@@ -531,9 +537,11 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
         )),
       ]);
     if (_finOn && widget.editSaleId != null) w.add(FinBlockCard(docType: 'sale', docId: widget.editSaleId));
-    w.add(KeyedSubtree(
-        key: const ValueKey('taxChoice'),
-        child: TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v))));
+    if (_priceShown) {
+      w.add(KeyedSubtree(
+          key: const ValueKey('taxChoice'),
+          child: FieldGate(field: 'sale.price', child: TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v)))));
+    }
     w.add(FilledButton.icon(
       onPressed: _saving ? null : _save,
       icon: _saving

@@ -4,7 +4,6 @@ import 'payroll_ui.dart'; // T11.4
 import 'dart:async';
 import 'perms.dart'; // T02.2
 import 'cartex_shell.dart' show CartexShell; // نقش «کارتکس»
-import 'ounce_room_shell.dart'; // S5.T4
 import 'workshop_operator_shell.dart'; // کارگاه ۳-ب
 import 'access_ui.dart' show AccessHomeScreen; // v87
 import 'audit_screen.dart'; // T02.3
@@ -738,7 +737,7 @@ class _HomeShellState extends State<HomeShell> {
     return ValueListenableBuilder<Map<String, dynamic>?>(
       valueListenable: StaffPerms.I.current,
       builder: (BuildContext c, Map<String, dynamic>? _, Widget? __) {
-        if (StaffPerms.I.isOunceRoomOnly) return const OunceRoomShell();
+        // v89: پوستهٔ پذیرش اتاق انس حذف شد؛ اتاق انس با فهرست خرید (دسترسی‌های خودش) کار می‌کند
         if (StaffPerms.I.isWorkshopOperatorOnly) return const WorkshopOperatorShell();
         if (StaffPerms.I.isCartexOnly) return const CartexShell();
         return _buildHome(context);

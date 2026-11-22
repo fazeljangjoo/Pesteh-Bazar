@@ -402,7 +402,7 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
   // S5.T1 (mirror of server `pct_defs`; خواندنی برای فرم — مدیریت آن در مرحلهٔ بعد)
   'pct_defs': EntitySpec(
     'pct_defs',
-    'تعریف درصد پذیرش',
+    'تعریف درصدها', // v89
     <EntityField>[
       EntityField('key', 'کلید', 'string', max: 32),
       EntityField('label', 'عنوان', 'string', required: true, max: 80),
