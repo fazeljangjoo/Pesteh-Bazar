@@ -69,7 +69,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
           final int id = (r['id'] as num).toInt();
           final double net = ((r['net_weight'] as num?) ?? 0).toDouble(), rem = ((r['remaining'] as num?) ?? 0).toDouble();
           final double k = kout[id] ?? 0, proc = net - rem - (sold[id] ?? 0) - k - (ret[id] ?? 0);
-          return <String, dynamic>{...r, 'kout_kg': k, 'proc_kg': proc > 1e-3 ? proc : 0.0, 'used': k > 1e-6 || proc > 1e-3, 'mix_group': k > 1e-6 ? groups[id] : null};
+          return <String, dynamic>{...r, 'sold_kg': sold[id] ?? 0.0, 'kout_kg': k, 'proc_kg': proc > 1e-3 ? proc : 0.0, 'used': k > 1e-6 || proc > 1e-3, 'mix_group': k > 1e-6 ? groups[id] : null};
         }(),
     ];
   }
@@ -239,7 +239,20 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
 
   /// مثل وب: «فروخته‌شده» فقط وقتی است که وزنی از خودش نمانده باشد و مقداری از آن هم
   /// داخل مخلوطِ فروش‌نرفته نباشد.
-  static bool _isSold(Map<String, dynamic> p) => !AppDb.isAvailable(p);
+  // v87: «فروخته‌شده» فقط وقتی واقعاً فروش ثبت شده (sale_items) و چیزی از آن نمانده؛ لاتِ تمام‌شده در فراوری/کوت «فروخته‌شده» نیست.
+  static double _soldKg(Map<String, dynamic> p) => ((p['sold_kg'] as num?) ?? 0).toDouble();
+  static bool _isSold(Map<String, dynamic> p) => _soldKg(p) > 1e-6 && !AppDb.isAvailable(p);
+
+  /// وضعیت کارت: مانده / فروخته‌شده / تمام‌شده در فراوری یا کوت.
+  static String _statusText(Map<String, dynamic> p) {
+    if (AppDb.isAvailable(p)) return 'مانده ${faNum(p['remaining'] as num)} کیلو (خالص)';
+    if (_isSold(p)) return 'فروخته‌شده';
+    final double kout = ((p['kout_kg'] as num?) ?? 0).toDouble(), proc = ((p['proc_kg'] as num?) ?? 0).toDouble();
+    if (kout > 1e-6 && proc > 1e-3) return 'تمام‌شده (فراوری و کوت‌ریزی)';
+    if (kout > 1e-6) return 'تمام‌شده (کوت‌ریزی)';
+    if (proc > 1e-3) return 'تمام‌شده (فراوری)';
+    return 'تمام‌شده';
+  }
 
   static String _inMixLine(Map<String, dynamic> p) {
     final codes = ((p['in_mix_codes'] as List?) ?? const []).cast<String>();
@@ -250,7 +263,6 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
 
   Widget _card(BuildContext context, Map<String, dynamic> p) {
     final hasPhoto = ((p['has_photo'] as num?) ?? 0) == 1;
-    final sold = _isSold(p);
     final int? g = (p['mix_group'] as num?)?.toInt(); // v86: خریدهایی که با هم کوت شده‌اند هم‌رنگ‌اند
     final double koutKg = ((p['kout_kg'] as num?) ?? 0).toDouble(), procKg = ((p['proc_kg'] as num?) ?? 0).toDouble();
     return Card(
@@ -262,10 +274,10 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         title: Text('${p['category_name']} - ${p['type_name']}'),
         subtitle: Text(
             'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو (خالص)\n'
-            '${sold ? 'فروخته‌شده' : 'مانده ${faNum(p['remaining'] as num)} کیلو (خالص)'}  •  فی ${Fmt.money(p['price'] as num)}'
+            '${_statusText(p)}  •  فی ${Fmt.money(p['price'] as num)}'
             '${LicenseService.I.isFx.value && p['price_usd'] != null ? ' (${faUsd(p['price_usd'] as num, dec: 3)})' : ''}'
             '${_inMixLine(p)}'
-            '${koutKg > 1e-6 || procKg > 1e-3 ? '\n${<String>[if (koutKg > 1e-6) 'کوت ${faNum(koutKg)} کیلو${g == null ? '' : ' (گروه کوت #${faNum(g, dec: 0)})'}', if (procKg > 1e-3) 'فراوری ${faNum(procKg)} کیلو'].join('  •  ')}' : ''}'),
+            '${koutKg > 1e-6 || procKg > 1e-3 || _soldKg(p) > 1e-6 ? '\n${<String>[if (_soldKg(p) > 1e-6) 'فروش ${faNum(_soldKg(p))} کیلو', if (koutKg > 1e-6) 'کوت ${faNum(koutKg)} کیلو${g == null ? '' : ' (گروه کوت #${faNum(g, dec: 0)})'}', if (procKg > 1e-3) 'فراوری ${faNum(procKg)} کیلو'].join('  •  ')}' : ''}'),
         isThreeLine: true,
         trailing: PopupMenuButton<String>(
           onSelected: (v) async {
@@ -393,7 +405,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
                     total: all.length,
                     // v87: وضعیت فروش و ترتیب کوت‌ها داخل «فیلتر و ترتیب» (نه بالای صفحه)
                     extras: [
-                      DocFilterExtra(key: 'sold', title: 'نمایش', options: const {'hide': 'موجود', 'only': 'فروخته‌شده', 'all': 'همه'}, value: _soldMode),
+                      DocFilterExtra(key: 'sold', title: 'نمایش', options: const {'hide': 'فروش‌نرفته', 'only': 'فروخته‌شده', 'all': 'همه'}, value: _soldMode),
                       DocFilterExtra(key: 'group', title: 'ترتیب کوت‌ها (تب کوت و فراوری)', options: const {'date': 'طبق تاریخ', 'together': 'هم‌گروه‌ها کنار هم'}, value: _groupMix ? 'together' : 'date'),
                     ],
                     onExtras: (m) => setState(() {
