@@ -1,6 +1,10 @@
 // v90 — بازاریابی بین‌المللی: برچسب‌ها، فهرست کشورها و امتیاز ارزیابی (آینهٔ marketing_calc.php؛ تست مشترک marketing_cases.json).
 import 'package:flutter/material.dart';
 
+import 'mk_countries.dart';
+
+export 'mk_countries.dart' show kMkCountryNames, mkCountryKey, mkCountryNorm;
+
 const List<String> kMkStages = <String>['lead', 'contacted', 'negotiation', 'proforma', 'won', 'lost'];
 const List<String> kMkOpenStages = <String>['lead', 'contacted', 'negotiation', 'proforma'];
 
@@ -100,7 +104,33 @@ String mkFlag(String? iso) {
 String mkCountryName(String? iso) {
   final String c = (iso ?? '').trim().toUpperCase();
   if (c.isEmpty || c == '--') return 'نامشخص';
-  return kMkCountries[c] ?? c;
+  return kMkCountries[c] ?? kMkCountryNames[c]?.first ?? c;
+}
+
+/// v91: همهٔ کشورها برای انتخاب در فرم — پرکاربردها اول (ترتیب kMkCountries)، بعد بقیه به ترتیب الفبای فارسی.
+final List<MapEntry<String, String>> kMkCountryChoices = <MapEntry<String, String>>[
+  ...kMkCountries.entries,
+  ...(kMkCountryNames.entries.where((MapEntry<String, List<String>> e) => !kMkCountries.containsKey(e.key)).map((MapEntry<String, List<String>> e) => MapEntry<String, String>(e.key, e.value.first)).toList()
+    ..sort((MapEntry<String, String> a, MapEntry<String, String> b) => a.value.compareTo(b.value))),
+];
+
+/// v91: متن آزاد «منبع آشنایی» (مثلاً «Gulfood 2026» یا «نمایشگاه استانبول 2025») ⇒ کلید دسته‌بندی.
+/// برچسب یا کلید دقیق ⇒ همان؛ وگرنه از روی کلمه‌های کلیدی؛ ناشناخته ⇒ 'other'. متن اصلی جدا در source_detail می‌ماند.
+String mkSourceKey(String raw) {
+  final String t = mkCountryNorm(raw);
+  if (t.isEmpty) return 'other';
+  for (final MapEntry<String, String> e in kMkSourceLabels.entries) {
+    if (t == mkCountryNorm(e.key) || t == mkCountryNorm(e.value)) return e.key;
+  }
+  bool has(List<String> words) => words.any((String w) => t.contains(mkCountryNorm(w)));
+  if (has(<String>['نمایشگاه', 'expo', 'exhibition', 'fair', 'gulfood', 'sial', 'anuga', 'foodex', 'worldfood', 'همایش', 'summit'])) return 'expo';
+  if (has(<String>['لینکدین', 'linkedin'])) return 'linkedin';
+  if (has(<String>['علی‌بابا', 'علی بابا', 'alibaba', 'b2b', 'tradekey', 'made-in-china', 'indiamart', 'ec21'])) return 'b2b';
+  if (has(<String>['معرفی', 'معرف', 'referral', 'refer', 'دوست', 'همکار'])) return 'referral';
+  if (has(<String>['تماس سرد', 'cold'])) return 'cold';
+  if (has(<String>['اینستاگرام', 'instagram', 'تلگرام', 'telegram', 'واتساپ', 'whatsapp', 'facebook', 'فیسبوک', 'شبکه', 'social', 'youtube', 'یوتیوب', 'tiktok'])) return 'social';
+  if (has(<String>['سایت', 'وب', 'website', 'web', 'google', 'گوگل', 'سرچ', 'search', 'www', 'http'])) return 'website';
+  return 'other';
 }
 
 /// وزن‌ها و ضریب‌های امتیاز (پیش‌فرض = شیت ارزیابی).

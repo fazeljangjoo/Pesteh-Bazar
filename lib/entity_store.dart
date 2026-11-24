@@ -427,9 +427,10 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
       EntityField('contact', 'شخص رابط', 'string', max: 120),
       EntityField('country', 'کشور', 'string', max: 2),
       EntityField('city', 'شهر', 'string', max: 80),
-      EntityField('phone', 'تلفن/واتساپ', 'string', max: 40),
+      EntityField('phone', 'تلفن/واتساپ', 'string', max: 200), // v91: چند شماره در یک خانه
       EntityField('email', 'ایمیل', 'string', max: 120),
       EntityField('source', 'منبع', 'enum', values: <String>['expo', 'website', 'linkedin', 'b2b', 'referral', 'cold', 'social', 'other'], defaultValue: 'other'),
+      EntityField('source_detail', 'جزئیات منبع', 'string', max: 150), // v91: مثل «Gulfood 2026»
       EntityField('products', 'محصول مورد علاقه', 'string', max: 200),
       EntityField('est_tons', 'حجم تخمینی (تن)', 'decimal', scale: 3, vmin: 0, vmax: 1000000),
       EntityField('stage', 'مرحله', 'enum', values: <String>['lead', 'contacted', 'negotiation', 'proforma', 'won', 'lost'], defaultValue: 'lead'),

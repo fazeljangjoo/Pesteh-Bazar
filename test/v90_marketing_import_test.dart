@@ -15,7 +15,7 @@ void main() {
   test('mk_leads fields mirror the server spec (import.php)', () {
     expect(k.id, 'mk_leads');
     expect(k.fields.map((ImpField f) => f.key).toList(),
-        <String>['name', 'contact', 'country', 'city', 'phone', 'email', 'source', 'products', 'est_tons', 'stage', 'owner', 'next_followup', 'note']);
+        <String>['name', 'contact', 'country', 'city', 'phone', 'email', 'source', 'source_detail', 'products', 'est_tons', 'stage', 'owner', 'next_followup', 'note']);
     expect(k.fields.where((ImpField f) => f.required).map((ImpField f) => f.key), <String>['name']);
     expect(k.keyFields, <String>['name']);
   });
@@ -28,7 +28,7 @@ void main() {
             'Muze,,tr,,,,علی‌بابا / B2B,,,پیش‌فاکتور,,,\n'
             'Kevin,,CN,,,,linkedin,,,lead,,,\n'));
     final Map<String, int> m = ImportEngine.autoMap(k, s.headers);
-    expect(m.values.every((int i) => i >= 0), isTrue, reason: '$m');
+    expect(m.entries.where((MapEntry<String, int> e) => e.key != 'source_detail').every((MapEntry<String, int> e) => e.value >= 0), isTrue, reason: '$m'); // v91: «جزئیات منبع» ستون اختیاری تازه است
     final List<ImpRow> rows = ImportEngine.validate(k, s, m);
     expect(rows.every((ImpRow r) => r.ok), isTrue, reason: rows.map((ImpRow r) => r.errors).toString());
     expect(rows[0].values['country'], 'AE');
@@ -44,7 +44,7 @@ void main() {
     expect(rows[2].values['stage'], 'lead');
   });
 
-  test('closed stages, unknown country and duplicate names are row errors', () {
+  test('closed stages and unknown country are row errors; duplicate names merge (v91)', () {
     final ImpSheet s = ImportEngine.parse(
         'leads.csv',
         _csv('نام,کشور,مرحله\n'
@@ -58,7 +58,8 @@ void main() {
     expect(rows[0].ok, isFalse); // فروش با اکسل ثبت نمی‌شود
     expect(rows[1].ok, isFalse); // کشور ناشناخته
     expect(rows[2].ok, isTrue);
-    expect(rows[3].errors.single, contains('ردیف 4')); // همان نام (با فاصله/حروف متفاوت)
+    expect(rows[3].ok, isTrue); // v91: همان نام (با فاصله/حروف متفاوت) ⇒ ادغام با ردیف ۴، نه خطا
+    expect(rows[3].mergedInto, 4);
     expect(rows[4].errors.single, contains('الزامی'));
   });
 

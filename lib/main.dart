@@ -5,6 +5,7 @@ import 'dart:async';
 import 'perms.dart'; // T02.2
 import 'user_badge.dart'; // v89
 import 'marketing_ui.dart' show MarketingHomeScreen; // v90
+import 'menu_layout.dart'; // v91: پین و پوشهٔ «سایر» در منوی کناری
 import 'cartex_shell.dart' show CartexShell; // نقش «کارتکس»
 import 'workshop_operator_shell.dart'; // کارگاه ۳-ب
 import 'access_ui.dart' show AccessHomeScreen; // v87
@@ -227,9 +228,25 @@ class _HomeShellState extends State<HomeShell> {
 
   /// فهرست منو (در گوشی داخل Drawer، در ویندوز داخل منوی کناری ثابت)
   Widget _menuList(BuildContext context) {
-    return ListView(
-      padding: EdgeInsets.zero,
-      children: [
+    // v91: چیدمان قابل تنظیم هر کاربر (پین / «سایر»)؛ فهرست پیش‌فرض همان قبلی است و قبلاً با مجوزها فیلتر شده
+    MenuLayoutStore.I.ensureLoaded();
+    return ValueListenableBuilder<MenuLayout>(
+      valueListenable: MenuLayoutStore.I.layout,
+      builder: (BuildContext c, MenuLayout l, Widget? _) {
+        final List<Widget> items = _menuItems(context);
+        return ListView(
+          padding: EdgeInsets.zero,
+          children: arrangeMenu(context, items, l, onEdit: () {
+            _closeMenu(context);
+            _push(context, MaterialPageRoute<void>(builder: (_) => MenuEditScreen(items: menuEditableItems(items))));
+          }),
+        );
+      },
+    );
+  }
+
+  List<Widget> _menuItems(BuildContext context) {
+    return <Widget>[
               if (!Platform.isWindows) ...[
                 const Padding(
                   padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -476,6 +493,7 @@ class _HomeShellState extends State<HomeShell> {
                     _push(context, MaterialPageRoute(builder: (_) => const BackupScreen()));
                   },
                 ),
+                if (StaffPerms.I.can('settings.manage')) // v91: قفل برنامه = تنظیم دستگاه؛ مالک یا مدیر تنظیمات
                 ListTile(
                   leading: const Icon(Icons.lock_outline),
                   title: const Text('قفل برنامه'),
@@ -780,8 +798,7 @@ class _HomeShellState extends State<HomeShell> {
                   _push(context, MaterialPageRoute(builder: (_) => const SubscriptionScreen()));
                 },
               ),
-      ],
-    );
+    ];
   }
 
   @override
@@ -793,6 +810,8 @@ class _HomeShellState extends State<HomeShell> {
         // v89: پوستهٔ پذیرش اتاق انس حذف شد؛ اتاق انس با فهرست خرید (دسترسی‌های خودش) کار می‌کند
         if (StaffPerms.I.isWorkshopOperatorOnly) return const WorkshopOperatorShell();
         if (StaffPerms.I.isCartexOnly) return const CartexShell();
+        // v91: بازاریاب / مدیر بازاریابی ⇒ از ابتدا فقط بخش بازاریابی (خانه، خرید، فروش، انبار و منوی اصلی برایشان وجود ندارد)
+        if (StaffPerms.I.isMarketingOnly) return const MarketingHomeScreen(shell: true);
         return _buildHome(context);
       },
     );

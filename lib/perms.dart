@@ -103,6 +103,17 @@ class StaffPerms {
     return p.every((e) => kCartexPerms.contains(e));
   }
 
+  /// v91: نقش‌های «بازاریاب» و «مدیر بازاریابی»: کارمندی که جز مجوزهای بازاریابی (و برای مدیر، مدیریت کارمندان) چیزی ندارد
+  /// ⇒ از همان ابتدا فقط بخش بازاریابی (پوستهٔ جدا؛ خانه، خرید، فروش، انبار و منوی اصلی برایش وجود ندارد).
+  bool get isMarketingOnly {
+    final s = current.value;
+    if (s == null) return false;
+    final p = s['perms'];
+    if (p is! List || p.isEmpty) return false;
+    if (!p.any((e) => '$e'.startsWith('marketing.'))) return false;
+    return p.every((e) => kMarketingShellPerms.contains(e));
+  }
+
   /// نمایش کارتکس لات: مجوز تازهٔ cartex.view، یا stock.view (دستگاهی که هنوز مجوزهای جدید را از سرور نگرفته؛ سرور خودش را چک می‌کند).
   bool get canCartex => can('cartex.view') || can('stock.view');
 
@@ -142,6 +153,12 @@ const Set<String> kOunceRoomPerms = <String>{'ounce.intake', 'ounce.view_own', '
 
 /// نقش سیستمی «کارتکس» (permissions.php: PB_ROLE_CARTEX): فقط مشاهدهٔ کارتکس لات.
 const Set<String> kCartexPerms = <String>{'cartex.view'};
+
+/// v91: مجوزهایی که پوستهٔ بازاریابی پوشش می‌دهد (permissions.php: PB_ROLE_MARKETER / PB_ROLE_MARKETING_MANAGER).
+/// users.manage برای مدیر بازاریابی = مدیریت کارمندان بازاریاب (سرور فقط زیرمجموعهٔ مجوزهای خودش را اجازه می‌دهد).
+/// settings.manage هم اینجاست: اگر به مدیر بازاریابی بخش «مدیریت» را کامل داده باشند، باز هم فقط بخش بازاریابی را می‌بیند
+/// (تنظیمات فرم، چاپ، مشخصات شرکت و … برای این نقش معنا ندارد).
+const Set<String> kMarketingShellPerms = <String>{'marketing.entry', 'marketing.manage', 'marketing.reports', 'users.manage', 'settings.manage'};
 
 /// کارگاه (مرحلهٔ ۱): مجوزهای نقش سیستمی «اپراتور کارگاه» (permissions.php: PB_ROLE_WORKSHOP_OPERATOR) — بدون price.view. شِل اپراتور = مرحلهٔ ۳.
 const Set<String> kWorkshopOperatorPerms = <String>{'workshop.operate', 'workshop.view', 'workshop.crack', 'workshop.feed'};

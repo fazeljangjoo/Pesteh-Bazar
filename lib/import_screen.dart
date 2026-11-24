@@ -31,7 +31,8 @@ class _ImportScreenState extends State<ImportScreen> {
   Map<String, int> _map = <String, int>{};
   List<ImpRow> _rows = <ImpRow>[];
   String _batchId = _newBatchId();
-  bool _allOrNothing = true;
+  // v91: پیش‌فرض خاموش — ردیف‌های سالم ثبت می‌شوند و ردیف‌های خطادار کنار گذاشته و به‌صورت فایل اکسل برگردانده می‌شوند.
+  bool _allOrNothing = false;
   bool _updateDup = false;
   bool _busy = false;
   Map<String, dynamic>? _result;
@@ -94,6 +95,16 @@ class _ImportScreenState extends State<ImportScreen> {
     }
   }
 
+  Future<void> _errors() async {
+    if (_sheet == null) return;
+    try {
+      final f = await ImportEngine.errorFile(_kind, _sheet!, _rows);
+      if (mounted) await ExcelIo.saveOrShare(context, f);
+    } catch (e) {
+      if (mounted) snack(context, 'خطا در ساخت فایل: $e');
+    }
+  }
+
   Future<void> _pick() async {
     try {
       final XFile? x = await openFile(acceptedTypeGroups: <XTypeGroup>[
@@ -129,6 +140,10 @@ class _ImportScreenState extends State<ImportScreen> {
           body: const Center(child: Text('مجوز ورود اطلاعات را ندارید')));
     }
     final int bad = _rows.where((ImpRow r) => !r.ok).length;
+    final int merged = _rows.where((ImpRow r) => r.ok && r.mergedInto != null).length;
+    final int good = _rows.length - bad - merged;
+    // v91: با ردیف خطادار هم می‌شود ثبت کرد (فقط ردیف‌های سالم)، مگر «همه‌یا‌هیچ» روشن باشد.
+    final bool canSend = good > 0 && !_busy && (bad == 0 || !_allOrNothing);
     return Scaffold(
       appBar: AppBar(title: Text(title)),
       body: ListView(
@@ -197,8 +212,20 @@ class _ImportScreenState extends State<ImportScreen> {
                 ),
               ),
             const SizedBox(height: 12),
-            Text('ردیف سالم: ${_rows.length - bad}   |   ردیف خطادار: $bad',
+            Text('ردیف سالم: $good   |   ردیف خطادار: $bad${merged > 0 ? '   |   ادغام‌شده با ردیف تکراری: $merged' : ''}',
                 style: TextStyle(fontWeight: FontWeight.bold, color: bad > 0 ? Colors.red : Colors.green.shade800)),
+            if (bad > 0) ...<Widget>[
+              const SizedBox(height: 4),
+              Text(
+                  _allOrNothing
+                      ? 'با «همه‌یا‌هیچ» روشن، تا ردیف خطادار هست چیزی ثبت نمی‌شود.'
+                      : 'ردیف‌های سالم ثبت می‌شوند و $bad ردیف خطادار کنار گذاشته می‌شود. ردیف‌های خطادار را دانلود، اصلاح و دوباره وارد کنید.',
+                  style: const TextStyle(fontSize: 12.5)),
+              Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(onPressed: _errors, icon: const Icon(Icons.download), label: Text('دانلود $bad ردیف خطادار (اکسل)')),
+              ),
+            ],
             const SizedBox(height: 6),
             for (final ImpRow r in _rows.where((ImpRow r) => !r.ok).take(100))
               ListTile(
@@ -229,15 +256,15 @@ class _ImportScreenState extends State<ImportScreen> {
             Row(children: <Widget>[
               Expanded(
                 child: OutlinedButton(
-                  onPressed: (_rows.isEmpty || bad > 0 || _busy) ? null : () => _run(true),
+                  onPressed: canSend ? () => _run(true) : null,
                   child: const Text('بررسی روی سرور'),
                 ),
               ),
               const SizedBox(width: 8),
               Expanded(
                 child: FilledButton(
-                  onPressed: (_rows.isEmpty || bad > 0 || _busy) ? null : () => _run(false),
-                  child: Text(_busy ? 'در حال ارسال…' : 'ثبت نهایی'),
+                  onPressed: canSend ? () => _run(false) : null,
+                  child: Text(_busy ? 'در حال ارسال…' : (bad > 0 ? 'ثبت $good ردیف سالم' : 'ثبت نهایی')),
                 ),
               ),
             ]),

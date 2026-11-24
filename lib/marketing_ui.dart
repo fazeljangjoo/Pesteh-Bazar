@@ -1,6 +1,7 @@
 // v90 — بازاریابی بین‌المللی: صفحهٔ اصلی بخش، مشتری‌ها (فهرست/کانبان)، کارت مشتری، پیگیری، فروش، «امروز من» و مدیریت.
 import 'package:flutter/material.dart';
 
+import 'access_ui.dart' show AccessHomeScreen;
 import 'db.dart' show AppDb;
 import 'entity_store.dart' show EntityStore;
 import 'import_engine.dart' show kMkLeadImportKind;
@@ -9,6 +10,7 @@ import 'marketing_calc.dart';
 import 'marketing_dashboard_ui.dart';
 import 'marketing_store.dart';
 import 'perms.dart';
+import 'user_badge.dart' show UserRoleLine, staffLogout;
 import 'utils.dart';
 import 'warehouse_ui.dart' show StockApiException;
 import 'widgets.dart' show confirm, pickDate, snack;
@@ -40,7 +42,10 @@ Widget mkStageChip(String stage, {bool dense = false}) {
 
 /// صفحهٔ اصلی بخش: داشبورد (مدیر/مالک/گزارش) · امروز من (بازاریاب) · مشتری‌ها · مدیریت (مدیر).
 class MarketingHomeScreen extends StatelessWidget {
-  const MarketingHomeScreen({super.key});
+  /// v91: true ⇒ صفحهٔ اول برنامه برای بازاریاب / مدیر بازاریابی (پوستهٔ جدا): نام و نقش کاربر، مدیریت کارمندان (مدیر) و خروج
+  /// در نوار بالا؛ دکمهٔ بازگشت ندارد چون صفحهٔ دیگری برای این نقش‌ها وجود ندارد.
+  final bool shell;
+  const MarketingHomeScreen({super.key, this.shell = false});
 
   @override
   Widget build(BuildContext context) {
@@ -51,14 +56,33 @@ class MarketingHomeScreen extends StatelessWidget {
       if (s.canEntry || s.isManager) ('مشتری‌ها', Icons.groups_2_outlined, const MkLeadsView()),
       if (s.isManager) ('مدیریت', Icons.tune, const MkAdminView()),
     ];
+    final List<Widget> actions = shell
+        ? <Widget>[
+            if (StaffPerms.I.can('users.manage'))
+              IconButton(
+                tooltip: 'کارمندان بازاریابی',
+                icon: const Icon(Icons.manage_accounts_outlined),
+                onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const AccessHomeScreen())),
+              ),
+            IconButton(tooltip: 'خروج از حساب', icon: const Icon(Icons.logout), onPressed: () => staffLogout(context)),
+          ]
+        : const <Widget>[];
+    final Widget title = shell
+        ? const Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: <Widget>[
+            Text('بازاریابی بین‌المللی'),
+            UserRoleLine(),
+          ])
+        : const Text('بازاریابی بین‌المللی');
     if (tabs.isEmpty) {
-      return Scaffold(appBar: AppBar(title: const Text('بازاریابی بین‌المللی')), body: const Center(child: Text('دسترسی به این بخش ندارید')));
+      return Scaffold(appBar: AppBar(title: title, actions: actions, automaticallyImplyLeading: !shell), body: const Center(child: Text('دسترسی به این بخش ندارید')));
     }
     return DefaultTabController(
       length: tabs.length,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('بازاریابی بین‌المللی'),
+          title: title,
+          actions: actions,
+          automaticallyImplyLeading: !shell,
           bottom: TabBar(isScrollable: tabs.length > 3, tabs: <Widget>[for (final (String, IconData, Widget) t in tabs) Tab(icon: Icon(t.$2), text: t.$1)]),
         ),
         body: TabBarView(children: <Widget>[for (final (String, IconData, Widget) t in tabs) t.$3]),
@@ -201,10 +225,14 @@ class MkImportScreen extends StatelessWidget {
         fixedKind: kMkLeadImportKind,
         perms: const <String>['marketing.entry', 'marketing.manage'],
         hint: '۱. «دانلود قالب» را بزنید و هر مشتری را در یک ردیف بنویسید (ردیف نمونه را پاک کنید).\n'
-            '۲. کشور: نام فارسی یا کد دوحرفی (مثل AE). مرحله فقط لید جدید، ارتباط گرفته، مذاکره یا پیش‌فاکتور. پیگیری بعدی: مثل ۱۴۰۵/۰۹/۱۰.\n'
-            '۳. «مسئول» را خالی بگذارید تا مشتری به نام خودتان ثبت شود؛ سپردن به بازاریاب دیگر فقط با مدیر است (نام دقیقاً مثل فهرست کارکنان).\n'
-            '۴. مشتری تکراری (همان نام، تلفن یا ایمیل) رد می‌شود، مگر گزینهٔ «رکوردهای تکراری به‌روزرسانی شوند» را روشن کنید؛ مرحله با اکسل عوض نمی‌شود.\n'
-            '۵. مشتری‌های واردشده در «مشتری جدید»، قیف و امتیاز شمرده نمی‌شوند؛ پیگیری و فروش بعدی آن‌ها مثل بقیه امتیاز دارد.',
+            '۲. کشور: نام فارسی یا انگلیسی هر کشوری (مثل آرژانتین یا Argentina) یا کد دوحرفی (مثل AR). '
+            'منبع آشنایی: هر متنی، مثل «Gulfood 2026» یا «نمایشگاه استانبول ۲۰۲۵»؛ دسته‌اش خودکار تعیین و متن اصلی در «جزئیات منبع» نگه داشته می‌شود. '
+            'مرحله فقط لید جدید، ارتباط گرفته، مذاکره یا پیش‌فاکتور. پیگیری بعدی: مثل ۱۴۰۵/۰۹/۱۰. چند شماره تلفن را در یک خانه با «/» جدا کنید.\n'
+            '۳. «مسئول» را خالی بگذارید تا مشتری به نام خودتان ثبت شود؛ سپردن به بازاریاب دیگر فقط با مدیر است (نام دقیقاً مثل فهرست کارمندان).\n'
+            '۴. اگر یک مشتری در فایل دو بار آمده باشد، دو ردیف با هم ادغام می‌شوند. مشتری‌ای که از قبل در برنامه هست رد می‌شود، '
+            'مگر گزینهٔ «رکوردهای تکراری به‌روزرسانی شوند» را روشن کنید؛ مرحله با اکسل عوض نمی‌شود.\n'
+            '۵. ردیف‌های سالم ثبت می‌شوند؛ ردیف‌های خطادار را با «دانلود ردیف خطادار» بگیرید، اصلاح و دوباره وارد کنید.\n'
+            '۶. مشتری‌های واردشده در «مشتری جدید»، قیف و امتیاز شمرده نمی‌شوند؛ پیگیری و فروش بعدی آن‌ها مثل بقیه امتیاز دارد.',
       );
 }
 
@@ -464,7 +492,7 @@ class _MkLeadScreenState extends State<MkLeadScreen> {
                   Expanded(
                     child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
                       Text('${l['name'] ?? ''}', style: th.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                      Text('${mkCountryName('${l['country'] ?? ''}')}${'${l['city'] ?? ''}'.isNotEmpty ? '، ${l['city']}' : ''}  ·  ${kMkSourceLabels['${l['source'] ?? 'other'}'] ?? ''}',
+                      Text('${mkCountryName('${l['country'] ?? ''}')}${'${l['city'] ?? ''}'.isNotEmpty ? '، ${l['city']}' : ''}  ·  ${kMkSourceLabels['${l['source'] ?? 'other'}'] ?? ''}${'${l['source_detail'] ?? ''}'.isNotEmpty ? ' (${l['source_detail']})' : ''}',
                           style: TextStyle(color: th.hintColor)),
                     ]),
                   ),
@@ -657,7 +685,7 @@ class MkLeadFormScreen extends StatefulWidget {
 
 class _MkLeadFormScreenState extends State<MkLeadFormScreen> {
   final Map<String, TextEditingController> _c = <String, TextEditingController>{
-    for (final String k in <String>['name', 'contact', 'city', 'phone', 'email', 'products', 'est_tons', 'note']) k: TextEditingController(),
+    for (final String k in <String>['name', 'contact', 'city', 'phone', 'email', 'products', 'est_tons', 'note', 'source_detail']) k: TextEditingController(),
   };
   String? _country;
   String _source = 'other';
@@ -712,6 +740,7 @@ class _MkLeadFormScreenState extends State<MkLeadFormScreen> {
         'phone': _c['phone']!.text,
         'email': _c['email']!.text,
         'source': _source,
+        'source_detail': _c['source_detail']!.text,
         'products': prods.join('، '),
         'est_tons': double.tryParse(toEnDigits(_c['est_tons']!.text.trim())),
         'note': _c['note']!.text,
@@ -747,7 +776,9 @@ class _MkLeadFormScreenState extends State<MkLeadFormScreen> {
                   isExpanded: true,
                   decoration: _d('کشور', Icons.public),
                   items: <DropdownMenuItem<String>>[
-                    for (final MapEntry<String, String> e in kMkCountries.entries) DropdownMenuItem<String>(value: e.key, child: Text('${mkFlag(e.key)}  ${e.value}')),
+                    for (final MapEntry<String, String> e in kMkCountryChoices) DropdownMenuItem<String>(value: e.key, child: Text('${mkFlag(e.key)}  ${e.value}')),
+                    if (_country != null && !kMkCountryChoices.any((MapEntry<String, String> e) => e.key == _country))
+                      DropdownMenuItem<String>(value: _country, child: Text('${mkFlag(_country)}  $_country')),
                   ],
                   onChanged: (String? v) => setState(() => _country = v),
                 ),
@@ -756,7 +787,7 @@ class _MkLeadFormScreenState extends State<MkLeadFormScreen> {
               Expanded(flex: 2, child: TextField(controller: _c['city'], maxLength: 80, decoration: _d('شهر', Icons.location_city_outlined))),
             ]),
             Row(children: <Widget>[
-              Expanded(child: TextField(controller: _c['phone'], maxLength: 40, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr, decoration: _d('تلفن / واتساپ', Icons.phone_outlined))),
+              Expanded(child: TextField(controller: _c['phone'], maxLength: 200, keyboardType: TextInputType.phone, textDirection: TextDirection.ltr, decoration: _d('تلفن / واتساپ', Icons.phone_outlined))),
               const SizedBox(width: 8),
               Expanded(child: TextField(controller: _c['email'], maxLength: 120, keyboardType: TextInputType.emailAddress, textDirection: TextDirection.ltr, decoration: _d('ایمیل', Icons.alternate_email))),
             ]),
@@ -766,6 +797,8 @@ class _MkLeadFormScreenState extends State<MkLeadFormScreen> {
               items: <DropdownMenuItem<String>>[for (final MapEntry<String, String> e in kMkSourceLabels.entries) DropdownMenuItem<String>(value: e.key, child: Text(e.value))],
               onChanged: (String? v) => setState(() => _source = v ?? 'other'),
             ),
+            const SizedBox(height: 8),
+            TextField(controller: _c['source_detail'], maxLength: 150, decoration: _d('جزئیات منبع (مثلاً Gulfood 2026)', Icons.event_note_outlined)),
             const SizedBox(height: 12),
             Text('محصول مورد علاقه', style: Theme.of(context).textTheme.titleSmall),
             const SizedBox(height: 6),

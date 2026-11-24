@@ -5,7 +5,7 @@ import 'dart:typed_data';
 import 'package:excel/excel.dart';
 
 import 'excel_io.dart';
-import 'marketing_calc.dart' show kMkCountries, kMkOpenStages, kMkSourceLabels, kMkStageLabels;
+import 'marketing_calc.dart' show kMkOpenStages, kMkSourceLabels, kMkStageLabels, mkCountryKey, mkCountryNorm, mkSourceKey;
 import 'utils.dart';
 
 // S13.T13.2a — client side of the import engine: kind schemas, template, xlsx/csv parsing,
@@ -25,13 +25,23 @@ class ImpField {
   final int max;
   final Map<String, String> enumMap; // Persian/English word -> stored value
   final String example;
+  /// v91: enumeration with a smart resolver (free text ⇒ stored value; null = unknown). Used instead of [enumMap] when set.
+  final String? Function(String raw)? resolve;
+  /// v91: when [resolve] did not hit an exact label/key, the original text is also stored in this field (e.g. source_detail).
+  final String? detailKey;
+  /// v91: duplicate rows (same key) are merged into the first row instead of being an error; text fields in this set are
+  /// concatenated (e.g. phone, note) instead of "first non-empty wins".
+  final bool joinOnMerge;
   const ImpField(this.key, this.label,
       {this.aliases = const <String>[],
       this.type = ImpType.text,
       this.required = false,
       this.max = 200,
       this.enumMap = const <String, String>{},
-      this.example = ''});
+      this.example = '',
+      this.resolve,
+      this.detailKey,
+      this.joinOnMerge = false});
 }
 
 class ImpKind {
@@ -39,7 +49,9 @@ class ImpKind {
   final String label;
   final List<ImpField> fields;
   final List<String> keyFields; // idempotency / duplicate key inside the file
-  const ImpKind(this.id, this.label, this.fields, this.keyFields);
+  /// v91: duplicate keys inside the file are merged into the first row (not an error).
+  final bool mergeDuplicates;
+  const ImpKind(this.id, this.label, this.fields, this.keyFields, {this.mergeDuplicates = false});
 }
 
 const Map<String, String> _kBool = <String, String>{
@@ -120,7 +132,18 @@ const List<ImpKind> kImportKinds = <ImpKind>[
 ];
 
 // v90 — بازاریابی بین‌المللی: مشتری‌ها از اکسل. فقط از تب «مشتری‌ها» باز می‌شود (نه از فهرست عمومی بالا).
-// کشور: کد دوحرفی یا نام فارسی؛ منبع و مرحله: برچسب فارسی یا کلید. مرحله فقط مراحل باز (فروش/از دست رفت با اکسل ثبت نمی‌شود).
+// v91: کشور = کد دوحرفی یا نام فارسی/انگلیسی هر کشور دنیا (با املاهای رایج)؛ منبع = هر متنی (مثل «Gulfood 2026») که خودکار
+// دسته‌بندی می‌شود و متن اصلی در «جزئیات منبع» می‌ماند؛ مرحله فقط مراحل باز (فروش/از دست رفت با اکسل ثبت نمی‌شود).
+// ردیف‌های تکراری (همان نام) در فایل با ردیف اول ادغام می‌شوند (تلفن و یادداشت کنار هم می‌آیند).
+String? _mkSourceExact(String raw) {
+  final String t = mkCountryNorm(raw);
+  for (final MapEntry<String, String> e in kMkSourceLabels.entries) {
+    if (t == mkCountryNorm(e.key) || t == mkCountryNorm(e.value)) return e.key;
+  }
+  return null;
+}
+
+String? _mkSourceResolve(String raw) => mkSourceKey(raw);
 Map<String, String> _mkEnum(Map<String, String> keyToLabel, {bool upperValue = false}) => <String, String>{
       for (final MapEntry<String, String> e in keyToLabel.entries) ...<String, String>{
         ImportEngine._norm(e.key): upperValue ? e.key.toUpperCase() : e.key,
@@ -131,19 +154,20 @@ Map<String, String> _mkEnum(Map<String, String> keyToLabel, {bool upperValue = f
 final ImpKind kMkLeadImportKind = ImpKind('mk_leads', 'مشتری‌های بازاریابی بین‌المللی', <ImpField>[
   const ImpField('name', 'نام شرکت / مشتری', aliases: <String>['نام شرکت', 'نام مشتری', 'نام', 'شرکت', 'مشتری', 'company', 'name'], required: true, max: 150, example: 'Al Noor Trading (نمونه)'),
   const ImpField('contact', 'شخص رابط', aliases: <String>['رابط', 'نام رابط', 'contact', 'contact person'], max: 120, example: 'Mr. Khalid'),
-  ImpField('country', 'کشور', aliases: <String>['country', 'کد کشور'], type: ImpType.enumeration, enumMap: _mkEnum(kMkCountries, upperValue: true), example: 'امارات'),
+  const ImpField('country', 'کشور', aliases: <String>['country', 'کد کشور'], type: ImpType.enumeration, resolve: mkCountryKey, example: 'امارات'),
   const ImpField('city', 'شهر', aliases: <String>['city'], max: 80, example: 'دبی'),
-  const ImpField('phone', 'تلفن / واتساپ', aliases: <String>['تلفن', 'واتساپ', 'موبایل', 'شماره تماس', 'phone', 'whatsapp'], max: 40, example: '+971500000000'),
+  const ImpField('phone', 'تلفن / واتساپ', aliases: <String>['تلفن', 'واتساپ', 'موبایل', 'شماره تماس', 'phone', 'whatsapp'], max: 200, joinOnMerge: true, example: '+971500000000'),
   const ImpField('email', 'ایمیل', aliases: <String>['email', 'e-mail', 'پست الکترونیک'], max: 120, example: 'sample@example.com'),
-  ImpField('source', 'منبع آشنایی', aliases: <String>['منبع', 'source'], type: ImpType.enumeration, enumMap: _mkEnum(kMkSourceLabels), example: 'نمایشگاه'),
+  const ImpField('source', 'منبع آشنایی', aliases: <String>['منبع', 'source'], type: ImpType.enumeration, resolve: _mkSourceResolve, detailKey: 'source_detail', example: 'Gulfood 2026'),
+  const ImpField('source_detail', 'جزئیات منبع', aliases: <String>['نام نمایشگاه', 'source detail'], max: 150, example: ''),
   const ImpField('products', 'محصول مورد علاقه', aliases: <String>['محصول', 'محصولات', 'products'], max: 200, example: 'خندان، مغز'),
   const ImpField('est_tons', 'حجم تخمینی خرید (تن)', aliases: <String>['حجم تخمینی (تن)', 'حجم تخمینی', 'تناژ تخمینی', 'tons'], type: ImpType.decimal, example: '20'),
   ImpField('stage', 'مرحله', aliases: <String>['مرحلهٔ فعلی', 'stage'], type: ImpType.enumeration,
       enumMap: _mkEnum(<String, String>{for (final String s in kMkOpenStages) s: kMkStageLabels[s]!}), example: 'لید جدید'),
   const ImpField('owner', 'مسئول', aliases: <String>['بازاریاب', 'بازاریاب مسئول', 'owner'], max: 120),
   const ImpField('next_followup', 'پیگیری بعدی', aliases: <String>['تاریخ پیگیری بعدی', 'موعد پیگیری', 'next follow-up'], max: 30, example: '1405/09/10'),
-  const ImpField('note', 'یادداشت', aliases: <String>['توضیح', 'note'], max: 3000, example: 'ردیف نمونه؛ پیش از بارگذاری حذف کنید'),
-], <String>['name']);
+  const ImpField('note', 'یادداشت', aliases: <String>['توضیح', 'note'], max: 3000, joinOnMerge: true, example: 'ردیف نمونه؛ پیش از بارگذاری حذف کنید'),
+], <String>['name'], mergeDuplicates: true);
 
 class ImpSheet {
   final List<String> headers;
@@ -155,7 +179,9 @@ class ImpRow {
   final int rowNo; // 1-based spreadsheet row (header = 1)
   final Map<String, dynamic> values;
   final List<String> errors;
-  ImpRow(this.rowNo, this.values, this.errors);
+  /// v91: this row repeated the key of an earlier row and was merged into it (not sent on its own).
+  final int? mergedInto;
+  ImpRow(this.rowNo, this.values, this.errors, {this.mergedInto});
   bool get ok => errors.isEmpty;
 }
 
@@ -302,6 +328,16 @@ class ImportEngine {
             } else {
               v[f.key] = n;
             }
+          case ImpType.enumeration when f.resolve != null:
+            final String? e = f.resolve!(raw);
+            if (e == null) {
+              err.add('«${f.label}» شناخته نشد: $raw');
+            } else {
+              v[f.key] = e;
+              if (f.detailKey != null && f.key == 'source' && _mkSourceExact(raw) == null) {
+                v[f.detailKey!] = raw.length > 150 ? raw.substring(0, 150) : raw;
+              }
+            }
           case ImpType.enumeration:
           case ImpType.boolean:
             final String? e = f.enumMap[_norm(raw)] ?? f.enumMap[raw];
@@ -315,7 +351,12 @@ class ImportEngine {
       if (err.isEmpty && k.keyFields.every((String kf) => v[kf] != null)) {
         final String key = k.keyFields.map((String kf) => _norm('${v[kf]}')).join('|');
         final int? prev = seen[key];
-        if (prev != null) {
+        if (prev != null && k.mergeDuplicates) {
+          final ImpRow first = out.firstWhere((ImpRow x) => x.rowNo == prev);
+          _merge(k, first, v);
+          out.add(ImpRow(r + 2, v, err, mergedInto: prev));
+          continue;
+        } else if (prev != null) {
           err.add('کلید تکراری در فایل (مثل ردیف $prev)');
         } else {
           seen[key] = r + 2;
@@ -326,6 +367,38 @@ class ImportEngine {
     return out;
   }
 
+  /// v91: fills empty fields of [into] from [v]; [ImpField.joinOnMerge] text fields are concatenated (within max).
+  static void _merge(ImpKind k, ImpRow into, Map<String, dynamic> v) {
+    for (final ImpField f in k.fields) {
+      final Object? nv = v[f.key];
+      if (nv == null || '$nv'.trim().isEmpty) continue;
+      final Object? ov = into.values[f.key];
+      if (ov == null || '$ov'.trim().isEmpty) {
+        into.values[f.key] = nv;
+      } else if (f.joinOnMerge && !_norm('$ov').contains(_norm('$nv'))) {
+        final String sep = f.key == 'phone' ? ' / ' : '\n';
+        final String joined = '$ov$sep$nv';
+        if (joined.length <= f.max) into.values[f.key] = joined;
+      }
+    }
+    final Object? d = v['source_detail'];
+    if (d != null && into.values['source_detail'] == null) into.values['source_detail'] = d;
+  }
+
+  /// v91: error rows as an xlsx: the original columns + «خطا» — the user fixes them and imports this file again.
+  static Future<File> errorFile(ImpKind k, ImpSheet s, List<ImpRow> rows) => ExcelIo.exportTable(
+        columns: <String>[...s.headers, 'خطا'],
+        rows: <List<String>>[
+          for (final ImpRow r in rows.where((ImpRow r) => !r.ok))
+            <String>[
+              for (int i = 0; i < s.headers.length; i++) (r.rowNo - 2 < s.rows.length && i < s.rows[r.rowNo - 2].length) ? s.rows[r.rowNo - 2][i] : '',
+              r.errors.join('، '),
+            ],
+        ],
+        sheetName: 'ردیف‌های خطادار',
+        filePrefix: 'errors_${k.id}',
+      );
+
   /// Payload for the server action import.commit (T13.2b).
   static Map<String, dynamic> payload(ImpKind k, List<ImpRow> rows, {required String batchId, bool dryRun = true, bool allOrNothing = true}) =>
       <String, dynamic>{
@@ -333,6 +406,6 @@ class ImportEngine {
         'import_batch_id': batchId,
         'dry_run': dryRun,
         'all_or_nothing': allOrNothing,
-        'rows': <Map<String, dynamic>>[for (final ImpRow r in rows) if (r.ok) <String, dynamic>{...r.values, '_row': r.rowNo}],
+        'rows': <Map<String, dynamic>>[for (final ImpRow r in rows) if (r.ok && r.mergedInto == null) <String, dynamic>{...r.values, '_row': r.rowNo}],
       };
 }

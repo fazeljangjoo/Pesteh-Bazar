@@ -54,6 +54,15 @@ class HomeScreen extends StatelessWidget {
             final sales = snap.data![1] as List<Map<String, dynamic>>;
             final dues = snap.data![2] as List<DueItem>;
 
+            // v91: هر کارمند فقط کارت‌ها و دکمه‌هایی را می‌بیند که دسترسی‌اش را دارد (مالک ⇒ همه).
+            final StaffPerms p = StaffPerms.I;
+            final bool canInv = p.tabAllowed(3);
+            final bool canSales = p.canAny(const <String>['sales.view', 'sales.create', 'sales.update']);
+            final bool canDues = p.can('dues.view');
+            final bool canBuy = p.can('purchases.create');
+            final bool canSell = p.can('sales.create');
+            final bool canScan = p.tabAllowed(1); // اسکن ⇒ فهرست خرید
+
             final now = DateTime.now();
             final startOfMonth = DateTime(now.year, now.month, 1);
 
@@ -197,61 +206,63 @@ class HomeScreen extends StatelessWidget {
             // ---- ویندوز: داشبورد دو ستونه با کاشی‌های آمار ----
             if (Platform.isWindows) {
               final bool hasOverdue = overdue.isNotEmpty;
+              final List<Widget> tiles = <Widget>[
+                if (canInv)
+                  _statTile(context, Icons.warehouse_outlined, 'موجودی انبار (خالص)', '${faNum(invKg)} کیلو', null, scheme.primaryContainer,
+                      scheme.onPrimaryContainer),
+                if (canSales) _statTile(context, Icons.today_outlined, 'فروش امروز', '${faNum(todayKg)} کیلو', '${faNum(todayCount)} مورد', Colors.white, scheme.primary),
+                if (canSales) _statTile(context, Icons.calendar_month_outlined, 'فروش این ماه', '${faNum(monthKg)} کیلو', null, Colors.white, scheme.primary),
+                if (canDues)
+                  _statTile(
+                      context,
+                      hasOverdue ? Icons.warning_amber_rounded : Icons.event_available_outlined,
+                      'سررسیدها',
+                      hasOverdue ? '${faNum(overdue.length)} عقب‌افتاده' : '${faNum(soon.length)} تا ۷ روز آینده',
+                      hasOverdue ? Fmt.money(overdueAmt) : (soon.isEmpty ? 'چیزی سررسید نزدیک ندارد' : Fmt.money(soonAmt)),
+                      hasOverdue ? scheme.errorContainer : Colors.white,
+                      hasOverdue ? scheme.error : scheme.primary),
+              ];
+              final List<Widget> buttons = <Widget>[
+                if (canBuy)
+                  SizedBox(
+                    width: 220,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseForm())),
+                      icon: const Icon(Icons.shopping_cart_outlined),
+                      label: const Text('خرید جدید'),
+                    ),
+                  ),
+                if (canSell)
+                  SizedBox(
+                    width: 220,
+                    child: FilledButton.icon(
+                      onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleForm())),
+                      icon: const Icon(Icons.sell_outlined),
+                      label: const Text('فروش جدید'),
+                    ),
+                  ),
+                if (canScan)
+                  SizedBox(
+                    width: 200,
+                    child: OutlinedButton.icon(
+                      onPressed: () => _scanAndOpen(context),
+                      icon: const Icon(Icons.qr_code_scanner),
+                      label: const Text('اسکن بارکد'),
+                    ),
+                  ),
+              ];
               return ListView(
                 padding: const EdgeInsets.all(24),
                 children: [
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(
-                        child: _statTile(context, Icons.warehouse_outlined, 'موجودی انبار (خالص)',
-                            '${faNum(invKg)} کیلو', null, scheme.primaryContainer, scheme.onPrimaryContainer)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                        child: _statTile(context, Icons.today_outlined, 'فروش امروز', '${faNum(todayKg)} کیلو',
-                            '${faNum(todayCount)} مورد', Colors.white, scheme.primary)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                        child: _statTile(context, Icons.calendar_month_outlined, 'فروش این ماه',
-                            '${faNum(monthKg)} کیلو', null, Colors.white, scheme.primary)),
-                    const SizedBox(width: 16),
-                    Expanded(
-                        child: _statTile(
-                            context,
-                            hasOverdue ? Icons.warning_amber_rounded : Icons.event_available_outlined,
-                            'سررسیدها',
-                            hasOverdue ? '${faNum(overdue.length)} عقب‌افتاده' : '${faNum(soon.length)} تا ۷ روز آینده',
-                            hasOverdue ? Fmt.money(overdueAmt) : (soon.isEmpty ? 'چیزی سررسید نزدیک ندارد' : Fmt.money(soonAmt)),
-                            hasOverdue ? scheme.errorContainer : Colors.white,
-                            hasOverdue ? scheme.error : scheme.primary)),
-                  ]),
-                  const SizedBox(height: 18),
-                  Row(children: [
-                    SizedBox(
-                      width: 220,
-                      child: FilledButton.icon(
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseForm())),
-                        icon: const Icon(Icons.shopping_cart_outlined),
-                        label: const Text('خرید جدید'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 220,
-                      child: FilledButton.icon(
-                        onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleForm())),
-                        icon: const Icon(Icons.sell_outlined),
-                        label: const Text('فروش جدید'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    SizedBox(
-                      width: 200,
-                      child: OutlinedButton.icon(
-                        onPressed: () => _scanAndOpen(context),
-                        icon: const Icon(Icons.qr_code_scanner),
-                        label: const Text('اسکن بارکد'),
-                      ),
-                    ),
-                  ]),
+                  if (tiles.isNotEmpty)
+                    Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      for (int i = 0; i < tiles.length; i++) ...<Widget>[if (i > 0) const SizedBox(width: 16), Expanded(child: tiles[i])],
+                    ]),
+                  if (tiles.isNotEmpty) const SizedBox(height: 18),
+                  if (buttons.isNotEmpty)
+                    Row(children: [
+                      for (int i = 0; i < buttons.length; i++) ...<Widget>[if (i > 0) const SizedBox(width: 12), buttons[i]],
+                    ]),
                   const SizedBox(height: 16),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     Expanded(
@@ -267,7 +278,7 @@ class HomeScreen extends StatelessWidget {
                     Expanded(
                       flex: 2,
                       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                        duesCard,
+                        if (canDues) duesCard,
                         syncCard,
                         assistant,
                       ]),
@@ -285,23 +296,21 @@ class HomeScreen extends StatelessWidget {
                 const CrmHomeCard(),
                 const FeedStockHomeCard(), // مرحلهٔ ۵
                 const InstantPnlCard(),
-                _quickActions(context),
+                if (canBuy || canSell) _quickActions(context, canBuy, canSell),
                 const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _scanAndOpen(context),
-                  icon: const Icon(Icons.qr_code_scanner),
-                  label: const Text('اسکن بارکد'),
-                ),
+                if (canScan)
+                  OutlinedButton.icon(
+                    onPressed: () => _scanAndOpen(context),
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('اسکن بارکد'),
+                  ),
                 // دستیار: فقط برای کاربر پلن fx دیده می‌شود (isFx از ورود/بوت ذخیره می‌شود)
                 assistant,
                 const SizedBox(height: 16),
                 // موجودی انبار: درشت و پررنگ
-                invCard,
-                const SizedBox(height: 12),
-                salesCard,
-                const SizedBox(height: 12),
-                duesCard,
-                const SizedBox(height: 12),
+                if (canInv) ...<Widget>[invCard, const SizedBox(height: 12)],
+                if (canSales) ...<Widget>[salesCard, const SizedBox(height: 12)],
+                if (canDues) ...<Widget>[duesCard, const SizedBox(height: 12)],
                 syncCard,
                 const SizedBox(height: 24),
               ],
@@ -346,25 +355,25 @@ class HomeScreen extends StatelessWidget {
     Navigator.push(context, MaterialPageRoute(builder: (_) => PurchasesScreen(openCode: code)));
   }
 
-  Widget _quickActions(BuildContext context) {
+  Widget _quickActions(BuildContext context, bool buy, bool sell) {
     return Row(children: [
-      Expanded(
-        child: FilledButton.icon(
-          onPressed: () =>
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseForm())),
-          icon: const Icon(Icons.shopping_cart_outlined),
-          label: const Text('خرید جدید'),
+      if (buy)
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const PurchaseForm())),
+            icon: const Icon(Icons.shopping_cart_outlined),
+            label: const Text('خرید جدید'),
+          ),
         ),
-      ),
-      const SizedBox(width: 8),
-      Expanded(
-        child: FilledButton.icon(
-          onPressed: () =>
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleForm())),
-          icon: const Icon(Icons.sell_outlined),
-          label: const Text('فروش جدید'),
+      if (buy && sell) const SizedBox(width: 8),
+      if (sell)
+        Expanded(
+          child: FilledButton.icon(
+            onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const SaleForm())),
+            icon: const Icon(Icons.sell_outlined),
+            label: const Text('فروش جدید'),
+          ),
         ),
-      ),
     ]);
   }
 }
