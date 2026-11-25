@@ -93,6 +93,8 @@ void main() {
       expect(find.text('کارمند'), findsOneWidget);
       expect(find.byKey(const ValueKey('login_phone')), findsNothing);
       expect(find.byKey(const ValueKey('login_submit')), findsNothing);
+      expect(find.byKey(const ValueKey('login_team_credit')), findsOneWidget); // نام تیم سازنده پایین صفحهٔ ورود
+      expect(find.textContaining('جنگجو-حسینی رهبر', findRichText: true), findsOneWidget);
 
       // مالک: شماره + پیش‌فرض کد پیامکی + گزینهٔ «ورود با رمز عبور»
       await t.tap(find.byKey(const ValueKey('login_role_owner')));

@@ -722,6 +722,16 @@ class _LoginScreenState extends State<LoginScreen> {
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
               const SizedBox(height: 10),
               ContactButtons(phoneForMessage: _asStaff ? null : _phone.text),
+              const SizedBox(height: 16),
+              // v91: نام تیم سازنده (همان متن صفحهٔ ورود وب‌اپ)
+              const Text.rich(
+                TextSpan(text: 'قدرت‌گرفته از تیم نرم‌افزاری ', children: <InlineSpan>[
+                  TextSpan(text: 'جنگجو-حسینی رهبر', style: TextStyle(fontWeight: FontWeight.bold)),
+                ]),
+                key: ValueKey('login_team_credit'),
+                textAlign: TextAlign.center,
+                style: TextStyle(color: Colors.black45, fontSize: 12),
+              ),
             ]),
             ),
           ),
