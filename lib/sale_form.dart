@@ -21,6 +21,8 @@ import 'voucher_preview_ui.dart' show confirmVoucherPreview;
 import 'doc_summary_ui.dart' show confirmDocSummary; // S35.T35.13
 import 'warehouse_ui.dart';
 import 'widgets.dart';
+import 'doc_actions_ui.dart' show LockedFormBanner, LockedFields, SaleDocActions, canUnlockSale; // v91 p3
+import 'legacy_sale_edit.dart' show LegacySaleForm; // v91 p3
 
 /// وزن هر گونی (کیلو) — همان مقادیر فرم خرید
 const double _kSmallSackKg = 0.1;
@@ -56,7 +58,10 @@ class _CapFormatter extends TextInputFormatter {
 /// * گونی کوچک/بزرگِ خالی‌شده اختیاری است و سقفش دقیقاً گونی باقی‌ماندهٔ همان خرید است.
 class SaleForm extends StatefulWidget {
   final int? editSaleId;
-  const SaleForm({super.key, this.editSaleId});
+  /// v91 p3: نمایش جزئیات فروش در همین فرم به حالت قفل؛ «ویرایش» همهٔ فیلدها را باز می‌کند. [doc] = ردیف فهرست فروش (برای کارهای سند).
+  final bool locked;
+  final Map<String, dynamic>? doc;
+  const SaleForm({super.key, this.editSaleId, this.locked = false, this.doc});
   @override
   State<SaleForm> createState() => _SaleFormState();
 }
@@ -95,7 +100,20 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   final _large = TextEditingController();
   final _price = TextEditingController();
   final FxDocController _fxc = FxDocController(); // S27c: ارز سند (نرخ دستی دلار حذف شد)
-  bool _fxEditBlocked = false; // فروش ارزیِ ثبت‌شده فعلاً قابل ویرایش نیست (T27b.7)
+  final bool _fxEditBlocked = false; // v91 p3: دیگر true نمی‌شود (سند ارزی ویرایش می‌شود؛ ارز و نرخ ثابت)
+  late bool _viewOnly = widget.locked && widget.editSaleId != null; // v91 p3
+  String? _fxCcy; // v91 p3: ارز فروش ارزیِ ثبت‌شده (برای پیام)
+
+  /// v91 p3: حالت قفل ⇒ بنر «ویرایش»، فیلدها بدون لمس، کارهای سند پایین فرم.
+  List<Widget> _vo(List<Widget> children) {
+    if (!_viewOnly && _fxCcy == null) return children;
+    return <Widget>[
+      if (_viewOnly) LockedFormBanner(canEdit: canUnlockSale(StaffPerms.I.can), onEdit: () => setState(() => _viewOnly = false)),
+      if (_fxCcy != null) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('فروش ارزی ($_fxCcy): ارز و نرخ ثبت‌شده ثابت می‌ماند؛ فی را به واحد پول برنامه ویرایش کنید. برای تغییر نرخ «سند تعدیل نرخ» ثبت کنید.'))),
+      for (final Widget w in children) LockedFields(locked: _viewOnly, child: w),
+      if (_viewOnly && widget.doc != null) SaleDocActions(doc: widget.doc!, onDeleted: () { if (mounted) Navigator.pop(context); }),
+    ];
+  }
   final _buyer = TextEditingController();
   final _note = TextEditingController();
   final _laborCost = TextEditingController(); // هزینه کارگر (اختیاری؛ از سود این فروش کم می‌شود)
@@ -163,7 +181,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       final sale = await AppDb.I.saleById(widget.editSaleId!);
       if (sale != null && !legacy) {
         MoneyField.setStored(_price, sale['price'] as num);
-        if (sale['ccy'] != null && (sale['ccy'] as String).isNotEmpty) _fxEditBlocked = true;
+        if (sale['ccy'] != null && (sale['ccy'] as String).isNotEmpty && sale['ccy'] != 'IRT') _fxCcy = sale['ccy'] as String;
         _gross.text = plain(sale['total_weight'] as num);
         if (sale['gross_kg'] != null) { // S35.T35.2b
           _tareManual.text = sale['tare_kg'] == null ? '' : plain(sale['tare_kg'] as num);
@@ -438,8 +456,9 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   // ------------------------- رابط کاربری -------------------------
   @override
   Widget build(BuildContext context) {
+    if (!_loading && _legacyMulti) return LegacySaleForm(saleId: widget.editSaleId!, locked: _viewOnly, doc: widget.doc); // v91 p3: چندقلمی قدیمی هم ویرایش می‌شود
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'ویرایش فروش' : 'فروش جدید')),
+      appBar: AppBar(title: Text(_viewOnly ? 'جزئیات فروش' : (_isEdit ? 'ویرایش فروش' : 'فروش جدید'))),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _legacyMulti
@@ -471,7 +490,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
                       key: _form,
                       child: ListView(
                         padding: const EdgeInsets.all(16),
-                        children: _children(context),
+                        children: _vo(_children(context)),
                       ),
                     ),
     );
@@ -542,7 +561,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
           key: const ValueKey('taxChoice'),
           child: FieldGate(field: 'sale.price', child: TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v)))));
     }
-    w.add(FilledButton.icon(
+    if (!_viewOnly) w.add(FilledButton.icon(
       onPressed: _saving ? null : _save,
       icon: _saving
           ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))

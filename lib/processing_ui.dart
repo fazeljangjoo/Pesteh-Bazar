@@ -1242,6 +1242,11 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
     final Map<String, dynamic>? v = await showEditDocDialog(context, 'ویرایش سفارش فراوری', <EditField>[
       EditField('date', 'تاریخ', _d['date'], kind: EditKind.date),
       EditField('note', 'توضیح', _d['note']),
+      // v91 p3: برون‌سپاری دریافت‌شده ⇒ کرایه و سایر هزینه هم قابل ویرایش؛ سرور بهای خروجی‌ها و اسناد وابسته را دوباره حساب می‌کند
+      if ('${_d['direction']}' == kProcPaid && _d['receive_date'] != null && _can('workshop.cost')) ...<EditField>[
+        EditField('fee_value', 'کرایه (${_feeBasis[_d['fee_basis']] ?? ''})', _d['fee_value'], kind: EditKind.number),
+        EditField('other_cost', 'سایر هزینه‌ها', _d['other_cost'], kind: EditKind.number),
+      ],
     ]);
     if (v == null || !mounted) return;
     if (await submitDocEdit(context, 'processing.update', <String, dynamic>{'id': _d['id'], ...v}, baseVersion: _d['edit_version']) != null) {
