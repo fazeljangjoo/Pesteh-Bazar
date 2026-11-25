@@ -471,6 +471,91 @@ mixin EditGuard<T extends StatefulWidget> on State<T> {
 
 /// فیلد تاریخ شمسی فشرده (بدون فاصلهٔ اضافهٔ پایین)؛ مقدار داخلی DateTime میلادی است و فقط نمایش شمسی است.
 /// برای ارسال به API از `ReturnsHelp.iso(value)` استفاده کنید.
+/// v91: تاریخ شمسی تایپ‌شده (۱۴۰۵/۰۹/۰۴ یا 1405-9-4، ارقام فارسی یا انگلیسی) ⇒ تاریخ میلادی؛ null = نامعتبر.
+DateTime? parseJalaliInput(String s) {
+  final m = RegExp(r'^\s*(\d{2,4})\s*[/\-.]\s*(\d{1,2})\s*[/\-.]\s*(\d{1,2})\s*$').firstMatch(toEnDigits(s));
+  if (m == null) return null;
+  int y = int.parse(m.group(1)!);
+  final int mo = int.parse(m.group(2)!), d = int.parse(m.group(3)!);
+  if (y < 100) y += 1400; // «۰۵/۹/۴» ⇒ ۱۴۰۵
+  if (y < 1300 || y > 1500 || mo < 1 || mo > 12 || d < 1 || d > daysInJalaliMonth(y, mo)) return null;
+  return jalaliToGregorian(y, mo, d);
+}
+
+/// v91: تاریخ سند (خرید، فروش): تایپ دستی شمسی یا انتخاب از تقویم، با دکمهٔ «امروز». پیش‌فرض را صاحب فرم می‌دهد (معمولاً امروز).
+class DocDateField extends StatefulWidget {
+  const DocDateField({super.key, required this.value, required this.onChanged, this.label = 'تاریخ', this.enabled = true});
+  final DateTime value;
+  final ValueChanged<DateTime> onChanged;
+  final String label;
+  final bool enabled;
+
+  @override
+  State<DocDateField> createState() => _DocDateFieldState();
+}
+
+class _DocDateFieldState extends State<DocDateField> {
+  late final TextEditingController _c = TextEditingController(text: jalaliDateFromDt(widget.value));
+
+  @override
+  void didUpdateWidget(covariant DocDateField old) {
+    super.didUpdateWidget(old);
+    if (old.value == widget.value) return; // کاربر در حال تایپ است ⇒ دست نمی‌زنیم
+    final DateTime? typed = parseJalaliInput(_c.text);
+    final DateTime v = widget.value;
+    if (typed == null || typed.year != v.year || typed.month != v.month || typed.day != v.day) _c.text = jalaliDateFromDt(v);
+  }
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  void _set(DateTime d) {
+    _c.text = jalaliDateFromDt(d);
+    widget.onChanged(d);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final DateTime now = DateTime.now();
+    final bool isToday = widget.value.year == now.year && widget.value.month == now.month && widget.value.day == now.day;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: TextFormField(
+        controller: _c,
+        enabled: widget.enabled,
+        keyboardType: TextInputType.datetime,
+        decoration: InputDecoration(
+          labelText: widget.label,
+          hintText: 'سال/ماه/روز',
+          helperText: isToday ? 'امروز' : null,
+          border: const OutlineInputBorder(),
+          suffixIcon: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
+            if (!isToday) TextButton(onPressed: widget.enabled ? () => _set(DateTime(now.year, now.month, now.day)) : null, child: const Text('امروز')),
+            IconButton(
+              tooltip: 'انتخاب از تقویم',
+              icon: const Icon(Icons.calendar_month_outlined, size: 20),
+              onPressed: !widget.enabled
+                  ? null
+                  : () async {
+                      final DateTime? d = await pickDate(context, initial: parseJalaliInput(_c.text) ?? widget.value);
+                      if (d != null) _set(d);
+                    },
+            ),
+          ]),
+        ),
+        onChanged: (String s) {
+          final DateTime? d = parseJalaliInput(s);
+          if (d != null) widget.onChanged(d);
+        },
+        validator: (String? s) => parseJalaliInput(s ?? '') == null ? 'تاریخ شمسی معتبر وارد کنید (مثل ۱۴۰۵/۰۹/۰۴)' : null,
+      ),
+    );
+  }
+}
+
 class JalaliDateField extends StatelessWidget {
   const JalaliDateField({super.key, required this.label, required this.value, required this.onChanged});
 

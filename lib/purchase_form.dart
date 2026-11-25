@@ -121,6 +121,14 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
 
   bool get _isEdit => widget.existing != null;
 
+  DateTime _date = DateTime.now(); // v91: تاریخ خرید (پیش‌فرض امروز؛ در ویرایش/پیش‌نویس تاریخ ذخیره‌شده)
+
+  /// تاریخ انتخابی + ساعت فعلی (ترتیب ثبت‌های یک روز حفظ شود)
+  String get _dateIso {
+    final DateTime n = DateTime.now();
+    return DateTime(_date.year, _date.month, _date.day, n.hour, n.minute, n.second).toIso8601String();
+  }
+
   bool get _fx => LicenseService.I.isFx.value;
 
   /// فی خرید (واحد ذخیره، تومان تا S29): در سند ارزی = فی ارزی × نرخ ÷ ۱۰
@@ -224,6 +232,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       _pctTuchin.text = e['pct_tuchin'] == null ? '' : plain(e['pct_tuchin'] as num);
       _pctCrooked.text = e['pct_crooked'] == null ? '' : plain(e['pct_crooked'] as num);
       _seller.text = (e['seller'] as String?) ?? '';
+      _date = DateTime.tryParse('${e['date'] ?? ''}') ?? _date; // v91
       _note.text = (e['note'] as String?) ?? '';
     MoneyField.setStored(_laborCost, e['labor_cost'] as num?);
     _taxStatus = e['tax_status'] as String?;
@@ -494,7 +503,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
         'note': _note.text.trim().isEmpty ? null : _note.text.trim(),
         'labor_cost': MoneyField.stored(_laborCost),
         'transport_cost': MoneyField.stored(_transportCost),
-        'date': DateTime.now().toIso8601String(),
+        'date': _dateIso,
       };
 
   bool get _hasInput =>
@@ -647,7 +656,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
 
     if (draft) {
       // S35.T35.9b: پیش‌نویس فقط محلی ذخیره می‌شود؛ هیچ اثری روی انبار/حساب ندارد
-      data['date'] = DateTime.now().toIso8601String();
+      data['date'] = _dateIso;
       await DocDraftsLocal.save('purchase', '${data['type_name'] ?? ''} — ${faNum(_net)} کیلو', data);
       if (!mounted) return;
       snack(context, 'پیش‌نویس ذخیره شد (بدون اثر روی انبار و حساب‌ها)');
@@ -656,7 +665,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     }
     if (!_isEdit && _priceVal > 0) {
       // S35.T35.9d: gold dry-run preview of the voucher (display-only; never blocks when offline)
-      final bool go = await confirmVoucherPreview(context, docType: 'purchase', doc: <String, dynamic>{...data, 'date': DateTime.now().toIso8601String()});
+      final bool go = await confirmVoucherPreview(context, docType: 'purchase', doc: <String, dynamic>{...data, 'date': _dateIso});
       if (!go || !mounted) return;
     }
     if (await FormSettingsLocal.isOn('confirm_summary')) { // S35.T35.13
@@ -674,11 +683,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       if (!okSum || !mounted) return;
     }
     setState(() => _saving = true);
-    if (_isEdit) {
-      if (!_photoChanged) data.remove('photo');
-    } else {
-      data['date'] = DateTime.now().toIso8601String();
-    }
+    if (_isEdit && !_photoChanged) data.remove('photo');
+    data['date'] = _dateIso; // v91: ثبت و ویرایش
     final ok = await saveConfirmed(
       context,
       () async {
@@ -742,6 +748,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                 ),
               ),
             if (_locked) const SizedBox(height: 12),
+            DocDateField(label: 'تاریخ خرید', value: _date, onChanged: (DateTime d) => setState(() => _date = d)), // v91: پیش‌فرض امروز؛ ویرایش‌پذیر
             if (_shown('purchase.base')) FieldGate(field: 'purchase.base', child: IgnorePointer( // v89
               ignoring: _locked,
               child: Opacity(

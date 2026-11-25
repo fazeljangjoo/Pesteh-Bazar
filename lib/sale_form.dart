@@ -93,6 +93,13 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   int? _selId;
   bool _loading = true;
   bool _saving = false;
+  DateTime _date = DateTime.now(); // v91: تاریخ فروش (پیش‌فرض امروز؛ در ویرایش تاریخ ذخیره‌شده)
+
+  /// تاریخ انتخابی + ساعت فعلی (ترتیب ثبت‌های یک روز حفظ شود)
+  String get _dateIso {
+    final DateTime n = DateTime.now();
+    return DateTime(_date.year, _date.month, _date.day, n.hour, n.minute, n.second).toIso8601String();
+  }
   bool _legacyMulti = false; // فروش قدیمیِ چندقلمی (قابل ویرایش نیست)
 
   final _gross = TextEditingController();
@@ -196,6 +203,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
         _small.text = small == 0 ? '' : plain(small);
         _large.text = large == 0 ? '' : plain(large);
         _buyer.text = (sale['buyer'] as String?) ?? '';
+        _date = DateTime.tryParse('${sale['date'] ?? ''}') ?? _date; // v91
         _note.text = (sale['note'] as String?) ?? '';
     MoneyField.setStored(_laborCost, sale['labor_cost'] as num?);
     _taxStatus = sale['tax_status'] as String?;
@@ -408,7 +416,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
 
     if (draft) {
       // S35.T35.9b: پیش‌نویس فقط محلی؛ موجودی انبار رزرو یا کم نمی‌شود
-      saleData['date'] = DateTime.now().toIso8601String();
+      saleData['date'] = _dateIso;
       await DocDraftsLocal.save('sale', '${lot['type_name']} — ${faNum(net)} کیلو', <String, dynamic>{'sale': saleData, 'items': items});
       if (!mounted) return;
       snack(context, 'پیش‌نویس ذخیره شد (بدون اثر روی انبار و حساب‌ها)');
@@ -417,7 +425,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     }
     if (!_isEdit) {
       // S35.T35.9d: gold dry-run preview of the voucher (display-only; never blocks when offline)
-      final bool go = await confirmVoucherPreview(context, docType: 'sale', doc: <String, dynamic>{...saleData, 'date': DateTime.now().toIso8601String()}, items: items);
+      final bool go = await confirmVoucherPreview(context, docType: 'sale', doc: <String, dynamic>{...saleData, 'date': _dateIso}, items: items);
       if (!go || !mounted) return;
     }
     if (await FormSettingsLocal.isOn('confirm_summary')) { // S35.T35.13
@@ -436,7 +444,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       if (!okSum || !mounted) return;
     }
     setState(() => _saving = true);
-    if (!_isEdit) saleData['date'] = DateTime.now().toIso8601String();
+    saleData['date'] = _dateIso; // v91: ثبت و ویرایش
     final ok = await saveConfirmed(
       context,
       () async {
@@ -511,6 +519,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     final w = <Widget>[];
     final lot = _selLot;
 
+    w.add(KeyedSubtree(key: const ValueKey('saleDate'), child: DocDateField(label: 'تاریخ فروش', value: _date, onChanged: (DateTime d) => setState(() => _date = d)))); // v91
     w.add(sectionTitle(context, '۱) پستهٔ فروخته‌شده را از انبار انتخاب کنید (هر فروش فقط یک قلم)'));
     w.add(SaleLotPicker(lots: _lots, selectedId: _selId, onSelect: _select, whNames: _whNames, showUsd: _fx)); // v87: انتخاب لات مثل فرم شکست (به‌جای فهرست همهٔ لات‌ها)
 
