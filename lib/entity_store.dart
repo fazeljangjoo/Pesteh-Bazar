@@ -7,7 +7,7 @@ import 'db.dart';
 
 /// Bump when [kEntityRegistry] changes in a way the server must know about (informational; the server
 /// stays the authority: only entities it exports/lists are shown, see [EntityStore.visibleNames]).
-const int kEntityRegistryVersion = 4; // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
+const int kEntityRegistryVersion = 5; // v91 p5: xch_moves (صراف) // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
 
 /// One field of an entity (mirrors a column spec of `server/backend/api/entities.php`).
 /// type: string | text | int | bigint | decimal | bool | date | datetime | enum | ref | json
@@ -306,6 +306,39 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
     permCreate: 'accounting.post',
     permEdit: 'accounting.post',
     permDelete: 'accounting.post',
+  ),
+  // v91 p5 — صراف: حرکت‌های صراف (آینهٔ موجودیت سرور `xch_moves`؛ صفحهٔ خودش در xch_ui.dart). مبالغ به ارز خودشان (IRR = ریال)؛ هیچ‌کدام ×۱۰ نمی‌شود.
+  'xch_moves': EntitySpec(
+    'xch_moves',
+    'حرکت صراف',
+    <EntityField>[
+      EntityField('date', 'تاریخ', 'date', required: true),
+      EntityField('kind', 'نوع', 'enum', required: true, values: <String>['cust_paid', 'paid_seller', 'xch_paid_us', 'we_paid_xch'], valueLabels: <String, String>{
+        'cust_paid': 'مشتری به صراف پرداخت کرد',
+        'paid_seller': 'صراف به فروشنده پرداخت کرد',
+        'xch_paid_us': 'صراف به ما پرداخت کرد',
+        'we_paid_xch': 'ما به صراف پرداخت کردیم',
+      }),
+      EntityField('exchanger', 'صراف', 'string', required: true, max: 150, party: true),
+      EntityField('party', 'طرف‌حساب', 'string', max: 150, party: true),
+      EntityField('doc_type', 'نوع فاکتور', 'enum', values: <String>['sale', 'purchase']),
+      EntityField('doc_id', 'شمارهٔ فاکتور', 'bigint', vmin: 1),
+      EntityField('ccy', 'ارز', 'string', required: true, max: 8),
+      EntityField('amount_ccy', 'مبلغ ارزی', 'decimal', vmin: 0, scale: 4),
+      EntityField('doc_rate', 'نرخ فاکتور', 'decimal', vmin: 0, scale: 6),
+      EntityField('pay_ccy', 'ارز پرداخت', 'string', max: 8),
+      EntityField('pay_amount', 'مبلغ پرداخت', 'decimal', vmin: 0, scale: 4),
+      EntityField('pay_rate', 'نرخ ریالی پرداخت', 'decimal', vmin: 0, scale: 6),
+      EntityField('cash_box', 'صندوق', 'ref', ref: 'cash_boxes'),
+      EntityField('bank_account', 'حساب بانکی', 'ref', ref: 'bank_accounts'),
+      EntityField('note', 'توضیح', 'string', max: 500),
+    ],
+    search: <String>['exchanger', 'party', 'note'],
+    listFields: <String>['date', 'exchanger', 'amount_ccy'],
+    orderCol: 'date',
+    permCreate: 'receipts.save',
+    permEdit: 'receipts.save',
+    permDelete: 'receipts.save',
   ),
   'doc_sequences': EntitySpec(
     'doc_sequences',

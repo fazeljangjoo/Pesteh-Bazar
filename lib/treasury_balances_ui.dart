@@ -53,6 +53,16 @@ class _TreasuryBalancesScreenState extends State<TreasuryBalancesScreen> {
   /// Amount text: rial accounts show the integer rial amount; foreign accounts show the foreign amount + code.
   String _amount(String ccy, double v) => ccy == 'IRR' ? '${Fmt.money(v)}' : faCcy(ccy, v, dec: 2);
 
+  /// v91 p5: جمع واریز (بدهکار) و برداشت (بستانکار) حساب از اسناد؛ سرور قدیمی این فیلدها را ندارد ⇒ ''.
+  String _flows(Map<String, dynamic> a) {
+    if (!a.containsKey('in_rial')) return '';
+    final String ccy = a['ccy'].toString();
+    final bool fx = ccy != 'IRR';
+    final String inS = fx ? faCcy(ccy, _d(a['in_ccy']), dec: 2) : Fmt.money(_d(a['in_rial']));
+    final String outS = fx ? faCcy(ccy, _d(a['out_ccy']), dec: 2) : Fmt.money(_d(a['out_rial']));
+    return 'واریز: $inS  •  برداشت: $outS\n';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -86,6 +96,7 @@ class _TreasuryBalancesScreenState extends State<TreasuryBalancesScreen> {
                             leading: Icon(a['kind'] == 'bank' ? Icons.account_balance_outlined : Icons.payments_outlined),
                             title: Text(a['name'].toString()),
                             subtitle: Text(
+                              _flows(a) + // v91 p5: واریز / برداشت
                               (a['ccy'].toString() == 'IRR' ? '' : 'معادل دفتری: ${Fmt.money(_d(a['rial_balance']))}') +
                                   (((a['other_ccy_lines'] as num?) ?? 0) > 0
                                       ? '\n⚠️ ${faNum(_d(a['other_ccy_lines']), dec: 0)} ردیف سند با ارز دیگر روی این حساب ثبت شده است'

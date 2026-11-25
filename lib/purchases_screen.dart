@@ -130,6 +130,7 @@ class _PurchasesScreenState extends State<PurchasesScreen> {
         subtitle: Text(
             'کد ${p['code'] ?? '-'}  •  ${jalaliDate(p['date'] as String)}  •  ${faNum(p['net_weight'] as num)} کیلو (خالص)\n'
             '${_statusText(p)}  •  فی ${Fmt.money(p['price'] as num)}'
+            '${(p['ccy'] ?? '').toString().isNotEmpty && p['ccy'] != 'IRT' ? ' [${faCcy('${p['ccy']}', (p['price_ccy'] as num?) ?? 0, dec: 2)}]' : ''}' // v91 p5: فی به ارز سند
             '${LicenseService.I.isFx.value && p['price_usd'] != null ? ' (${faUsd(p['price_usd'] as num, dec: 3)})' : ''}'
             '${_inMixLine(p)}'
             '${koutKg > 1e-6 || procKg > 1e-3 || _soldKg(p) > 1e-6 ? '\n${<String>[if (_soldKg(p) > 1e-6) 'فروش ${faNum(_soldKg(p))} کیلو', if (koutKg > 1e-6) 'کوت ${faNum(koutKg)} کیلو${g == null ? '' : ' (گروه کوت #${faNum(g, dec: 0)})'}', if (procKg > 1e-3) 'فراوری ${faNum(procKg)} کیلو'].join('  •  ')}' : ''}'),

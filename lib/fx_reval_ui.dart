@@ -22,7 +22,7 @@ import 'fx_rates_ui.dart' show FxRatesScreen;
 import 'fx_reval_api.dart'; // FxRevalApi.I / FxRevalPerms + (export) همهٔ مدل‌ها و FxRevalException
 import 'fx_reval_export.dart' show FxRevalExportButtons; // مرحلهٔ ۱۳ (Excel/PDF)
 import 'fx_reval_history_ui.dart' show FxRevalHistory; // مرحلهٔ ۱۲ (فایل history خودش از همین فایل API عمومی می‌گیرد؛ ایمپورت دوری مجاز است)
-import 'utils.dart' show jalaliDate, jalaliDateFromDt, toFaDigits;
+import 'utils.dart' show faNum, jalaliDate, jalaliDateFromDt, toFaDigits;
 import 'widgets.dart' show JalaliDateField, snack;
 
 // مرحلهٔ ۱۳: main.dart فقط همین فایل را ایمپورت می‌کند و FxRevalPerms را برای نمایش ردیف منو از این‌جا می‌گیرد.
@@ -548,6 +548,10 @@ class _FxRevalScreenState extends State<FxRevalScreen> {
         if (p.parties.isNotEmpty) ...<Widget>[
           const _SectionHeader('به تفکیک طرف‌حساب'),
           _PartiesSection(parties: p.parties),
+        ],
+        if (p.partyCcy.isNotEmpty || p.explain.isNotEmpty) ...<Widget>[
+          const SizedBox(height: 12),
+          FxRevalExplainCard(preview: p), // v91 p5: مانده باز هر طرف‌حساب/صراف به ارز + توضیح ساده
         ],
       ],
     );
@@ -1509,6 +1513,46 @@ class FxRevalPreviewBody extends StatelessWidget {
           _PartiesSection(parties: p.parties),
         ],
       ],
+    );
+  }
+}
+
+/// v91 p5: «این اعداد از کجا آمد؟» — مانده باز هر طرف‌حساب و صراف به ارز خودش، ارزش با نرخ تسعیر، مبلغ دفتری و سود/زیان؛
+/// و یک خط توضیح فارسی برای هر فاکتور/صراف (از سرور: party_ccy و explain). سند فقط اختلاف را ثبت می‌کند و روز بعد خودکار برمی‌گردد.
+class FxRevalExplainCard extends StatelessWidget {
+  final FxRevalPreview preview;
+  const FxRevalExplainCard({super.key, required this.preview});
+
+  @override
+  Widget build(BuildContext context) {
+    String n(Object? v, {int dec = 0}) => faNum((v is num) ? v.toDouble() : (double.tryParse('$v') ?? 0), dec: dec);
+    final List<Map<String, dynamic>> rows = preview.partyCcy;
+    return Card(
+      child: ExpansionTile(
+        leading: const Icon(Icons.help_outline),
+        title: const Text('توضیح اعداد (مانده‌ها به ارز خودشان)'),
+        subtitle: const Text('مانده × نرخ تسعیر − مبلغ دفتری = سود/زیان تحقق‌نیافته؛ روز بعد خودکار برگشت می‌خورد.'),
+        childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        children: <Widget>[
+          for (final Map<String, dynamic> r in rows)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(r['side'] == 'xr' ? Icons.currency_exchange : (r['side'] == 'ap' ? Icons.call_made : Icons.call_received)),
+              title: Text('${r['party']} — ${fxRevalSideLabel('${r['side']}')}'),
+              subtitle: Text('مانده ${n(r['open_ccy'], dec: 2)} ${r['ccy']} × ${n(r['rate'])} = ${n(r['value_rial'])} ریال؛ دفتری ${n(r['book_rial'])}'),
+              trailing: Builder(builder: (BuildContext _) {
+                final int d = (r['delta'] is num) ? (r['delta'] as num).toInt() : 0;
+                final int g = r['side'] == 'ap' ? -d : d;
+                return Text('${g >= 0 ? 'سود' : 'زیان'} ${n(g.abs())}', style: TextStyle(color: g >= 0 ? Colors.green.shade800 : Colors.red.shade800));
+              }),
+            ),
+          if (preview.explain.isNotEmpty) ...<Widget>[
+            const Divider(),
+            for (final String l in preview.explain) Padding(padding: const EdgeInsets.symmetric(vertical: 2), child: Text('• $l', style: const TextStyle(fontSize: 12))),
+          ],
+        ],
+      ),
     );
   }
 }

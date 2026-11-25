@@ -11,6 +11,7 @@ import 'pay_terms_ui.dart';
 import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
+import 'treasury_link.dart'; // v91 p5: optional internal account
 
 class PaymentScreen extends StatefulWidget {
   final int purchaseId;
@@ -517,6 +518,7 @@ class _LumpFormState extends State<_LumpForm> {
   late final FxTxController _fx;
   late final TextEditingController _amount;
   late final TextEditingController _fromAccount;
+  String? _acct; // v91 p5: uid صندوق/حساب بانکی (اختیاری)
   late final TextEditingController _payerName;
   late final TextEditingController _toAccount;
   late final TextEditingController _sellerName;
@@ -534,6 +536,7 @@ class _LumpFormState extends State<_LumpForm> {
       if (mounted) setState(() {});
     });
     _fromAccount = TextEditingController(text: e?['from_account'] as String? ?? '');
+    _acct = e?['account_uid'] as String?; // v91 p5
     _payerName = TextEditingController(text: e?['payer_name'] as String? ?? '');
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _sellerName = TextEditingController(text: e?['seller_name'] as String? ?? '');
@@ -553,6 +556,7 @@ class _LumpFormState extends State<_LumpForm> {
       'amount': MoneyField.stored(_amount) ?? 0,
       'date': (_date ?? DateTime.now()).toIso8601String(),
       'from_account': _fromAccount.text.trim(),
+      'account_uid': _acct, // v91 p5
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'seller_name': _sellerName.text.trim(),
@@ -576,6 +580,13 @@ class _LumpFormState extends State<_LumpForm> {
               MoneyField(controller: _amount, label: 'مبلغ', required: true),
               OverpayWarning(controller: _amount, total: widget.total, others: widget.others),
               dateField(context, 'تاریخ واریز', _date, (d) => setState(() => _date = d)),
+              InternalAccountPicker( // v91 p5: اختیاری
+                value: _acct,
+                onChanged: (String? u, InternalAccount? a) => setState(() {
+                  _acct = u;
+                  if (a != null && _fromAccount.text.trim().isEmpty) _fromAccount.text = a.name;
+                }),
+              ),
               textField(_fromAccount, 'از کدام حساب'),
               textField(_payerName, 'به نام چه کسی (واریزکننده)'),
               textField(_toAccount, 'به کدام حساب فروشنده'),
@@ -612,6 +623,7 @@ class _CreditFormState extends State<_CreditForm> {
   late final FxTxController _fx;
   late final TextEditingController _amount;
   late final TextEditingController _fromAccount;
+  String? _acct; // v91 p5: uid صندوق/حساب بانکی (اختیاری)
   late final TextEditingController _payerName;
   late final TextEditingController _toAccount;
   late final TextEditingController _sellerName;
@@ -629,6 +641,7 @@ class _CreditFormState extends State<_CreditForm> {
       if (mounted) setState(() {});
     });
     _fromAccount = TextEditingController(text: e?['from_account'] as String? ?? '');
+    _acct = e?['account_uid'] as String?; // v91 p5
     _payerName = TextEditingController(text: e?['payer_name'] as String? ?? '');
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _sellerName = TextEditingController(text: e?['seller_name'] as String? ?? '');
@@ -652,6 +665,7 @@ class _CreditFormState extends State<_CreditForm> {
       'amount': MoneyField.stored(_amount) ?? 0,
       'due_date': _due!.toIso8601String(),
       'from_account': _fromAccount.text.trim(),
+      'account_uid': _acct, // v91 p5
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'seller_name': _sellerName.text.trim(),
@@ -674,6 +688,13 @@ class _CreditFormState extends State<_CreditForm> {
               MoneyField(controller: _amount, label: 'مبلغ قسط', required: true),
               OverpayWarning(controller: _amount, total: widget.total, others: widget.others),
               dateField(context, 'تاریخ سررسید', _due, (d) => setState(() => _due = d)),
+              InternalAccountPicker( // v91 p5: اختیاری
+                value: _acct,
+                onChanged: (String? u, InternalAccount? a) => setState(() {
+                  _acct = u;
+                  if (a != null && _fromAccount.text.trim().isEmpty) _fromAccount.text = a.name;
+                }),
+              ),
               textField(_fromAccount, 'از کدام حساب'),
               textField(_payerName, 'به نام چه کسی (واریزکننده)'),
               textField(_toAccount, 'به کدام حساب فروشنده'),
@@ -713,6 +734,7 @@ class _ChequeFormState extends State<_ChequeForm> {
   late final TextEditingController _sayad = TextEditingController(); // S35.T35.7c: شناسهٔ صیاد
   late final TextEditingController _bankName;
   late final TextEditingController _fromAccount;
+  String? _acct; // v91 p5: uid صندوق/حساب بانکی (اختیاری)
   late final TextEditingController _payerName;
   late final TextEditingController _toAccount;
   late final TextEditingController _sellerName;
@@ -733,6 +755,7 @@ class _ChequeFormState extends State<_ChequeForm> {
     _sayad.text = (e?['sayad_id'] as String?) ?? '';
     _bankName = TextEditingController(text: e?['bank_name'] as String? ?? '');
     _fromAccount = TextEditingController(text: e?['from_account'] as String? ?? '');
+    _acct = e?['account_uid'] as String?; // v91 p5
     _payerName = TextEditingController(text: e?['payer_name'] as String? ?? '');
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _sellerName = TextEditingController(text: e?['seller_name'] as String? ?? '');
@@ -764,6 +787,7 @@ class _ChequeFormState extends State<_ChequeForm> {
       'sayad_id': sy.isEmpty ? null : sy,
       'bank_name': _bankName.text.trim(),
       'from_account': _fromAccount.text.trim(),
+      'account_uid': _acct, // v91 p5
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'seller_name': _sellerName.text.trim(),
@@ -789,6 +813,13 @@ class _ChequeFormState extends State<_ChequeForm> {
               textField(_chequeNo, 'شماره چک'),
               textField(_sayad, 'شناسهٔ صیاد (۱۶ رقم) — اختیاری'), // S35.T35.7c
               textField(_bankName, 'نام بانک'),
+              InternalAccountPicker( // v91 p5: اختیاری
+                value: _acct,
+                onChanged: (String? u, InternalAccount? a) => setState(() {
+                  _acct = u;
+                  if (a != null && _fromAccount.text.trim().isEmpty) _fromAccount.text = a.name;
+                }),
+              ),
               textField(_fromAccount, 'از کدام حساب'),
               textField(_payerName, 'به نام چه کسی (واریزکننده)'),
               textField(_toAccount, 'به کدام حساب فروشنده'),

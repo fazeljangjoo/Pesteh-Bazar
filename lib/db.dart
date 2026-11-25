@@ -51,17 +51,17 @@ const List<(String, List<String>)> _kSnapshot = [
   ('payments', ['id', 'purchase_id', 'pay_type', 'staged_type']),
   (
     'lump_tx',
-    ['id', 'payment_id', 'from_account', 'payer_name', 'to_account', 'seller_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used']
+    ['id', 'payment_id', 'from_account', 'payer_name', 'to_account', 'seller_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid'] // v91 p5: account_uid
   ),
   (
     'credit_inst',
-    ['id', 'payment_id', 'due_date', 'amount', 'from_account', 'payer_name', 'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used']
+    ['id', 'payment_id', 'due_date', 'amount', 'from_account', 'payer_name', 'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid'] // v91 p5: account_uid
   ),
   (
     'cheque_inst',
     [
       'id', 'payment_id', 'due_date', 'amount', 'cheque_no', 'bank_name', 'from_account', 'payer_name',
-      'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used' // S35.T35.7c + v71
+      'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used', 'account_uid' // S35.T35.7c + v71 + v91 p5
     ]
   ),
   (
@@ -79,24 +79,24 @@ const List<(String, List<String>)> _kSnapshot = [
   ('receipts', ['id', 'sale_id', 'recv_type', 'staged_type']),
   (
     'receipt_lump_tx',
-    ['id', 'receipt_id', 'from_account', 'payer_name', 'to_account', 'receiver_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used']
+    ['id', 'receipt_id', 'from_account', 'payer_name', 'to_account', 'receiver_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid'] // v91 p5: account_uid
   ),
   (
     'receipt_credit_inst',
     [
       'id', 'receipt_id', 'due_date', 'amount', 'from_account', 'payer_name', 'to_account',
-      'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used'
+      'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid' // v91 p5
     ]
   ),
   (
     'receipt_cheque_inst',
     [
       'id', 'receipt_id', 'due_date', 'amount', 'cheque_no', 'bank_name', 'from_account', 'payer_name',
-      'to_account', 'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used' // S35.T35.7c + v71
+      'to_account', 'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used', 'account_uid' // S35.T35.7c + v71 + v91 p5
     ]
   ),
   // طرف‌حساب‌های تعریف‌شده‌ی دستی و دفتر قرض/وام (در سود و زیان حساب نمی‌شوند)
-  ('parties', ['id', 'name']),
+  ('parties', ['id', 'name', 'types']), // v91 p5: types (JSON) ⇒ فیلتر نوع طرف‌حساب (صراف و …)
   ('loan_entries', ['id', 'uid', 'party', 'kind', 'amount', 'date', 'note', 'created_at']),
   ('loan_dues', ['id', 'loan_uid', 'seq', 'due_date', 'amount', 'note', 'paid']),
   // S04.T04.4b: برگشت از خرید/فروش (آینهٔ محلی؛ سرور در backup.export می‌فرستد)
@@ -230,6 +230,7 @@ class AppDb {
         version: schemaVersion, onConfigure: _configure, onCreate: _onCreate, onUpgrade: _onUpgrade);
     // سرعت: ایندکس‌های جدید روی دیتابیس‌های قدیمی هم ساخته می‌شود (IF NOT EXISTS؛ بار دوم تقریباً رایگان است)
     try { await _createSpeedIndexes(d); } catch (_) {}
+    try { await addV91P5Cols(d); } catch (_) {} // v91 p5
     moneyUnit = await MoneyUnit.localUnit(d);
     try { await Fmt.loadFrom(d); } catch (_) {} // S35.T35.11: display unit / digits (meta table may be absent on first open)
     return d;
@@ -419,6 +420,21 @@ class AppDb {
     }
     if (oldV < 31) {
       await addStockHoldCol(d); // v89
+    }
+  }
+
+  /// v91 p5 (سرور v99): `account_uid` اختیاری روی ۶ جدول ردیف پرداخت/دریافت (پیوند به صندوق/حساب بانکی) + `parties.types`.
+  /// در هر بار باز شدن بررسی می‌شود (بدون افزایش schemaVersion)؛ ستون موجود ⇒ کاری نمی‌کند.
+  static Future<void> addV91P5Cols(DatabaseExecutor d) async {
+    for (final String t in const <String>[
+      'lump_tx', 'credit_inst', 'cheque_inst', 'receipt_lump_tx', 'receipt_credit_inst', 'receipt_cheque_inst', 'parties',
+    ]) {
+      final String col = t == 'parties' ? 'types' : 'account_uid';
+      final List<Map<String, Object?>> info = await d.rawQuery('PRAGMA table_info($t)');
+      if (info.isEmpty || info.any((Map<String, Object?> r) => r['name'] == col)) continue;
+      try {
+        await d.execute('ALTER TABLE $t ADD COLUMN $col TEXT');
+      } catch (_) {/* همزمان ساخته شد */}
     }
   }
 
@@ -821,6 +837,7 @@ class AppDb {
     await _addCreditUsedCols(d); // S36
     await addEditVersionCols(d); // فاز ۳
     await addStockHoldCol(d); // v89
+    await addV91P5Cols(d); // v91 p5
     await _createIndexes(d);
     // نکته: دسته‌ها و انواع پیش‌فرض را سرور می‌سازد (bootstrap) و هنگام ورود دریافت می‌شوند.
   }
@@ -2761,6 +2778,7 @@ class AppDb {
     if (out.containsKey('cheque_no')) out['cheque_no'] = _s(out['cheque_no'], 60);
     if (out.containsKey('bank_name')) out['bank_name'] = _s(out['bank_name'], 100);
     if (out.containsKey('sayad_id')) out['sayad_id'] = _s(out['sayad_id'], 16); // S35.T35.7c
+    if (out.containsKey('account_uid')) out['account_uid'] = _s(out['account_uid'], 36); // v91 p5: پیوند اختیاری حساب داخلی
     if (out.containsKey('paid')) out['paid'] = (out['paid'] == true || out['paid'] == 1) ? 1 : 0;
     if (out.containsKey('credit_used')) {
       final double cu = _n(out['credit_used']);
