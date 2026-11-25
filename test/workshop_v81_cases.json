@@ -1,4 +1,396 @@
 {
+    "crack_v91": [
+        {
+            "name": "v91 single crack (1 round)",
+            "input": {
+                "in": 1000,
+                "gram": 47,
+                "kernel": 400,
+                "buy": 200,
+                "crack": 10,
+                "line": 2,
+                "uncr": 120,
+                "hull": 0,
+                "out": 970,
+                "uncr_value": null,
+                "formula": 2
+            },
+            "expect": {
+                "recv_gram": 40,
+                "loss_gram": 7,
+                "loss_kg": 70,
+                "waste_kg": 30,
+                "unit_cost": 450,
+                "uncracked_value": 24000,
+                "expected_loss_kg": 20
+            }
+        },
+        {
+            "name": "v91 same as legacy formula 1 (uncracked counted twice)",
+            "input": {
+                "in": 1000,
+                "gram": 47,
+                "kernel": 400,
+                "buy": 200,
+                "crack": 10,
+                "line": 2,
+                "uncr": 120,
+                "hull": 0,
+                "out": 970,
+                "uncr_value": null,
+                "formula": 1
+            },
+            "expect": {
+                "recv_gram": 40,
+                "loss_gram": 7,
+                "unit_cost": 510,
+                "waste_kg": 30
+            }
+        },
+        {
+            "name": "v91 two rounds, 3 kg uncracked left",
+            "input": {
+                "in": 1000,
+                "gram": 47,
+                "kernel": 445,
+                "buy": 200,
+                "crack": 10,
+                "line": 2,
+                "uncr": 23,
+                "hull": 0,
+                "out": 968,
+                "uncr_value": null,
+                "formula": 2
+            },
+            "expect": {
+                "recv_gram": 44.5,
+                "loss_gram": 2.5,
+                "loss_kg": 25,
+                "waste_kg": 32,
+                "unit_cost": 449.1011,
+                "uncracked_value": 4600,
+                "gram_vs_line": 0.5
+            }
+        },
+        {
+            "name": "v91 three rounds, no uncracked left",
+            "input": {
+                "in": 1000,
+                "gram": 47,
+                "kernel": 455,
+                "buy": 200,
+                "crack": 10,
+                "line": 2,
+                "uncr": 0,
+                "hull": 0,
+                "out": 966,
+                "uncr_value": null,
+                "formula": 2
+            },
+            "expect": {
+                "recv_gram": 45.5,
+                "loss_gram": 1.5,
+                "loss_kg": 15,
+                "waste_kg": 34,
+                "unit_cost": 449.5604,
+                "uncracked_value": 0
+            }
+        },
+        {
+            "name": "v91 priced uncracked 150",
+            "input": {
+                "in": 1000,
+                "gram": 47,
+                "kernel": 445,
+                "buy": 200,
+                "crack": 10,
+                "line": 2,
+                "uncr": 23,
+                "hull": 0,
+                "out": 968,
+                "uncr_value": 3450,
+                "formula": 2
+            },
+            "expect": {
+                "unit_cost": 451.6854,
+                "uncracked_value": 3450,
+                "recv_gram": 44.5
+            }
+        },
+        {
+            "name": "v91 priced hull 10000",
+            "input": {
+                "in": 1000,
+                "gram": 47,
+                "kernel": 400,
+                "buy": 200,
+                "crack": 10,
+                "line": 2,
+                "uncr": 120,
+                "hull": 10000,
+                "out": 970,
+                "uncr_value": null,
+                "formula": 2
+            },
+            "expect": {
+                "unit_cost": 425,
+                "uncracked_value": 24000
+            }
+        }
+    ],
+    "crack_plan": [
+        {
+            "name": "plan single crack",
+            "input": {
+                "in": 1000,
+                "buy": 200,
+                "value_in": 200000,
+                "z": 0,
+                "crack": 10,
+                "formula": 2,
+                "outs": [
+                    {
+                        "grade": "kernel",
+                        "kg": 400
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 450
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 120
+                    }
+                ]
+            },
+            "expect": {
+                "lots": [
+                    180000,
+                    0,
+                    24000
+                ],
+                "unit": 450,
+                "recovery_value": 24000,
+                "cost_sound": 180000,
+                "total": 204000,
+                "warning": null
+            }
+        },
+        {
+            "name": "plan legacy formula 1 (double count: total 228000)",
+            "input": {
+                "in": 1000,
+                "buy": 200,
+                "value_in": 200000,
+                "z": 0,
+                "crack": 10,
+                "formula": 1,
+                "outs": [
+                    {
+                        "grade": "kernel",
+                        "kg": 400
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 450
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 120
+                    }
+                ]
+            },
+            "expect": {
+                "lots": [
+                    204000,
+                    0,
+                    24000
+                ],
+                "unit": 510,
+                "recovery_value": 24000,
+                "cost_sound": 204000,
+                "total": 228000
+            }
+        },
+        {
+            "name": "plan two rounds leftover",
+            "input": {
+                "in": 1000,
+                "buy": 200,
+                "value_in": 200000,
+                "z": 0,
+                "crack": 10,
+                "formula": 2,
+                "outs": [
+                    {
+                        "grade": "kernel",
+                        "kg": 400
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 450
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 20
+                    },
+                    {
+                        "grade": "kernel",
+                        "kg": 45,
+                        "round": 1
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 50,
+                        "round": 1
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 3,
+                        "round": 1
+                    }
+                ]
+            },
+            "expect": {
+                "lots": [
+                    179640.45,
+                    0,
+                    4000,
+                    20209.55,
+                    0,
+                    600
+                ],
+                "unit": 449.1011,
+                "recovery_value": 4600,
+                "cost_sound": 199850,
+                "total": 204450
+            }
+        },
+        {
+            "name": "plan two rounds priced uncracked 150",
+            "input": {
+                "in": 1000,
+                "buy": 200,
+                "value_in": 200000,
+                "z": 0,
+                "crack": 10,
+                "formula": 2,
+                "outs": [
+                    {
+                        "grade": "kernel",
+                        "kg": 400
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 450
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 20,
+                        "price": 150
+                    },
+                    {
+                        "grade": "kernel",
+                        "kg": 45,
+                        "round": 1
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 50,
+                        "round": 1
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 3,
+                        "round": 1,
+                        "price": 150
+                    }
+                ]
+            },
+            "expect": {
+                "lots": [
+                    180674.16,
+                    0,
+                    3000,
+                    20325.84,
+                    0,
+                    450
+                ],
+                "unit": 451.6854,
+                "recovery_value": 3450,
+                "cost_sound": 201000,
+                "total": 204450
+            }
+        },
+        {
+            "name": "plan priced hull 20 + wage 5000",
+            "input": {
+                "in": 1000,
+                "buy": 200,
+                "value_in": 200000,
+                "z": 5000,
+                "crack": 10,
+                "formula": 2,
+                "outs": [
+                    {
+                        "grade": "kernel",
+                        "kg": 400
+                    },
+                    {
+                        "grade": "hull",
+                        "kg": 450,
+                        "price": 20
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 120
+                    }
+                ]
+            },
+            "expect": {
+                "lots": [
+                    176000,
+                    9000,
+                    24000
+                ],
+                "unit": 440,
+                "recovery_value": 33000,
+                "cost_sound": 176000,
+                "total": 209000
+            }
+        },
+        {
+            "name": "plan no kernel: value stays on uncracked",
+            "input": {
+                "in": 1000,
+                "buy": 200,
+                "value_in": 200000,
+                "z": 0,
+                "crack": 10,
+                "formula": 2,
+                "outs": [
+                    {
+                        "grade": "hull",
+                        "kg": 450
+                    },
+                    {
+                        "grade": "uncracked",
+                        "kg": 500
+                    }
+                ]
+            },
+            "expect": {
+                "lots": [
+                    0,
+                    200000
+                ],
+                "unit": null,
+                "recovery_value": 200000,
+                "cost_sound": 0,
+                "total": 200000
+            }
+        }
+    ],
     "crack": [
         {
             "name": "user example",

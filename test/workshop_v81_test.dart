@@ -52,6 +52,64 @@ void main() {
     });
   }
 
+  // v91 p4: فرمول پایستگی ارزش + شکست مجدد نشکن (expect دستی؛ همان کیس‌های workshop_v81_selftest.php)
+  for (final dynamic c in doc['crack_v91'] as List<dynamic>) {
+    final Map<String, dynamic> m = c as Map<String, dynamic>;
+    test('crack_v91: ${m['name']}', () {
+      final Map<String, dynamic> i = m['input'] as Map<String, dynamic>;
+      final WsCrackResult r = wsCrackResult(
+        inKg: n(i['in'])!,
+        gram: n(i['gram']),
+        kernelKg: n(i['kernel'])!,
+        buyPerKg: n(i['buy']),
+        crackCost: n(i['crack'])!,
+        lineLoss: n(i['line']),
+        uncrackedKg: n(i['uncr'])!,
+        hullValue: n(i['hull'])!,
+        outKg: n(i['out']),
+        uncrackedValue: n(i['uncr_value']),
+        formula: (i['formula'] as num).toInt(),
+      );
+      final Map<String, Object?> got = <String, Object?>{
+        'recv_gram': r.recvGram, 'loss_gram': r.lossGram, 'loss_kg': r.lossKg, 'waste_kg': r.wasteKg, 'unit_cost': r.unitCost,
+        'uncracked_value': r.uncrackedValue, 'expected_loss_kg': r.expectedLossKg, 'gram_vs_line': r.gramVsLine,
+      };
+      for (final MapEntry<String, dynamic> e in (m['expect'] as Map<String, dynamic>).entries) {
+        expect(got.containsKey(e.key), isTrue, reason: 'no value for ${e.key}');
+        near(got[e.key], e.value, e.key);
+      }
+    });
+  }
+
+  for (final dynamic c in doc['crack_plan'] as List<dynamic>) {
+    final Map<String, dynamic> m = c as Map<String, dynamic>;
+    test('crack_plan: ${m['name']}', () {
+      final Map<String, dynamic> i = m['input'] as Map<String, dynamic>;
+      final Map<String, dynamic> e = m['expect'] as Map<String, dynamic>;
+      final List<Map<String, dynamic>> outs = <Map<String, dynamic>>[for (final dynamic o in i['outs'] as List<dynamic>) Map<String, dynamic>.from(o as Map)];
+      final WsCrackLots r = wsCrackLots(
+        outs,
+        <double>[for (final Map<String, dynamic> o in outs) (((o['kg'] as num) * ((o['price'] as num?) ?? 0)) * 100).round() / 100],
+        <double?>[for (final Map<String, dynamic> o in outs) (o['price'] as num?)?.toDouble()],
+        inKg: n(i['in'])!.toDouble(),
+        buy: n(i['buy'])!.toDouble(),
+        valueIn: n(i['value_in'])!.toDouble(),
+        z: n(i['z'])!.toDouble(),
+        crackCost: n(i['crack'])!.toDouble(),
+        formula: (i['formula'] as num).toInt(),
+      );
+      final List<dynamic> lots = e['lots'] as List<dynamic>;
+      for (int k = 0; k < lots.length; k++) {
+        near(r.lots[k], lots[k], 'lot $k');
+      }
+      near(r.unit, e['unit'], 'unit');
+      near(r.recoveryValue, e['recovery_value'], 'recovery_value');
+      near(r.costSound, e['cost_sound'], 'cost_sound');
+      near((r.lots.fold<double>(0, (double s, double v) => s + v) * 100).round() / 100, e['total'], 'total (value conserved)');
+      if (e.containsKey('warning')) expect(r.warning, e['warning']);
+    });
+  }
+
   for (final dynamic c in doc['split'] as List<dynamic>) {
     final Map<String, dynamic> m = c as Map<String, dynamic>;
     test('split: ${m['name']}', () {
