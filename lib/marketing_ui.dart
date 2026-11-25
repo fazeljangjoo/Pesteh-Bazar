@@ -1227,7 +1227,7 @@ class MkAdminView extends StatelessWidget {
         color: Theme.of(context).colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
         child: const Padding(
           padding: EdgeInsets.all(12),
-          child: Text('دسترسی بازاریاب‌ها از «کارکنان، نقش‌ها و دسترسی‌ها» داده می‌شود: نقش آمادهٔ «بازاریاب» یا «مدیر بازاریابی»، یا بخش «بازاریابی بین‌المللی» در هر نقش.'),
+          child: Text('دسترسی بازاریاب‌ها از «کارمندان، نقش‌ها و دسترسی‌ها» داده می‌شود: نقش آمادهٔ «بازاریاب» یا «مدیر بازاریابی»، یا بخش «بازاریابی بین‌المللی» در هر نقش.'),
         ),
       ),
     ]);

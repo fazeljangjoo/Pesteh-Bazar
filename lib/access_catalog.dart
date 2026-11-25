@@ -152,7 +152,7 @@ const List<AccessSection> kAccessSections = <AccessSection>[
   ], fields: <AccessOption>[]),
   AccessSection(key: 'admin', label: 'مدیریت', price: null, perms: <AccessOption>[
     AccessOption('settings.manage', 'تنظیمات'),
-    AccessOption('users.manage', 'کارکنان، نقش‌ها و دسترسی‌ها'),
+    AccessOption('users.manage', 'کارمندان، نقش‌ها و دسترسی‌ها'),
   ], fields: <AccessOption>[]),
 ];
 

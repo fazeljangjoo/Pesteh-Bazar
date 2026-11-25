@@ -301,7 +301,7 @@ class _HomeShellState extends State<HomeShell> {
               if (StaffPerms.I.can('users.manage'))
                 ListTile(
                   leading: const Icon(Icons.manage_accounts_outlined),
-                  title: const Text('کارکنان، نقش‌ها و دسترسی‌ها'),
+                  title: const Text('کارمندان، نقش‌ها و دسترسی‌ها'),
                   onTap: () {
                     _closeMenu(context);
                     _push(context, MaterialPageRoute(builder: (_) => const AccessHomeScreen())); // v87: دسترسی بخش‌محور

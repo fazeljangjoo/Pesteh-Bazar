@@ -168,7 +168,7 @@ class _PayrollHomeState extends State<PayrollHomeScreen> {
                 if (_offline) _banner('آفلاین: آخرین داده‌های ذخیره‌شده نمایش داده می‌شود.'),
                 ListTile(
                   leading: const Icon(Icons.badge_outlined),
-                  title: const Text('کارکنان و مساعده'),
+                  title: const Text('کارمندان و مساعده'),
                   trailing: const Icon(Icons.chevron_left),
                   onTap: () => _go(const PayrollEmployeesScreen()),
                 ),
@@ -360,7 +360,7 @@ class _PayrollEmployeesState extends State<PayrollEmployeesScreen> {
   Widget build(BuildContext context) {
     final bool manage = _can('payroll.manage');
     return Scaffold(
-      appBar: AppBar(title: const Text('کارکنان')),
+      appBar: AppBar(title: const Text('کارمندان')),
       floatingActionButton:
           manage ? FloatingActionButton(onPressed: () => _edit(null), child: const Icon(Icons.person_add_alt)) : null,
       body: _loading
@@ -571,7 +571,7 @@ class _PayrollWizardState extends State<PayrollWizardScreen> {
       _emps = e;
       _items = i;
     } catch (err) {
-      if (mounted) snack(context, 'ابتدا یک‌بار آنلاین کارکنان را بارگیری کنید.');
+      if (mounted) snack(context, 'ابتدا یک‌بار آنلاین کارمندان را بارگیری کنید.');
     }
     final Map<String, dynamic>? d = widget.draft;
     for (final Map<String, dynamic> e in _emps) {

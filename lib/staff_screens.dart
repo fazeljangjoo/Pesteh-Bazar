@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'edition.dart';
 import 'fiscal_ui.dart';
 import 'perms.dart';
+import 'staff_login_logic.dart'; // v91 p2: قاعدهٔ نام کاربری
 import 'warehouse_ui.dart';
 import 'widgets.dart';
 
@@ -64,7 +65,7 @@ class _StaffUsersScreenState extends State<StaffUsersScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('کارکنان'),
+        title: const Text('کارمندان'),
         actions: <Widget>[
           IconButton(
             tooltip: 'نقش‌ها و مجوزها',
@@ -79,7 +80,7 @@ class _StaffUsersScreenState extends State<StaffUsersScreen> {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),
         icon: const Icon(Icons.person_add_alt_1_outlined),
-        label: const Text('کارکن جدید'),
+        label: const Text('کارمند جدید'),
       ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _future,
@@ -93,7 +94,7 @@ class _StaffUsersScreenState extends State<StaffUsersScreen> {
             );
           }
           final items = snap.data ?? const <Map<String, dynamic>>[];
-          if (items.isEmpty) return const Center(child: Text('هنوز کارکنی ثبت نشده است'));
+          if (items.isEmpty) return const Center(child: Text('هنوز کارمندی ثبت نشده است'));
           return ListView.builder(
             padding: const EdgeInsets.all(12),
             itemCount: items.length,
@@ -194,12 +195,13 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
   Future<void> _save() async {
     final username = _username.text.trim();
     final name = _name.text.trim();
-    if (username.isEmpty) {
-      setState(() => _error = 'نام کاربری را وارد کنید');
+    final String? uErr = validateStaffUsername(username, original: widget.staff == null ? null : (widget.staff!['username'] ?? '').toString()); // v91 p2
+    if (uErr != null) {
+      setState(() => _error = uErr);
       return;
     }
     if (name.isEmpty) {
-      setState(() => _error = 'نام کارکن را وارد کنید');
+      setState(() => _error = 'نام کارمند را وارد کنید');
       return;
     }
     if (_roleId == null) {
@@ -235,7 +237,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
   Future<void> _delete() async {
     final s = widget.staff;
     if (s == null) return;
-    if (!await confirm(context, 'کارکن «${s['name']}» حذف شود؟ نشست‌های فعالش هم بی‌اعتبار می‌شود.')) return;
+    if (!await confirm(context, 'کارمند «${s['name']}» حذف شود؟ نشست‌های فعالش هم بی‌اعتبار می‌شود.')) return;
     setState(() {
       _busy = true;
       _error = null;
@@ -256,23 +258,30 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text(_isNew ? 'کارکن جدید' : 'ویرایش کارکن')),
+      appBar: AppBar(title: Text(_isNew ? 'کارمند جدید' : 'ویرایش کارمند')),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : ListView(
               padding: const EdgeInsets.all(16),
               children: <Widget>[
                 TextField(
+                  key: const ValueKey<String>('staff_username'),
                   controller: _username,
                   enabled: !_busy,
                   autocorrect: false,
                   enableSuggestions: false,
-                  maxLength: 60,
+                  maxLength: 60, // نام قدیمی بلندتر (حق قدیمی) هم نمایش داده شود
                   textDirection: TextDirection.ltr,
-                  decoration: const InputDecoration(
+                  onChanged: (_) => setState(() {}), // v91 p2: اعتبارسنجی زنده
+                  decoration: InputDecoration(
                     labelText: 'نام کاربری (انگلیسی)',
+                    helperText: 'حروف انگلیسی و عدد، ۳ تا ۳۰ نویسه؛ در کل سامانه یکتا',
+                    errorMaxLines: 3,
+                    errorText: _username.text.trim().isEmpty
+                        ? null
+                        : validateStaffUsername(_username.text, original: widget.staff == null ? null : (widget.staff!['username'] ?? '').toString()),
                     counterText: '',
-                    border: OutlineInputBorder(),
+                    border: const OutlineInputBorder(),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -317,7 +326,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('فعال'),
-                  subtitle: const Text('غیرفعال‌کردن، ورود و نشست‌های فعلی این کارکن را قطع می‌کند'),
+                  subtitle: const Text('غیرفعال‌کردن، ورود و نشست‌های فعلی این کارمند را قطع می‌کند'),
                   value: _active,
                   onChanged: _busy ? null : (bool v) => setState(() => _active = v),
                 ),
@@ -367,7 +376,7 @@ class _StaffFormScreenState extends State<StaffFormScreen> {
                   TextButton.icon(
                     onPressed: _busy ? null : _delete,
                     icon: const Icon(Icons.delete_outline),
-                    label: const Text('حذف کارکن'),
+                    label: const Text('حذف کارمند'),
                   ),
                 ],
               ],

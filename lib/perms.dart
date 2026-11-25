@@ -206,7 +206,7 @@ const Map<String, String> kPermLabels = <String, String>{
   'fy.manage': 'مدیریت سال‌های مالی',
   'tax.view': 'مشاهدهٔ گزارش‌های مالیاتی',
   'settings.manage': 'تنظیمات',
-  'users.manage': 'مدیریت کارکنان و نقش‌ها',
+  'users.manage': 'مدیریت کارمندان و نقش‌ها',
   'marketing.entry': 'بازاریابی: ثبت مشتری، پیگیری و فروش خود', // v90
   'marketing.manage': 'بازاریابی: مدیریت همه، تأیید فروش و هدف‌ها',
   'marketing.reports': 'بازاریابی: داشبورد گزارش همه',

@@ -11,6 +11,7 @@ import 'edition.dart';
 import 'perms.dart';
 import 'dpapi.dart';
 import 'license_guard.dart';
+import 'staff_login_logic.dart'; // v91 p2
 import 'sync_service.dart';
 import 'utils.dart';
 
@@ -364,44 +365,64 @@ class LicenseService {
     return _finishLogin(n, r.data);
   }
 
-  /// v89: بازیابی رمز کارکن — ارسال کد به شمارهٔ ثبت‌شدهٔ کارکن. masked = شمارهٔ پوشانده (۰۹۱۲•••۴۵۶۷).
-  Future<({String? error, String? masked})> staffResetSend(String ownerPhone, String username) async {
-    if (!isValidPhone(ownerPhone)) return (error: 'شماره موبایل مالک را درست وارد کنید (مثال: 09123456789)', masked: null);
-    if (username.trim().isEmpty) return (error: 'نام کاربری کارکن را وارد کنید', masked: null);
-    final r = await _post('staff_reset.php', <String, dynamic>{'step': 'send', 'phone': normalizePhone(ownerPhone), 'username': username.trim()});
-    if (r.netError != null) return (error: r.netError, masked: null);
+  /// v89: بازیابی رمز کارمند — ارسال کد به شمارهٔ ثبت‌شدهٔ کارمند. masked = شمارهٔ پوشانده (۰۹۱۲•••۴۵۶۷).
+  /// v91 p2: [ownerPhone] اختیاری است (خالی ⇒ سرور نام کاربری را در همهٔ مجموعه‌ها می‌جوید).
+  /// needOwnerPhone = نام کاربری قدیمی در چند مجموعه تکراری است؛ شمارهٔ مالک را بپرسید.
+  Future<({String? error, String? masked, bool needOwnerPhone})> staffResetSend(String ownerPhone, String username) async {
+    final body = <String, dynamic>{'step': 'send', 'username': username.trim()};
+    if (ownerPhone.trim().isNotEmpty) {
+      if (!isValidPhone(ownerPhone)) return (error: 'شماره موبایل مالک را درست وارد کنید (مثال: 09123456789)', masked: null, needOwnerPhone: false);
+      body['phone'] = normalizePhone(ownerPhone);
+    }
+    if (username.trim().isEmpty) return (error: 'نام کاربری را وارد کنید', masked: null, needOwnerPhone: false);
+    final r = await _post('staff_reset.php', body);
+    if (r.netError != null) return (error: r.netError, masked: null, needOwnerPhone: false);
     final String? masked = r.data['masked'] as String?;
-    if (r.status != 200) return (error: (r.data['error'] as String?) ?? 'ارسال کد ناموفق بود؛ دوباره تلاش کنید.', masked: masked);
-    return (error: null, masked: masked);
+    if (r.status != 200) {
+      return (
+        error: (r.data['error'] as String?) ?? 'ارسال کد ناموفق بود؛ دوباره تلاش کنید.',
+        masked: masked,
+        needOwnerPhone: responseNeedsOwnerPhone(r.status, r.data),
+      );
+    }
+    return (error: null, masked: masked, needOwnerPhone: false);
   }
 
-  /// v89: بازیابی رمز کارکن — کد + رمز تازه. null = موفق.
+  /// v89: بازیابی رمز کارمند — کد + رمز تازه. null = موفق. v91 p2: [ownerPhone] اختیاری.
   Future<String?> staffResetConfirm(String ownerPhone, String username, String code, String password) async {
     if (code.trim().isEmpty) return 'کد پیامکی را وارد کنید';
     if (password.length < 6) return 'رمز تازه حداقل ۶ نویسه است';
-    final r = await _post('staff_reset.php', <String, dynamic>{
-      'step': 'confirm', 'phone': normalizePhone(ownerPhone), 'username': username.trim(), 'code': code.trim(), 'password': password,
-    });
+    final body = <String, dynamic>{'step': 'confirm', 'username': username.trim(), 'code': code.trim(), 'password': password};
+    if (ownerPhone.trim().isNotEmpty) body['phone'] = normalizePhone(ownerPhone);
+    final r = await _post('staff_reset.php', body);
     if (r.netError != null) return r.netError;
     if (r.status != 200) return (r.data['error'] as String?) ?? 'تغییر رمز ناموفق بود؛ دوباره تلاش کنید.';
     return null;
   }
 
-  /// ورود کارکن: شمارهٔ مالک + نام کاربری + رمز (staff_login.php). نتیجه: null = موفق، وگرنه متن خطا.
-  Future<String?> signInStaff(String ownerPhone, String username, String password) async {
-    if (ownerPhone.trim().isEmpty) return 'شماره موبایل مالک را وارد کنید';
-    if (!isValidPhone(ownerPhone)) return 'شماره موبایل مالک را درست وارد کنید (مثال: 09123456789)';
-    if (username.trim().isEmpty) return 'نام کاربری کارکن را وارد کنید';
-    if (password.isEmpty) return 'رمز عبور را وارد کنید';
-    final n = normalizePhone(ownerPhone);
-    final body = <String, dynamic>{'phone': n, 'username': username.trim(), 'password': password};
+  /// ورود کارمند (staff_login.php). v91 p2: فقط نام کاربری + رمز؛ [ownerPhone] فقط وقتی لازم است که سرور
+  /// need_owner_phone بدهد (نام کاربری قدیمی در چند مجموعه). شمارهٔ مالک از پاسخ سرور (phone) گرفته می‌شود و
+  /// مثل قبل برای pesteh_<phone>.db، credentials()، همگام‌سازی و مجوز امضاشدهٔ ویندوز به کار می‌رود.
+  Future<StaffSignInResult> signInStaff(String username, String password, {String ownerPhone = ''}) async {
+    if (username.trim().isEmpty) return const StaffSignInResult(error: 'نام کاربری را وارد کنید');
+    if (password.isEmpty) return const StaffSignInResult(error: 'رمز عبور را وارد کنید');
+    final body = <String, dynamic>{'username': username.trim(), 'password': password};
+    if (ownerPhone.trim().isNotEmpty) {
+      if (!isValidPhone(ownerPhone)) return const StaffSignInResult(error: 'شماره موبایل مالک را درست وارد کنید (مثال: 09123456789)');
+      body['phone'] = normalizePhone(ownerPhone);
+    }
     if (kStrictLicense) body['device'] = await LicenseGuard.I.deviceId();
     final r = await _post('staff_login.php', body);
-    if (r.netError != null) return r.netError;
+    if (r.netError != null) return StaffSignInResult(error: r.netError);
     if (r.status != 200) {
-      return (r.data['error'] as String?) ?? 'ورود کارکن ناموفق بود؛ دوباره تلاش کنید.';
+      return StaffSignInResult(
+        error: (r.data['error'] as String?) ?? 'ورود کارمند ناموفق بود؛ دوباره تلاش کنید.',
+        needOwnerPhone: responseNeedsOwnerPhone(r.status, r.data),
+      );
     }
-    return _finishLogin(n, r.data);
+    final n = resolveStaffOwnerPhone(r.data['phone'], body['phone'] as String? ?? '', normalize: normalizePhone, isValid: isValidPhone);
+    if (n.isEmpty) return const StaffSignInResult(error: 'پاسخ نامعتبر از سرور.');
+    return StaffSignInResult(error: await _finishLogin(n, r.data));
   }
 
   // ======================= حساب کاربری (نام / رمز عبور) =======================
