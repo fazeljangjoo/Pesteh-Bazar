@@ -36,47 +36,34 @@ class SaleLotPicker extends StatelessWidget {
           style: const TextStyle(fontSize: 12.5),
         );
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
-      DropdownButtonFormField<int>(
-        key: ValueKey<String>('sale-lot-${lots.length}-$selectedId'),
-        initialValue: e == null ? null : selectedId,
-        isExpanded: true,
-        itemHeight: 56,
-        hint: const Text('لات را انتخاب کنید'),
-        decoration: const InputDecoration(labelText: 'لات', border: OutlineInputBorder()),
-        selectedItemBuilder: (_) => <Widget>[
-          for (final Map<String, dynamic> x in lots) Align(alignment: AlignmentDirectional.centerStart, child: Text('${who(x)}  ·  ${x['code'] ?? ''}', overflow: TextOverflow.ellipsis)),
-        ],
-        items: <DropdownMenuItem<int>>[
-          for (final Map<String, dynamic> x in lots)
-            DropdownMenuItem<int>(
-              value: x['id'] as int,
-              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
-                Text(who(x), overflow: TextOverflow.ellipsis),
-                Text(
-                  '${x['code'] ?? ''}  ·  ${x['category_name'] ?? ''} ${x['type_name'] ?? ''}'
-                  '${x['ounce'] == null ? '' : '  ·  انس ${faNum(x['ounce'] as num, dec: 2)}'}'
-                  '${x['gram'] == null ? '' : '  ·  گرم ${faNum(x['gram'] as num, dec: 2)}'}'
-                  '  ·  ${faNum(_n(x['remaining']))} کیلو',
-                  style: TextStyle(fontSize: 11, color: th.hintColor),
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ]),
-            ),
-        ],
-        onChanged: (int? v) {
+      // v91: به‌جای فهرست کشویی بلند ⇒ کادر انتخاب + پنجرهٔ جست‌وجو با ردیف‌های فشرده (با زیاد شدن خریدها فرم بلند نمی‌شود)
+      InkWell(
+        borderRadius: BorderRadius.circular(4),
+        onTap: () async {
+          final int? v = await showDialog<int>(context: context, builder: (_) => _SaleLotSearchDialog(lots: lots, selectedId: selectedId));
           if (v != null) onSelect(v);
         },
+        child: InputDecorator(
+          isEmpty: e == null,
+          decoration: const InputDecoration(
+            labelText: 'لات',
+            hintText: 'لمس کنید و لات را جست‌وجو کنید',
+            border: OutlineInputBorder(),
+            suffixIcon: Icon(Icons.search),
+          ),
+          child: e == null ? null : Text('${who(e)}  ·  ${e['code'] ?? ''}  ·  ${faNum(_n(e['remaining']))} کیلو', overflow: TextOverflow.ellipsis, maxLines: 1),
+        ),
       ),
       if (e != null)
         Container(
           margin: const EdgeInsets.only(top: 6, bottom: 8),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
             color: th.colorScheme.surfaceContainerHighest.withValues(alpha: 0.5),
             borderRadius: BorderRadius.circular(8),
             border: Border.all(color: th.dividerColor),
           ),
-          child: Wrap(spacing: 16, runSpacing: 4, children: <Widget>[
+          child: Wrap(spacing: 14, runSpacing: 2, children: <Widget>[
             kv(_n(e['is_mix']) == 1 ? 'نام لات (کوت)' : 'فروشنده / نام لات', _n(e['is_mix']) == 1 ? '${e['type_name'] ?? ''}' : who(e)),
             kv('کد', '${e['code'] ?? '-'}'),
             kv('دسته و نوع', '${e['category_name'] ?? ''} ${e['type_name'] ?? ''}'.trim()),
@@ -92,5 +79,92 @@ class SaleLotPicker extends StatelessWidget {
           ]),
         ),
     ]);
+  }
+}
+
+/// v91: پنجرهٔ جست‌وجوی لات فروش — جست‌وجو در فروشنده/نام کوت، کد، دسته، نوع؛ هر لات یک ردیف فشرده.
+class _SaleLotSearchDialog extends StatefulWidget {
+  const _SaleLotSearchDialog({required this.lots, required this.selectedId});
+  final List<Map<String, dynamic>> lots;
+  final int? selectedId;
+
+  @override
+  State<_SaleLotSearchDialog> createState() => _SaleLotSearchDialogState();
+}
+
+class _SaleLotSearchDialogState extends State<_SaleLotSearchDialog> {
+  String _q = '';
+
+  static String _norm(String s) => toEnDigits(s).replaceAll('ي', 'ی').replaceAll('ك', 'ک').toLowerCase().trim();
+
+  bool _match(Map<String, dynamic> x) {
+    if (_q.isEmpty) return true;
+    final String hay = _norm('${SaleLotPicker.who(x)} ${x['code'] ?? ''} ${x['category_name'] ?? ''} ${x['type_name'] ?? ''} ${x['seller'] ?? ''}');
+    return _norm(_q).split(RegExp(r'\s+')).every(hay.contains);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData th = Theme.of(context);
+    final List<Map<String, dynamic>> list = widget.lots.where(_match).toList();
+    final Size sz = MediaQuery.of(context).size;
+    return Dialog(
+      insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxWidth: 640, maxHeight: sz.height * 0.85),
+        child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 12, 4),
+            child: TextField(
+              autofocus: true,
+              decoration: const InputDecoration(
+                isDense: true,
+                prefixIcon: Icon(Icons.search),
+                hintText: 'فروشنده، کد، دسته یا نوع…',
+                border: OutlineInputBorder(),
+              ),
+              onChanged: (String v) => setState(() => _q = v),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+            child: Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: Text('${faNum(list.length, dec: 0)} لات از ${faNum(widget.lots.length, dec: 0)}', style: TextStyle(fontSize: 12, color: th.hintColor)),
+            ),
+          ),
+          Flexible(
+            child: list.isEmpty
+                ? const Padding(padding: EdgeInsets.all(24), child: Text('لاتی پیدا نشد'))
+                : ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: list.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (BuildContext c, int i) {
+                      final Map<String, dynamic> x = list[i];
+                      final String meta = <String>[
+                        '${x['category_name'] ?? ''} ${x['type_name'] ?? ''}'.trim(),
+                        if (x['ounce'] != null) 'انس ${faNum(x['ounce'] as num, dec: 2)}',
+                        if (x['gram'] != null) 'گرم ${faNum(x['gram'] as num, dec: 2)}',
+                      ].where((String s) => s.isNotEmpty).join('  ·  ');
+                      return ListTile(
+                        dense: true,
+                        visualDensity: const VisualDensity(vertical: -3),
+                        selected: x['id'] == widget.selectedId,
+                        title: Text('${SaleLotPicker.who(x)}  ·  ${x['code'] ?? ''}', maxLines: 1, overflow: TextOverflow.ellipsis),
+                        subtitle: meta.isEmpty ? null : Text(meta, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontSize: 11.5)),
+                        trailing: Text('${faNum(SaleLotPicker._n(x['remaining']))} کیلو', style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12.5)),
+                        onTap: () => Navigator.pop(context, x['id'] as int),
+                      );
+                    },
+                  ),
+          ),
+          Align(
+            alignment: AlignmentDirectional.centerEnd,
+            child: TextButton(onPressed: () => Navigator.pop(context), child: const Text('بستن')),
+          ),
+        ]),
+      ),
+    );
   }
 }

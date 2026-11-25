@@ -488,9 +488,19 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
                   ? const Center(child: Text('انبار خالی است؛ ابتدا خرید ثبت کنید'))
                   : Form(
                       key: _form,
-                      child: ListView(
-                        padding: const EdgeInsets.all(16),
-                        children: _vo(_children(context)),
+                      // v91: فرم فشرده‌تر (کادرهای کوتاه‌تر، فاصلهٔ کمتر) تا فرم فروش بلند نشود
+                      child: Theme(
+                        data: Theme.of(context).copyWith(
+                          visualDensity: VisualDensity.compact,
+                          inputDecorationTheme: Theme.of(context).inputDecorationTheme.copyWith(
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+                              ),
+                        ),
+                        child: ListView(
+                          padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                          children: _vo(_children(context)),
+                        ),
                       ),
                     ),
     );
@@ -628,7 +638,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
 
   Widget _sackField(TextEditingController c, String label, double cap) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.only(bottom: 10),
       child: TextFormField(
         controller: c,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
@@ -636,7 +646,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
         decoration: InputDecoration(
           labelText: label,
           hintText: '0',
-          helperText: 'حداکثر ${faNum(cap)} (گونی باقی‌مانده)',
+          helperText: 'حداکثر ${faNum(cap)}',
           border: const OutlineInputBorder(),
         ),
         onChanged: (_) => _changed(),
@@ -654,30 +664,24 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   /// وزن واقعی (کل، با گونی) + گونی‌های خالی‌شده (اختیاری)
   Widget _weighFields(Map<String, dynamic> lot) {
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-      numField(_gross, 'وزن کل (ناخالص - با گونی) — طبق ترازو', required: true, onChanged: _changed),
-      Align(
-        alignment: Alignment.centerLeft,
-        child: TextButton.icon(
-          onPressed: _fillAll,
-          icon: const Icon(Icons.all_inclusive),
-          label: const Text('همه موجودی'),
-        ),
-      ),
-      Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(
-          'تعداد گونی خالی‌شده اختیاری است و از گونیِ باقی‌ماندهٔ همین خرید کم می‌شود؛ '
-          'اگر وارد نکنید فقط وزن از انبار کم می‌شود.',
-          style: TextStyle(color: Colors.black54, fontSize: 12),
-        ),
-      ),
+      // v91: وزن کل و «همه موجودی» در یک ردیف؛ راهنمای گونی کوتاه
       Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Expanded(
-            child: _sackField(_small, 'گونی کوچک برداشته‌شده (${faNum(_kSmallSackKg * 1000, dec: 0)} گرم)', _smallCap)),
-        const SizedBox(width: 8),
-        Expanded(
-            child: _sackField(_large, 'گونی بزرگ برداشته‌شده (${faNum(_kLargeSackKg * 1000, dec: 0)} گرم)', _largeCap)),
+        Expanded(child: numField(_gross, 'وزن کل (ناخالص، با گونی)', required: true, onChanged: _changed)),
+        const SizedBox(width: 6),
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: TextButton.icon(onPressed: _fillAll, icon: const Icon(Icons.all_inclusive, size: 18), label: const Text('همه موجودی')),
+        ),
       ]),
+      Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Expanded(child: _sackField(_small, 'گونی کوچک (${faNum(_kSmallSackKg * 1000, dec: 0)} گرم)', _smallCap)),
+        const SizedBox(width: 8),
+        Expanded(child: _sackField(_large, 'گونی بزرگ (${faNum(_kLargeSackKg * 1000, dec: 0)} گرم)', _largeCap)),
+      ]),
+      const Padding(
+        padding: EdgeInsets.only(bottom: 6),
+        child: Text('گونی اختیاری است؛ خالی ⇒ فقط وزن از انبار کم می‌شود.', style: TextStyle(color: Colors.black54, fontSize: 11.5)),
+      ),
       if (_weighOn) ...[
         sectionTitle(context, 'توزین'),
         const Padding(
@@ -714,21 +718,31 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     final scheme = Theme.of(context).colorScheme;
     final over = _net > _rem + 1e-6;
     final tooHeavy = _grossKg > 0 && _net <= 0;
+    // v91: خلاصهٔ فشرده (کنار هم به‌جای یک ردیف برای هر عدد)
+    Widget kv(String k, String v, {Color? color, bool strong = false}) => Text.rich(
+          TextSpan(children: <InlineSpan>[
+            TextSpan(text: '$k: ', style: const TextStyle(color: Colors.black54)),
+            TextSpan(text: v, style: TextStyle(fontWeight: strong ? FontWeight.bold : FontWeight.w600, color: color)),
+          ]),
+          style: const TextStyle(fontSize: 13),
+        );
     return Card(
       color: scheme.primaryContainer,
+      margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(children: [
-          infoRow('موجودی این خرید (خالص)', '${faNum(_rem)} کیلو'),
-          infoRow('وزن کل (ناخالص - با گونی)', '${faNum(_grossKg)} کیلو'),
-          infoRow(_weighOn ? 'تارا' : 'وزن گونی‌ها', '${faNum(_tare)} کیلو'),
-          if (_weighOn && _deductKg > 0) infoRow('کسر کیفیت', '${faNum(_deductKg)} کیلو'),
-          infoRow('وزن پسته (خالص)', '${faNum(_net)} کیلو', valueColor: over ? scheme.error : null),
-          infoRow('مبلغ فروش تقریبی', Fmt.money(_revenue)),
-          if (_fxc.active && _fxc.priceCcyNum != null) ...[
-            infoRow('فی فروش ارزی (هر کیلو)', faCcy(_fxc.ccy!, _fxc.priceCcyNum!, dec: _fxc.decimals)),
-            infoRow('مبلغ فروش ارزی', faCcy(_fxc.ccy!, _net * _fxc.priceCcyNum!, dec: _fxc.decimals)),
-          ],
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Wrap(spacing: 14, runSpacing: 4, children: <Widget>[
+            kv('ناخالص', '${faNum(_grossKg)} کیلو'),
+            kv(_weighOn ? 'تارا' : 'وزن گونی‌ها', '${faNum(_tare)} کیلو'),
+            if (_weighOn && _deductKg > 0) kv('کسر کیفیت', '${faNum(_deductKg)} کیلو'),
+            kv('خالص', '${faNum(_net)} کیلو', color: over ? scheme.error : null, strong: true),
+            kv('مبلغ تقریبی', Fmt.money(_revenue), strong: true),
+            if (_fxc.active && _fxc.priceCcyNum != null) ...[
+              kv('فی ارزی', faCcy(_fxc.ccy!, _fxc.priceCcyNum!, dec: _fxc.decimals)),
+              kv('مبلغ ارزی', faCcy(_fxc.ccy!, _net * _fxc.priceCcyNum!, dec: _fxc.decimals)),
+            ],
+          ]),
           if (tooHeavy)
             Padding(
               padding: const EdgeInsets.only(top: 6),
