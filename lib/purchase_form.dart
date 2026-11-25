@@ -26,6 +26,7 @@ import 'utils.dart';
 import 'voucher_preview_ui.dart' show confirmVoucherPreview;
 import 'doc_summary_ui.dart' show confirmDocSummary; // S35.T35.13
 import 'warehouse_ui.dart';
+import 'doc_actions_ui.dart' show LockedFormBanner, LockedFields, PurchaseDocActions, canUnlockPurchase; // v91 p3
 import 'widgets.dart';
 
 class PurchaseForm extends StatefulWidget {
@@ -33,7 +34,9 @@ class PurchaseForm extends StatefulWidget {
   /// v87: ادامهٔ پیش‌نویس (داده‌های ذخیره‌شدهٔ فرم) + شناسهٔ پیش‌نویس برای جایگزینی/حذف بعد از ثبت.
   final Map<String, dynamic>? draft;
   final int? draftId;
-  const PurchaseForm({super.key, this.existing, this.draft, this.draftId});
+  /// v91 p3: نمایش جزئیات خرید در همین فرم به حالت قفل؛ «ویرایش» همهٔ فیلدها را باز می‌کند و کارهای سند پایین فرم است.
+  final bool locked;
+  const PurchaseForm({super.key, this.existing, this.draft, this.draftId, this.locked = false});
   @override
   State<PurchaseForm> createState() => _PurchaseFormState();
 }
@@ -63,7 +66,20 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
   final _ounce = TextEditingController();
   final _price = TextEditingController();
   final FxDocController _fxc = FxDocController(); // S27c: ارز سند (نرخ دستی دلار حذف شد)
-  bool _fxEditBlocked = false; // خرید ارزیِ ثبت‌شده فعلاً قابل ویرایش نیست (T27b.6)
+  final bool _fxEditBlocked = false; // v91 p3: دیگر true نمی‌شود (سند ارزی ویرایش می‌شود؛ ارز و نرخ ثابت)
+  late bool _viewOnly = widget.locked && widget.existing != null; // v91 p3: حالت قفل (نمایش)
+  bool get _fxDoc => ((widget.existing?['ccy'] as String?) ?? '').isNotEmpty && widget.existing?['ccy'] != 'IRT';
+
+  /// v91 p3: در حالت قفل، بنر «ویرایش» بالا، هر قسمت بدون لمس، و کارهای سند پایین فرم.
+  List<Widget> _vo(List<Widget> children) {
+    if (!_viewOnly && !_fxDoc) return children;
+    return <Widget>[
+      if (_viewOnly) LockedFormBanner(canEdit: canUnlockPurchase(StaffPerms.I.can), onEdit: () => setState(() => _viewOnly = false)),
+      if (_fxDoc) Card(child: Padding(padding: const EdgeInsets.all(12), child: Text('سند ارزی (${widget.existing!['ccy']}): ارز و نرخ ثبت‌شده ثابت می‌ماند؛ فی را به واحد پول برنامه ویرایش کنید (فی ارزی با همان نرخ حساب می‌شود). برای تغییر نرخ «سند تعدیل نرخ» ثبت کنید.'))),
+      for (final Widget w in children) LockedFields(locked: _viewOnly, child: w),
+      if (_viewOnly) PurchaseDocActions(doc: widget.existing!, onDeleted: () { if (mounted) Navigator.pop(context); }),
+    ];
+  }
   final _total = TextEditingController();
   final _smallSack = TextEditingController();
   final _largeSack = TextEditingController();
@@ -164,14 +180,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     super.dispose();
   }
 
-  /// اگر بخشی از این خرید قبلاً فروخته شده باشد، دسته/نوع/وزن قابل ویرایش نیست
-  bool get _locked {
-    final e = widget.existing;
-    if (e == null) return false;
-    final rem = (e['remaining'] as num).toDouble();
-    final net = (e['net_weight'] as num).toDouble();
-    return rem < net - 1e-6;
-  }
+  /// v91 p3: قفل «بخشی فروخته شده» برداشته شد؛ همهٔ فیلدها قابل ویرایش‌اند (سرور فقط قاعدهٔ وزن ≥ مصرف‌شده را دارد و پایین‌دستی را بازمحاسبه می‌کند).
+  bool get _locked => false;
 
   @override
   void initState() {
@@ -203,7 +213,6 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       _warehouseUid = e['warehouse_uid'] as String?;
       _ounceUid = e['ounce_uid'] as String?;
       MoneyField.setStored(_price, e['price'] as num);
-      if (e['ccy'] != null && (e['ccy'] as String).isNotEmpty) _fxEditBlocked = true;
       _total.text = plain(e['total_weight'] as num);
       final smallVal = (e['small_sack_count'] as num).toDouble();
       final largeVal = (e['large_sack_count'] as num).toDouble();
@@ -712,12 +721,12 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     }
     final preset = _presetKey;
     return Scaffold(
-      appBar: AppBar(title: Text(_isEdit ? 'ویرایش خرید' : 'خرید جدید')),
+      appBar: AppBar(title: Text(_viewOnly ? 'جزئیات خرید' : (_isEdit ? 'ویرایش خرید' : 'خرید جدید'))),
       body: Form(
         key: _form,
         child: ListView(
           padding: const EdgeInsets.all(16),
-          children: [
+          children: _vo([
             // v87: پیش‌نویس ذخیره‌شده (دستی یا خودکار) ⇒ ادامه
             if (!_isEdit && widget.draft == null)
               DraftRestoreBanner(docType: 'purchase', onRestore: (int id, Map<String, dynamic> data) => Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => PurchaseForm(draft: data, draftId: id)))),
@@ -950,8 +959,8 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
             if (_finOn && _priceShown && widget.existing != null) FinBlockCard(docType: 'purchase', docId: (widget.existing!['id'] as num?)?.toInt()), // S35.T35.6f
             FieldGate(field: 'purchase.costs', child: MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این پسته کم می‌شود')),
             if (_priceShown) FieldGate(field: 'purchase.price', child: TaxChoiceField(status: _taxStatus, rate: _taxRate, onChanged: (String? v) => setState(() => _taxStatus = v))),
-            const SizedBox(height: 8),
-            FilledButton.icon(
+            if (!_viewOnly) const SizedBox(height: 8),
+            if (!_viewOnly) FilledButton.icon(
               onPressed: _saving ? null : _save,
               icon: _saving
                   ? const SizedBox(
@@ -971,7 +980,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
               ),
             ],
             const SizedBox(height: 24),
-          ],
+          ]),
         ),
       ),
     );

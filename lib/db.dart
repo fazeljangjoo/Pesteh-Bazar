@@ -6,6 +6,7 @@ import 'fx_local.dart'; // S26.T26.1
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
+import 'edit_recalc.dart' show weightRuleError, mixPriceOf; // v91 p3
 import 'package:path/path.dart';
 import 'db_crypto.dart';
 import 'package:sqflite/sqflite.dart';
@@ -1944,7 +1945,8 @@ class AppDb {
     return id;
   }
 
-  /// ویرایش خرید. مثل سرور: اگر بخشی از آن فروخته شده باشد وزن قابل تغییر نیست.
+  /// ویرایش خرید. v91 p3: لات مصرف‌شده هم کامل ویرایش می‌شود (فقط وزن تازه ≥ مصرف‌شده)؛ سرور اسناد پایین‌دستی را بازمحاسبه می‌کند
+  /// و اینجا فی کوت‌های ساخته‌شده از این لات فوراً به‌روز می‌شود (نمای آفلاین).
   /// اگر کلید `photo` در p نباشد یعنی عکس تغییری نکرده است.
   Future<void> updatePurchase(int id, Map<String, dynamic> p) async {
     await _write((d) => d.transaction((t) async {
@@ -1968,9 +1970,8 @@ class AppDb {
       final oldRem = wasHeld ? oldNet : (cur['remaining'] as num).toDouble();
       final sold = oldNet - oldRem;
       final net = v['net_weight'] as double;
-      if (sold > 1e-6 && (net - oldNet).abs() > 1e-6) {
-        throw Exception('چون بخشی از این خرید فروخته شده، وزن آن قابل تغییر نیست');
-      }
+      final String? wErr = weightRuleError(net, oldNet, oldRem); // v91 p3
+      if (wErr != null) throw Exception(wErr);
       // گونی‌هایی که تا حالا مصرف شده ثابت می‌ماند؛ فقط سقف جدید (تعداد خرید) عوض می‌شود
       final usedSmall = wasHeld ? 0.0 : (cur['small_sack_count'] as num).toDouble() - (cur['small_sacks_remaining'] as num).toDouble();
       final usedLarge = wasHeld ? 0.0 : (cur['large_sack_count'] as num).toDouble() - (cur['large_sacks_remaining'] as num).toDouble();
@@ -2002,8 +2003,27 @@ class AppDb {
       if (gl != null) payload['grade_lines'] = gl;
       await _saveGradeLocal(t, 'purchase', id, gl);
       await _enqueue(t, 'purchases.create', payload, refKind: 'pur', refId: id);
+      await _recalcMixesFrom(t, id); // v91 p3
     }));
     version.value++;
+  }
+
+  /// v91 p3: فی کوت‌هایی که (مستقیم یا زنجیره‌ای) از این لات ساخته شده‌اند، از مبدأهای فعلی (فقط محلی؛ سرور مرجع است و با همگام‌سازی می‌رسد).
+  Future<void> _recalcMixesFrom(DatabaseExecutor t, int lotId, [Set<int>? seen]) async {
+    seen ??= <int>{};
+    if (!seen.add(lotId) || seen.length > 500) return;
+    final mixes = await t.rawQuery('SELECT DISTINCT mix_purchase_id AS id FROM mix_sources WHERE source_purchase_id=?', [lotId]);
+    for (final m in mixes) {
+      final int mid = (m['id'] as num).toInt();
+      final mr = await t.query('purchases', columns: ['net_weight', 'waste'], where: 'id=?', whereArgs: [mid]);
+      if (mr.isEmpty) continue;
+      final src = await t.rawQuery('SELECT ms.weight AS w, p.price AS price FROM mix_sources ms JOIN purchases p ON p.id=ms.source_purchase_id WHERE ms.mix_purchase_id=?', [mid]);
+      final double? price = mixPriceOf(
+          [for (final r in src) (w: ((r['w'] as num?) ?? 0).toDouble(), price: ((r['price'] as num?) ?? 0).toDouble())],
+          waste: (mr.first['waste'] as num?)?.toDouble(), mixNet: ((mr.first['net_weight'] as num?) ?? 0).toDouble());
+      if (price != null) await t.update('purchases', {'price': price}, where: 'id=?', whereArgs: [mid]);
+      await _recalcMixesFrom(t, mid, seen);
+    }
   }
 
   /// اگر از این خرید فروشی انجام شده یا در ساخت یک مخلوط استفاده شده باشد حذف نمی‌شود؛
@@ -3083,9 +3103,9 @@ class AppDb {
 
   /// اقلام فروش: وزن باید مثبت باشد و ردیف‌های تکراری یک خرید ادغام می‌شوند
   /// (وزن و گونی جمع، فی میانگین وزنی) — همان normalizeSaleItems در app.php
-  List<Map<String, dynamic>> _normSaleItems(List<Map<String, dynamic>> items, double fallback, {bool allowZeroPrice = false}) {
+  List<Map<String, dynamic>> _normSaleItems(List<Map<String, dynamic>> items, double fallback, {bool allowZeroPrice = false, bool allowMulti = false}) {
     if (items.isEmpty) throw Exception('یک قلم از انبار انتخاب کنید');
-    if (items.length != 1) {
+    if (items.length != 1 && !allowMulti) { // v91 p3: allowMulti = ویرایش فروش قدیمیِ چندقلمی
       throw Exception('هر فروش فقط از یک قلم انبار ثبت می‌شود؛ برای چند جنس، چند فروش جدا ثبت کنید');
     }
     final m = <int, Map<String, dynamic>>{};
@@ -3127,10 +3147,10 @@ class AppDb {
     ];
   }
 
-  _SaleV _saleValues(Map<String, dynamic> sale, List<Map<String, dynamic>> items, {bool allowZeroPrice = false}) {
+  _SaleV _saleValues(Map<String, dynamic> sale, List<Map<String, dynamic>> items, {bool allowZeroPrice = false, bool allowMulti = false}) {
     final fallback = _n(sale['price']);
     if (fallback < 0 || fallback > 1e13) throw Exception('فی فروش نامعتبر است');
-    final norm = _normSaleItems(items, fallback, allowZeroPrice: allowZeroPrice);
+    final norm = _normSaleItems(items, fallback, allowZeroPrice: allowZeroPrice, allowMulti: allowMulti);
     final total = _n(sale['total_weight']);
     final small = _n(sale['small_sack_count']);
     final large = _n(sale['large_sack_count']);
@@ -3369,11 +3389,12 @@ class AppDb {
     await _write((d) => d.transaction((t) async {
       final curRows = await t.query('sales', where: 'id=?', whereArgs: [saleId]);
       if (curRows.isEmpty) throw Exception('این فروش یافت نشد');
-      if (await _hasReturns(t, 'sale_id', saleId)) throw Exception('این فروش برگشت ثبت‌شده دارد؛ ابتدا برگشت‌ها را حذف کنید');
+      if (await _hasReturns(t, 'sale_id', saleId)) throw Exception('این فروش «برگشت از فروش» دارد؛ ابتدا برگشت را اصلاح یا حذف کنید، بعد فروش را ویرایش کنید');
       final merged = <String, dynamic>{};
       curRows.first.forEach((k, v) => merged[k] = v);
       sale.forEach((k, v) => merged[k] = v);
-      final v = _saleValues(merged, items, allowZeroPrice: keepPrice);
+      final bool legacyMulti = (await t.query('sale_items', columns: ['id'], where: 'sale_id=?', whereArgs: [saleId])).length > 1; // v91 p3
+      final v = _saleValues(merged, items, allowZeroPrice: keepPrice, allowMulti: legacyMulti);
       await _restoreSaleItems(t, saleId);
       await t.delete('sale_items', where: 'sale_id=?', whereArgs: [saleId]);
       await _applySaleItems(t, saleId, v.items);

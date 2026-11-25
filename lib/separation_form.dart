@@ -10,6 +10,7 @@ import 'barcode_utils.dart';
 import 'db.dart';
 import 'pdf_output.dart';
 import 'pdf_service.dart';
+import 'perms.dart'; // v91 p3
 import 'returns_ui.dart' show ReturnsHelp;
 import 'sync_service.dart';
 import 'fmt.dart' show Fmt;
@@ -226,6 +227,7 @@ class _OutRow {
   final TextEditingController large = TextEditingController();
   final TextEditingController ounce = TextEditingController();
   final TextEditingController price = TextEditingController(); // alloc_price (only for by_value)
+  int? lotId; // v91 p3: لات خروجیِ موجود (ویرایش)
   void dispose() {
     name.dispose();
     kg.dispose();
@@ -252,7 +254,9 @@ class _Calc {
 
 /// New multi-output separation job. Cannot be saved while the mass balance is off (Σ input = Σ output + waste ± tolerance).
 class SeparationForm extends StatefulWidget {
-  const SeparationForm({super.key});
+  /// v91 p3: [existing] = پاسخ separations.get ⇒ همین فرم در حالت ویرایش (همهٔ فیلدها قابل تغییر).
+  const SeparationForm({super.key, this.existing});
+  final Map<String, dynamic>? existing;
   @override
   State<SeparationForm> createState() => _SeparationFormState();
 }
@@ -310,6 +314,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
       _abPct = cfg['abnormal_pct'] ?? 5.0;
       _loading = false;
     });
+    if (widget.existing != null) await _prefill(); // v91 p3
     final Map<String, double> fresh = await SeparationStore.settings();
     if (mounted) {
       setState(() {
@@ -412,6 +417,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
       snack(context, bad);
       return;
     }
+    if (_isEdit) return _saveEdit(c); // v91 p3
     setState(() => _saving = true);
     try {
       final String uid = 'sep${DateTime.now().microsecondsSinceEpoch}';
@@ -476,6 +482,118 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
     }
   }
 
+  bool get _isEdit => widget.existing != null;
+  bool _outsFixed = false; // v91 p3: از خروجی‌ها مصرف شده ⇒ تعداد خروجی ثابت (وزن، نام، فی مبنا و بقیه قابل تغییر)
+  final Set<int> _ownOut = <int>{};
+
+  /// v91 p3: ویرایش جداسازی ثبت‌شده در همین فرم ثبت: همهٔ فیلدها از سرور (separations.get) پر می‌شوند؛
+  /// موجودیِ ورودی‌ها = مانده + همان مقداری که این جداسازی برداشته بود.
+  Future<void> _prefill() async {
+    final Map<String, dynamic> s = widget.existing!;
+    final List<Map<String, dynamic>> all = await AppDb.I.purchases();
+    final Map<int, Map<String, dynamic>> byId = <int, Map<String, dynamic>>{for (final Map<String, dynamic> p in all) _d(p['id']).toInt(): p};
+    if (!mounted) return;
+    setState(() {
+      _outsFixed = s['outputs_used'] == true;
+      for (final Map<String, dynamic> o in ReturnsHelp.maps(s['outputs'])) {
+        _ownOut.add(_d(o['lot_id']).toInt());
+      }
+      _lots.removeWhere((Map<String, dynamic> e) => _ownOut.contains(_d(e['id']).toInt()));
+      for (final Map<String, dynamic> i in ReturnsHelp.maps(s['inputs'])) {
+        final int id = _d(i['lot_id']).toInt();
+        final double kg = _d(i['kg']), ss = _d(i['small_sacks']), ls = _d(i['large_sacks']);
+        final int idx = _lots.indexWhere((Map<String, dynamic> e) => _d(e['id']).toInt() == id);
+        final Map<String, dynamic>? p = byId[id];
+        if (idx < 0 && p == null) continue;
+        final Map<String, dynamic> base = idx >= 0
+            ? _lots[idx]
+            : <String, dynamic>{...p!, 'small_left': p['small_sacks_remaining'] ?? 0, 'large_left': p['large_sacks_remaining'] ?? 0};
+        final Map<String, dynamic> lot = <String, dynamic>{...base, 'remaining': _d(base['remaining']) + kg, 'small_left': _d(base['small_left']) + ss, 'large_left': _d(base['large_left']) + ls};
+        if (idx >= 0) {
+          _lots[idx] = lot;
+        } else {
+          _lots.insert(0, lot);
+        }
+        _sel[id] = true;
+        final _InRow r = _rows.putIfAbsent(id, () => _InRow());
+        r.weight.text = plain(kg);
+        r.small.text = ss == 0 ? '' : plain(ss);
+        r.large.text = ls == 0 ? '' : plain(ls);
+      }
+      for (final _OutRow o in _outs) {
+        o.dispose();
+      }
+      _outs.clear();
+      for (final Map<String, dynamic> o in ReturnsHelp.maps(s['outputs'])) {
+        final _OutRow r = _OutRow()..lotId = _d(o['lot_id']).toInt();
+        r.name.text = '${o['type_name'] ?? ''}';
+        r.kg.text = plain(_d(o['kg']));
+        r.small.text = _d(o['small_sacks']) == 0 ? '' : plain(_d(o['small_sacks']));
+        r.large.text = _d(o['large_sacks']) == 0 ? '' : plain(_d(o['large_sacks']));
+        r.price.text = o['alloc_price'] == null ? '' : plain(_d(o['alloc_price']));
+        _outs.add(r);
+      }
+      if (_outs.isEmpty) _outs.add(_OutRow());
+      _waste.text = _d(s['waste_kg']) == 0 ? '' : plain(_d(s['waste_kg']));
+      _labor.text = _d(s['labor_cost']) == 0 ? '' : plain(_d(s['labor_cost']));
+      _transport.text = _d(s['transport_cost']) == 0 ? '' : plain(_d(s['transport_cost']));
+      _note.text = '${s['note'] ?? ''}';
+      _alloc = s['cost_alloc'] == 'by_value' ? 'by_value' : 'by_weight';
+      _date = DateTime.tryParse('${s['date']}') ?? _date;
+    });
+  }
+
+  /// v91 p3: ذخیرهٔ ویرایش (آنلاین؛ separations.update). سرور اگر از خروجی‌ها مصرف شده باشد درجا ویرایش می‌کند
+  /// و بهای خروجی‌ها و همهٔ اسناد وابسته (فروش، کوت، فراوری، …) را دوباره حساب می‌کند.
+  Future<void> _saveEdit(_Calc c) async {
+    setState(() => _saving = true);
+    try {
+      final Map<String, dynamic> payload = <String, dynamic>{
+        'id': _d(widget.existing!['id']).toInt(),
+        'date': ReturnsHelp.iso(_date),
+        'cost_alloc': _alloc,
+        'waste_kg': c.waste,
+        'labor_cost': c.labor,
+        'transport_cost': c.transport,
+        'note': _note.text.trim(),
+        'inputs': <Map<String, dynamic>>[
+          for (final Map<String, dynamic> e in _selected)
+            <String, dynamic>{
+              'purchase_id': _d(e['id']).toInt(),
+              'weight': parseNum(_rows[_d(e['id']).toInt()]!.weight.text) ?? 0,
+              'small_sacks': parseNum(_rows[_d(e['id']).toInt()]!.small.text) ?? 0,
+              'large_sacks': parseNum(_rows[_d(e['id']).toInt()]!.large.text) ?? 0,
+            },
+        ],
+        'outputs': <Map<String, dynamic>>[
+          for (final _OutRow o in _outs)
+            <String, dynamic>{
+              if (o.lotId != null) 'lot_id': o.lotId,
+              'type_name': o.name.text.trim(),
+              'kg': parseNum(o.kg.text) ?? 0,
+              'small_sacks': parseNum(o.small.text) ?? 0,
+              'large_sacks': parseNum(o.large.text) ?? 0,
+              if (parseNum(o.ounce.text) != null) 'ounce': parseNum(o.ounce.text),
+              if (_alloc == 'by_value' && parseNum(o.price.text) != null) 'alloc_price': parseNum(o.price.text),
+            },
+        ],
+      };
+      await StockApi.call('separations.update', payload);
+      SyncService.I.syncNow(pull: true);
+      if (!mounted) return;
+      snack(context, 'ویرایش جداسازی ثبت شد؛ بهای خروجی‌ها و اسناد وابسته دوباره حساب شد');
+      Navigator.pop(context, true);
+    } on StockApiException catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      snack(context, e.message);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      snack(context, friendlyError(e));
+    }
+  }
+
   Widget _num(TextEditingController c, String label, {String? suffix, bool wide = false, bool money = false}) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: TextField(
@@ -524,7 +642,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
           Row(children: <Widget>[
             Expanded(child: Text('خروجی ${faNum(i + 1, dec: 0)}', style: const TextStyle(fontWeight: FontWeight.bold))),
-            if (_outs.length > 1)
+            if (_outs.length > 1 && !_outsFixed)
               IconButton(
                 tooltip: 'حذف خروجی',
                 icon: const Icon(Icons.delete_outline),
@@ -603,6 +721,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
     final String q = _query.trim();
     final List<Map<String, dynamic>> shown = _lots.where((Map<String, dynamic> e) {
       final int id = _d(e['id']).toInt();
+      if (_ownOut.contains(id)) return false; // v91 p3: خروجیِ همین جداسازی ورودی آن نمی‌شود
       if (_sel[id] ?? false) return true;
       if (_avail(e) <= 0.0005) return false;
       return q.isEmpty || '${e['code']} ${e['category_name']} ${e['type_name']}'.contains(q);
@@ -625,7 +744,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
               sectionTitle(context, '۲) خروجی‌ها'),
               for (int i = 0; i < _outs.length; i++) _outputCard(i, c),
               OutlinedButton.icon(
-                onPressed: _outs.length >= 100 ? null : () => setState(() => _outs.add(_OutRow())),
+                onPressed: (_outs.length >= 100 || _outsFixed) ? null : () => setState(() => _outs.add(_OutRow())),
                 icon: const Icon(Icons.add),
                 label: const Text('افزودن خروجی'),
               ),
@@ -661,7 +780,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
                 icon: _saving
                     ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
                     : const Icon(Icons.check),
-                label: const Text('ثبت جداسازی'),
+                label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت جداسازی'),
               ),
               const SizedBox(height: 32),
             ]),
@@ -907,10 +1026,20 @@ class _SeparationDetailScreenState extends State<SeparationDetailScreen> {
                 infoRow('اختلاف هزینه', Fmt.money(_d((s['check'] as Map)['cost_diff']))),
               ],
               const SizedBox(height: 8),
-              if (s['editable'] == true)
+              // v91 p3: ویرایش در همان فرم ثبت (همهٔ فیلدها)؛ حذف فقط وقتی از خروجی‌ها مصرف نشده
+              if (StaffPerms.I.can('separations.update')) FilledButton.icon(
+                onPressed: () async {
+                  final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => SeparationForm(existing: s)));
+                  if (ok == true) _load();
+                },
+                icon: const Icon(Icons.edit_outlined),
+                label: const Text('ویرایش جداسازی'),
+              ),
+              const SizedBox(height: 8),
+              if (s['outputs_used'] != true)
                 OutlinedButton.icon(onPressed: _delete, icon: const Icon(Icons.delete_outline), label: const Text('حذف جداسازی'))
               else
-                const Text('از خروجی‌ها فروش یا مصرف شده؛ حذف/ویرایش ممکن نیست.', style: TextStyle(color: Colors.black54)),
+                const Text('از خروجی‌ها فروش یا مصرف شده؛ حذف ممکن نیست (ویرایش ممکن است و اسناد وابسته دوباره حساب می‌شوند).', style: TextStyle(color: Colors.black54)),
               const SizedBox(height: 24),
             ]),
     );
