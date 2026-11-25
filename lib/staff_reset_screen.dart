@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 import 'license_service.dart';
 
-/// v89: بازیابی رمز کارکن با پیامک به شمارهٔ ثبت‌شدهٔ خودش (staff_reset.php).
+/// v89: بازیابی رمز کارمند با پیامک به شمارهٔ ثبت‌شدهٔ خودش (staff_reset.php).
+/// v91 p2: فقط با نام کاربری؛ شمارهٔ مالک فقط وقتی سرور بخواهد (نام قدیمی تکراری در چند مجموعه) نشان داده می‌شود.
 class StaffResetScreen extends StatefulWidget {
   const StaffResetScreen({super.key, this.ownerPhone = '', this.username = ''});
   final String ownerPhone;
@@ -22,6 +23,7 @@ class _StaffResetScreenState extends State<StaffResetScreen> {
   bool _sent = false;
   String? _masked;
   String? _error;
+  late bool _needOwner = widget.ownerPhone.trim().isNotEmpty;
 
   @override
   void dispose() {
@@ -36,12 +38,13 @@ class _StaffResetScreenState extends State<StaffResetScreen> {
       _busy = true;
       _error = null;
     });
-    final r = await LicenseService.I.staffResetSend(_owner.text, _user.text);
+    final r = await LicenseService.I.staffResetSend(_needOwner ? _owner.text : '', _user.text);
     if (!mounted) return;
     setState(() {
       _busy = false;
       if (r.masked != null) _masked = r.masked;
       if (r.error == null) _sent = true;
+      if (r.needOwnerPhone) _needOwner = true;
       _error = r.error;
     });
   }
@@ -52,7 +55,7 @@ class _StaffResetScreenState extends State<StaffResetScreen> {
       _busy = true;
       _error = null;
     });
-    final String? e = await LicenseService.I.staffResetConfirm(_owner.text, _user.text, _code.text, _pass.text);
+    final String? e = await LicenseService.I.staffResetConfirm(_needOwner ? _owner.text : '', _user.text, _code.text, _pass.text);
     if (!mounted) return;
     setState(() => _busy = false);
     if (e != null) return setState(() => _error = e);
@@ -65,7 +68,7 @@ class _StaffResetScreenState extends State<StaffResetScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('بازیابی رمز کارکن')),
+      appBar: AppBar(title: const Text('بازیابی رمز کارمند')),
       body: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 440),
@@ -73,15 +76,25 @@ class _StaffResetScreenState extends State<StaffResetScreen> {
             const Text('کد به شمارهٔ موبایلی پیامک می‌شود که مالک در فرم شما ثبت کرده است.', style: TextStyle(color: Colors.black54)),
             const SizedBox(height: 16),
             TextField(
-                controller: _owner,
+                key: const ValueKey<String>('staff-reset-user'),
+                controller: _user,
                 enabled: !_sent,
-                keyboardType: TextInputType.phone,
                 textDirection: TextDirection.ltr,
-                maxLength: 14,
-                decoration: _dec('شمارهٔ موبایل مالک (صاحب حساب)', Icons.phone_outlined)),
+                maxLength: 60,
+                autocorrect: false,
+                decoration: _dec('نام کاربری', Icons.badge_outlined)),
             const SizedBox(height: 12),
-            TextField(controller: _user, enabled: !_sent, textDirection: TextDirection.ltr, maxLength: 60, decoration: _dec('نام کاربری کارکن', Icons.badge_outlined)),
-            const SizedBox(height: 12),
+            if (_needOwner) ...<Widget>[
+              TextField(
+                  key: const ValueKey<String>('staff-reset-owner'),
+                  controller: _owner,
+                  enabled: !_sent,
+                  keyboardType: TextInputType.phone,
+                  textDirection: TextDirection.ltr,
+                  maxLength: 14,
+                  decoration: _dec('شمارهٔ موبایل مالک مجموعه', Icons.phone_outlined)),
+              const SizedBox(height: 12),
+            ],
             if (!_sent)
               FilledButton.icon(onPressed: _busy ? null : _send, icon: const Icon(Icons.sms_outlined), label: Text(_busy ? 'در حال ارسال…' : 'ارسال کد پیامکی')),
             if (_sent) ...<Widget>[

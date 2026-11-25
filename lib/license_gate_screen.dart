@@ -211,10 +211,11 @@ class ContactButtons extends StatelessWidget {
   }
 }
 
-enum _LoginStep { phone, code, name, newpass, pass }
+enum _LoginStep { role, phone, code, name, newpass, pass }
 
-/// ورود با شماره موبایل: پیش‌فرض «کد پیامکی» (شماره ← کد ← [نام، فقط کاربر جدید])
-/// و با یک لینک زیر دکمه «ورود با رمز عبور» (شماره + رمز؛ فقط برای حساب‌هایی که رمز دارند)
+/// v91 p2 — گام ۱: انتخاب نقش («مالک» یا «کارمند»).
+/// مالک: شماره موبایل؛ پیش‌فرض «کد پیامکی» (شماره ← کد ← [نام، فقط کاربر جدید]) و لینک «ورود با رمز عبور».
+/// کارمند: فقط نام کاربری + رمز؛ شمارهٔ مالک فقط وقتی سرور بخواهد (need_owner_phone = نام قدیمیِ تکراری در چند مجموعه).
 class LoginScreen extends StatefulWidget {
   final VoidCallback onSuccess;
   const LoginScreen({super.key, required this.onSuccess});
@@ -227,12 +228,13 @@ class _LoginScreenState extends State<LoginScreen> {
   final _code = TextEditingController();
   final _name = TextEditingController();
   final _pass = TextEditingController();
-  final _user = TextEditingController(); // T02.2: نام کاربری کارکن
+  final _user = TextEditingController(); // T02.2: نام کاربری کارمند
   bool _asStaff = false;
+  bool _needOwner = false; // v91 p2: سرور شمارهٔ مالک را خواست
   final _newPass = TextEditingController();
   final _newPass2 = TextEditingController();
   bool _showPass = false;
-  _LoginStep _step = _LoginStep.phone;
+  _LoginStep _step = _LoginStep.role;
   String _verifiedCode = ''; // کدی که درست بود ولی منتظر نام هستیم
   bool _loading = false;
   String? _error;
@@ -266,13 +268,14 @@ class _LoginScreenState extends State<LoginScreen> {
     });
   }
 
-  void _goStep(_LoginStep s) {
+  void _goStep(_LoginStep s, {bool staff = false}) {
     setState(() {
       _step = s;
       _error = null;
-      if (s == _LoginStep.phone) _asStaff = false;
+      _asStaff = s == _LoginStep.pass && staff;
+      if (!_asStaff) _needOwner = false;
     });
-    if (s == _LoginStep.phone || s == _LoginStep.pass) {
+    if (s == _LoginStep.role || s == _LoginStep.phone || s == _LoginStep.pass) {
       _timer?.cancel();
       _cooldown = 0;
       _code.clear();
@@ -283,7 +286,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (s == _LoginStep.pass) _pass.clear();
   }
 
-  /// جابه‌جایی «ورود با رمز عبور» ⇄ «ورود با کد پیامکی» (فقط در دو مرحلهٔ اول دیده می‌شود)
+  /// جابه‌جایی «ورود با رمز عبور» ⇄ «ورود با کد پیامکی» (فقط برای مالک)
   void _toggleMode() => _goStep(_step == _LoginStep.pass ? _LoginStep.phone : _LoginStep.pass);
 
   Future<void> _passwordLogin() async {
@@ -291,9 +294,15 @@ class _LoginScreenState extends State<LoginScreen> {
       _loading = true;
       _error = null;
     });
-    final err = _asStaff
-        ? await LicenseService.I.signInStaff(_phone.text, _user.text, _pass.text)
-        : await LicenseService.I.signInWithPassword(_phone.text, _pass.text);
+    String? err;
+    if (_asStaff) {
+      final r = await LicenseService.I.signInStaff(_user.text, _pass.text, ownerPhone: _needOwner ? _phone.text : '');
+      if (!mounted) return;
+      if (r.needOwnerPhone && !_needOwner) setState(() => _needOwner = true);
+      err = r.error ?? (r.needOwnerPhone ? 'شمارهٔ موبایل مالک مجموعه را وارد کنید' : null);
+    } else {
+      err = await LicenseService.I.signInWithPassword(_phone.text, _pass.text);
+    }
     if (!mounted) return;
     setState(() => _loading = false);
     if (err != null) {
@@ -387,7 +396,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _submit() {
-    if (_loading) return;
+    if (_loading || _step == _LoginStep.role) return;
     if (_step == _LoginStep.phone) {
       _sendCode();
     } else if (_step == _LoginStep.pass) {
@@ -398,6 +407,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   String get _buttonLabel => switch (_step) {
+        _LoginStep.role => 'ادامه',
         _LoginStep.phone => 'دریافت کد ورود',
         _LoginStep.code => 'ورود',
         _LoginStep.name => 'ادامه',
@@ -405,45 +415,86 @@ class _LoginScreenState extends State<LoginScreen> {
         _LoginStep.pass => 'ورود',
       };
 
+  String get _subtitle => switch (_step) {
+        _LoginStep.role => 'نوع ورود را انتخاب کنید',
+        _LoginStep.pass => _asStaff ? 'ورود کارمند: نام کاربری و رمز عبور' : 'ورود مالک با شماره موبایل و رمز عبور',
+        _ => 'ورود مالک با شماره موبایل و کد پیامکی',
+      };
+
+  Widget _roleCard({required Key key, required IconData icon, required String title, required String hint, required VoidCallback onTap}) {
+    return Card(
+      key: key,
+      margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: Theme.of(context).colorScheme.primary.withValues(alpha: 0.6)),
+      ),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Icon(icon, size: 32, color: Theme.of(context).colorScheme.primary),
+        title: Text(title, style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold)),
+        subtitle: Text(hint),
+        trailing: const Icon(Icons.chevron_left),
+        onTap: _loading ? null : onTap,
+      ),
+    );
+  }
+
+  Widget _phoneField({required bool ownerOfStaff}) => TextField(
+        key: const ValueKey('login_phone'),
+        controller: _phone,
+        keyboardType: TextInputType.phone,
+        textDirection: TextDirection.ltr,
+        autofocus: false,
+        textInputAction: _step == _LoginStep.pass ? TextInputAction.next : TextInputAction.done,
+        onSubmitted: (_) {
+          if (_step != _LoginStep.pass) _submit();
+        },
+        decoration: InputDecoration(
+          labelText: ownerOfStaff ? 'شمارهٔ موبایل مالک مجموعه' : 'شماره موبایل',
+          helperText: ownerOfStaff ? 'این نام کاربری در بیش از یک مجموعه ثبت شده است' : null,
+          hintText: '09xxxxxxxxx',
+          border: const OutlineInputBorder(),
+          prefixIcon: const Icon(Icons.phone_outlined),
+        ),
+      );
+
   @override
   Widget build(BuildContext context) {
     final phoneShown = toFaDigits(toEnDigits(_phone.text.trim()));
+    final staffPass = _step == _LoginStep.pass && _asStaff;
     return Scaffold(
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(24),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 460),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
               const Icon(Icons.storefront_outlined, size: 64),
               const SizedBox(height: 12),
               Text('پسته بازار', style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
-              Text(
-                  _step == _LoginStep.pass
-                      ? (_asStaff ? 'ورود پرسنل: شمارهٔ مالک، نام کاربری و رمز' : 'ورود با شماره موبایل و رمز عبور')
-                      : 'ورود با شماره موبایل و کد پیامکی',
-                  style: const TextStyle(color: Colors.black54)),
+              Text(_subtitle, key: const ValueKey('login_subtitle'), style: const TextStyle(color: Colors.black54)),
               const SizedBox(height: 24),
-              if (_step == _LoginStep.phone || _step == _LoginStep.pass)
-                TextField(
-                  key: const ValueKey('login_phone'),
-                  controller: _phone,
-                  keyboardType: TextInputType.phone,
-                  textDirection: TextDirection.ltr,
-                  autofocus: false,
-                  textInputAction: _step == _LoginStep.pass ? TextInputAction.next : TextInputAction.done,
-                  onSubmitted: (_) {
-                    if (_step != _LoginStep.pass) _submit();
-                  },
-                  decoration: InputDecoration(
-                    labelText: (_step == _LoginStep.pass && _asStaff) ? 'شمارهٔ موبایل مالک (صاحب حساب)' : 'شماره موبایل',
-                    hintText: '09xxxxxxxxx',
-                    border: OutlineInputBorder(),
-                    prefixIcon: Icon(Icons.phone_outlined),
-                  ),
+              if (_step == _LoginStep.role) ...[
+                _roleCard(
+                  key: const ValueKey('login_role_owner'),
+                  icon: Icons.storefront_outlined,
+                  title: 'مالک',
+                  hint: 'ورود با شماره موبایل (کد پیامکی یا رمز عبور)',
+                  onTap: () => _goStep(_LoginStep.phone),
                 ),
-              if (_step == _LoginStep.pass && _asStaff) ...[
-                const SizedBox(height: 12),
+                _roleCard(
+                  key: const ValueKey('login_role_staff'),
+                  icon: Icons.badge_outlined,
+                  title: 'کارمند',
+                  hint: 'ورود با نام کاربری و رمز عبور',
+                  onTap: () => _goStep(_LoginStep.pass, staff: true),
+                ),
+              ],
+              if (_step == _LoginStep.phone || (_step == _LoginStep.pass && !_asStaff)) _phoneField(ownerOfStaff: false),
+              if (staffPass) ...[
                 TextField(
                   key: const ValueKey('login_user'),
                   controller: _user,
@@ -451,6 +502,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   enableSuggestions: false,
                   maxLength: 60,
                   textDirection: TextDirection.ltr,
+                  autofillHints: const [AutofillHints.username],
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
                     labelText: 'نام کاربری',
@@ -459,6 +511,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     prefixIcon: Icon(Icons.badge_outlined),
                   ),
                 ),
+                if (_needOwner) ...[
+                  const SizedBox(height: 12),
+                  _phoneField(ownerOfStaff: true),
+                ],
               ],
               if (_step == _LoginStep.pass) ...[
                 const SizedBox(height: 12),
@@ -609,63 +665,53 @@ class _LoginScreenState extends State<LoginScreen> {
               ],
               if (_error != null) ...[
                 const SizedBox(height: 12),
-                Text(_error!, style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
+                Text(_error!, key: const ValueKey('login_error'), style: const TextStyle(color: Colors.red), textAlign: TextAlign.center),
               ],
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: FilledButton(
-                  onPressed: _loading ? null : _submit,
-                  child: _loading
-                      ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                      : Text(_buttonLabel),
-                ),
-              ),
-              if (_step == _LoginStep.phone || _step == _LoginStep.pass) ...[
-                const SizedBox(height: 10),
+              if (_step != _LoginStep.role) ...[
+                const SizedBox(height: 16),
                 SizedBox(
                   width: double.infinity,
-                  child: OutlinedButton.icon(
-                    key: const ValueKey('login_staff_btn'),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                      textStyle: const TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
-                    ),
-                    icon: Icon(_asStaff ? Icons.arrow_back : Icons.badge_outlined),
-                    label: Text(_asStaff ? 'بازگشت به ورود مالک' : 'ورود پرسنل'),
-                    onPressed: _loading
-                        ? null
-                        : () {
-                            if (_step == _LoginStep.phone) {
-                              _goStep(_LoginStep.pass);
-                              setState(() => _asStaff = true);
-                            } else {
-                              setState(() {
-                                _asStaff = !_asStaff;
-                                _error = null;
-                              });
-                            }
-                          },
+                  child: FilledButton(
+                    key: const ValueKey('login_submit'),
+                    onPressed: _loading ? null : _submit,
+                    child: _loading
+                        ? const SizedBox(height: 18, width: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : Text(_buttonLabel),
                   ),
                 ),
               ],
-              if (_step == _LoginStep.pass && _asStaff) Center(child: TextButton.icon(
-                    key: const ValueKey('login_staff_forgot'),
-                    onPressed: _loading
-                        ? null
-                        : () => Navigator.push(context, MaterialPageRoute<bool>(builder: (_) => StaffResetScreen(ownerPhone: _phone.text, username: _user.text))),
-                    icon: const Icon(Icons.lock_reset, size: 18),
-                    label: const Text('رمز را فراموش کرده‌ام'), // v89: بازیابی با پیامک به شمارهٔ کارکن
-                  )),
+              if (staffPass)
+                Center(
+                    child: TextButton.icon(
+                  key: const ValueKey('login_staff_forgot'),
+                  onPressed: _loading
+                      ? null
+                      : () => Navigator.push(
+                          context,
+                          MaterialPageRoute<bool>(
+                              builder: (_) => StaffResetScreen(ownerPhone: _needOwner ? _phone.text : '', username: _user.text))),
+                  icon: const Icon(Icons.lock_reset, size: 18),
+                  label: const Text('رمز را فراموش کرده‌ام'), // v89: بازیابی با پیامک به شمارهٔ کارمند
+                )),
               if (_step == _LoginStep.phone || (_step == _LoginStep.pass && !_asStaff)) ...[
                 const SizedBox(height: 4),
                 Center(
                   child: TextButton(
+                    key: const ValueKey('login_mode_toggle'),
                     onPressed: _loading ? null : _toggleMode,
                     child: Text(_step == _LoginStep.pass ? 'ورود با کد پیامکی' : 'ورود با رمز عبور'),
                   ),
                 ),
               ],
+              if (_step == _LoginStep.phone || _step == _LoginStep.pass)
+                Center(
+                  child: TextButton.icon(
+                    key: const ValueKey('login_change_role'),
+                    onPressed: _loading ? null : () => _goStep(_LoginStep.role),
+                    icon: const Icon(Icons.swap_horiz, size: 18),
+                    label: const Text('تغییر نوع ورود (مالک / کارمند)'),
+                  ),
+                ),
               const SizedBox(height: 12),
               const Text('کاربر جدید: ۱۰ روز اشتراک آزمایشی رایگان',
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.black54, fontSize: 12.5)),
@@ -675,8 +721,9 @@ class _LoginScreenState extends State<LoginScreen> {
               const Text('مشکلی در ورود دارید؟',
                   textAlign: TextAlign.center, style: TextStyle(color: Colors.black54)),
               const SizedBox(height: 10),
-              ContactButtons(phoneForMessage: _phone.text),
+              ContactButtons(phoneForMessage: _asStaff ? null : _phone.text),
             ]),
+            ),
           ),
         ),
       ),

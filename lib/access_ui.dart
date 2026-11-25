@@ -4,6 +4,7 @@ import 'access_catalog.dart';
 import 'edition.dart';
 import 'fiscal_ui.dart';
 import 'perms.dart';
+import 'staff_login_logic.dart'; // v91 p2: قاعدهٔ نام کاربری
 import 'utils.dart' show faNum;
 import 'warehouse_ui.dart' show StockApi, StockApiException;
 
@@ -204,7 +205,7 @@ class SectionAccessEditor extends StatelessWidget {
   Widget _changedMark(BuildContext context, bool changed) => changed
       ? Padding(
           padding: const EdgeInsetsDirectional.only(start: 6),
-          child: Tooltip(message: 'با دسترسی اختصاصی این کارکن عوض شده (با نقش‌هایش فرق دارد)', child: Icon(Icons.person_pin, size: 16, color: Theme.of(context).colorScheme.tertiary)),
+          child: Tooltip(message: 'با دسترسی اختصاصی این کارمند عوض شده (با نقش‌هایش فرق دارد)', child: Icon(Icons.person_pin, size: 16, color: Theme.of(context).colorScheme.tertiary)),
         )
       : const SizedBox.shrink();
 
@@ -256,7 +257,7 @@ class SectionAccessEditor extends StatelessWidget {
           ],
           if (s.fields.isNotEmpty) ...<Widget>[
             const Divider(height: 8),
-            Align(alignment: AlignmentDirectional.centerStart, child: Text('قسمت‌های فرم (فقط قسمت‌های «نمایش» و «قفل» برای کارکن دیده می‌شوند)', style: TextStyle(color: th.hintColor, fontWeight: FontWeight.w600))),
+            Align(alignment: AlignmentDirectional.centerStart, child: Text('قسمت‌های فرم (فقط قسمت‌های «نمایش» و «قفل» برای کارمند دیده می‌شوند)', style: TextStyle(color: th.hintColor, fontWeight: FontWeight.w600))),
             for (final AccessOption f in s.fields)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
@@ -361,9 +362,9 @@ class _AccessHomeScreenState extends State<AccessHomeScreen> {
       length: 2,
       child: Scaffold(
         appBar: AppBar(
-          title: const Text('کارکنان، نقش‌ها و دسترسی‌ها'),
+          title: const Text('کارمندان، نقش‌ها و دسترسی‌ها'),
           actions: <Widget>[IconButton(tooltip: 'به‌روزرسانی', icon: const Icon(Icons.refresh), onPressed: _load)],
-          bottom: const TabBar(tabs: <Widget>[Tab(text: 'کارکنان'), Tab(text: 'نقش‌ها')]),
+          bottom: const TabBar(tabs: <Widget>[Tab(text: 'کارمندان'), Tab(text: 'نقش‌ها')]),
         ),
         body: _loading && d == null
             ? const Center(child: CircularProgressIndicator())
@@ -381,14 +382,14 @@ class _AccessHomeScreenState extends State<AccessHomeScreen> {
         heroTag: 'acc-staff',
         onPressed: (_limit != null && active >= _limit!) ? null : () => _open(StaffAccessScreen(data: d)),
         icon: const Icon(Icons.person_add_alt),
-        label: const Text('کارکن تازه'),
+        label: const Text('کارمند تازه'),
       ),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListView(padding: const EdgeInsets.fromLTRB(12, 8, 12, 96), children: <Widget>[
           if (_error != null) Card(color: Theme.of(context).colorScheme.errorContainer, child: Padding(padding: const EdgeInsets.all(10), child: Text(_error!))),
-          if (_limit != null) Text('کارکن فعال: ${faNum(active, dec: 0)} از ${faNum(_limit!, dec: 0)}', style: TextStyle(color: Theme.of(context).hintColor)),
-          if (_staff.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('هنوز کارکنی تعریف نشده'))),
+          if (_limit != null) Text('کارمند فعال: ${faNum(active, dec: 0)} از ${faNum(_limit!, dec: 0)}', style: TextStyle(color: Theme.of(context).hintColor)),
+          if (_staff.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('هنوز کارمندی تعریف نشده'))),
           for (final Map<String, dynamic> s in _staff)
             Card(
               child: ListTile(
@@ -486,7 +487,7 @@ class _RoleAccessScreenState extends State<RoleAccessScreen> {
           context: context,
           builder: (BuildContext c) => AlertDialog(
             title: const Text('حذف نقش؟'),
-            content: Text('نقش «${widget.role!.name}» حذف شود؟ (فقط اگر به هیچ کارکنی داده نشده باشد)'),
+            content: Text('نقش «${widget.role!.name}» حذف شود؟ (فقط اگر به هیچ کارمندی داده نشده باشد)'),
             actions: <Widget>[
               TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
               FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('حذف')),
@@ -524,7 +525,7 @@ class _RoleAccessScreenState extends State<RoleAccessScreen> {
         const SizedBox(height: 12),
         FilledButton.icon(onPressed: _busy ? null : _save, icon: const Icon(Icons.save_outlined), label: Text(_busy ? 'در حال ذخیره…' : 'ذخیرهٔ نقش')),
         const SizedBox(height: 6),
-        Text('تغییر نقش بلافاصله روی دستگاه همهٔ کارکنانِ این نقش اعمال می‌شود.', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
+        Text('تغییر نقش بلافاصله روی دستگاه همهٔ کارمندانِ این نقش اعمال می‌شود.', style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
       ]),
     );
   }
@@ -612,8 +613,9 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
 
   Future<void> _save() async {
     final String user = _user.text.trim(), name = _name.text.trim();
-    if (name.isEmpty) return setState(() => _error = 'نام کارکن را وارد کنید');
-    if (!RegExp(r'^[A-Za-z0-9_.-]{3,60}$').hasMatch(user)) return setState(() => _error = 'نام کاربری فقط حروف انگلیسی، عدد و . _ - است (۳ تا ۶۰ نویسه)');
+    if (name.isEmpty) return setState(() => _error = 'نام کارمند را وارد کنید');
+    final String? uErr = validateStaffUsername(user, original: _s == null ? null : '${_s['username'] ?? ''}'); // v91 p2
+    if (uErr != null) return setState(() => _error = uErr);
     if (_s == null && _pass.text.length < 6) return setState(() => _error = 'رمز اولیه حداقل ۶ نویسه');
     if (_pass.text.isNotEmpty && _pass.text.length < 6) return setState(() => _error = 'رمز حداقل ۶ نویسه');
     if (_roles.isEmpty) return setState(() => _error = 'حداقل یک نقش انتخاب کنید (برای دسترسی کاملاً اختصاصی، یک نقش با کمترین دسترسی بسازید)');
@@ -653,7 +655,7 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
     final bool ok = await showDialog<bool>(
           context: context,
           builder: (BuildContext c) => AlertDialog(
-            title: const Text('حذف کارکن؟'),
+            title: const Text('حذف کارمند؟'),
             content: Text('«${_s?['name']}» حذف شود؟ نشست‌های فعلی‌اش هم قطع می‌شود.'),
             actions: <Widget>[
               TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('انصراف')),
@@ -679,15 +681,32 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
     final ThemeData th = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
-        title: Text(_s == null ? 'کارکن تازه' : '${_s['name']}'),
-        actions: <Widget>[if (_s != null) IconButton(tooltip: 'حذف کارکن', icon: const Icon(Icons.delete_outline), onPressed: _busy ? null : _delete)],
+        title: Text(_s == null ? 'کارمند تازه' : '${_s['name']}'),
+        actions: <Widget>[if (_s != null) IconButton(tooltip: 'حذف کارمند', icon: const Icon(Icons.delete_outline), onPressed: _busy ? null : _delete)],
       ),
       body: ListView(padding: const EdgeInsets.all(14), children: <Widget>[
         Row(children: <Widget>[
-          Expanded(child: TextField(controller: _name, decoration: const InputDecoration(labelText: 'نام کارکن', border: OutlineInputBorder()))),
+          Expanded(child: TextField(controller: _name, decoration: const InputDecoration(labelText: 'نام کارمند', border: OutlineInputBorder()))),
           const SizedBox(width: 8),
           Expanded(
-            child: TextField(controller: _user, textDirection: TextDirection.ltr, decoration: const InputDecoration(labelText: 'نام کاربری (انگلیسی)', border: OutlineInputBorder())),
+            child: TextField(
+              key: const ValueKey<String>('staff_username'),
+              controller: _user,
+              textDirection: TextDirection.ltr,
+              autocorrect: false,
+              enableSuggestions: false,
+              maxLength: 60, // نام قدیمی بلندتر (حق قدیمی) هم نمایش داده شود
+              onChanged: (_) => setState(() {}), // v91 p2: اعتبارسنجی زنده
+              decoration: InputDecoration(
+                labelText: 'نام کاربری (انگلیسی)',
+                helperText: 'حروف انگلیسی و عدد، ۳ تا ۳۰ نویسه؛ در کل سامانه یکتا',
+                helperMaxLines: 2,
+                errorMaxLines: 3,
+                errorText: _user.text.trim().isEmpty ? null : validateStaffUsername(_user.text, original: _s == null ? null : '${_s['username'] ?? ''}'),
+                counterText: '',
+                border: const OutlineInputBorder(),
+              ),
+            ),
           ),
         ]),
         const SizedBox(height: 10),
@@ -702,8 +721,8 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
           keyboardType: TextInputType.phone,
           textDirection: TextDirection.ltr,
           decoration: const InputDecoration(
-            labelText: 'شمارهٔ موبایل کارکن (اختیاری)',
-            helperText: 'اگر کارکن رمزش را فراموش کند، کد بازیابی به همین شماره پیامک می‌شود',
+            labelText: 'شمارهٔ موبایل کارمند (اختیاری)',
+            helperText: 'اگر کارمند رمزش را فراموش کند، کد بازیابی به همین شماره پیامک می‌شود',
             border: OutlineInputBorder(),
             prefixIcon: Icon(Icons.phone_iphone),
           ),
@@ -746,9 +765,9 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
               const SizedBox(width: 8),
               Expanded(
                 child: Text(_custom
-                    ? 'این کارکن دسترسی اختصاصی دارد: ${faNum(_grants.length, dec: 0)} مورد بیشتر، ${faNum(_denies.length, dec: 0)} مورد کمتر از نقش‌ها'
+                    ? 'این کارمند دسترسی اختصاصی دارد: ${faNum(_grants.length, dec: 0)} مورد بیشتر، ${faNum(_denies.length, dec: 0)} مورد کمتر از نقش‌ها'
                         '${_ufields.isEmpty ? '' : '، ${faNum(_ufields.length, dec: 0)} قسمت فرم'}'
-                    : 'دسترسی این کارکن دقیقاً همان نقش‌هایش است. هر تغییری پایین، فقط برای همین کارکن اعمال می‌شود.'),
+                    : 'دسترسی این کارمند دقیقاً همان نقش‌هایش است. هر تغییری پایین، فقط برای همین کارمند اعمال می‌شود.'),
               ),
               if (_custom)
                 TextButton(
@@ -788,9 +807,9 @@ class _StaffAccessScreenState extends State<StaffAccessScreen> {
         ],
         if (_error != null) Padding(padding: const EdgeInsets.symmetric(vertical: 8), child: Text(_error!, style: TextStyle(color: th.colorScheme.error))),
         const SizedBox(height: 12),
-        FilledButton.icon(onPressed: _busy ? null : _save, icon: const Icon(Icons.save_outlined), label: Text(_busy ? 'در حال ذخیره…' : 'ذخیرهٔ کارکن')),
+        FilledButton.icon(onPressed: _busy ? null : _save, icon: const Icon(Icons.save_outlined), label: Text(_busy ? 'در حال ذخیره…' : 'ذخیرهٔ کارمند')),
         const SizedBox(height: 6),
-        Text('تغییر دسترسی بلافاصله روی همهٔ دستگاه‌هایی که این کارکن با آن‌ها وارد شده اعمال می‌شود.', style: TextStyle(fontSize: 12, color: th.hintColor)),
+        Text('تغییر دسترسی بلافاصله روی همهٔ دستگاه‌هایی که این کارمند با آن‌ها وارد شده اعمال می‌شود.', style: TextStyle(fontSize: 12, color: th.hintColor)),
       ]),
     );
   }
