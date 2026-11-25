@@ -80,7 +80,8 @@ const Map<String, String> _kPctCols = <String, String>{'pct_tuchin': 'توچین
 class ProcOrderFormScreen extends StatefulWidget {
   const ProcOrderFormScreen({super.key, required this.direction, this.edit});
   final String direction;
-  /// ویرایش سفارش برون‌سپاری «در جریان» (پاسخ processing.get) ⇒ processing.update.
+  /// ویرایش سفارش برون‌سپاری/امانی در هر وضعیت (پاسخ processing.get) ⇒ processing.update با همهٔ اقلام.
+  /// v91: سفارش دریافت‌شده ⇒ خروجی‌ها و تاریخ پایان هم در همین فرم ویرایش می‌شوند.
   final Map<String, dynamic>? edit;
 
   @override
@@ -91,6 +92,18 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
   static const String _newKind = '\u0000new';
   bool get _paid => widget.direction == kProcPaidDir;
   bool get _isEdit => widget.edit != null;
+
+  /// v91: «تولید (سورت)» پیوسته به شکست ⇒ ورودی = لات‌های خروجی شکست مادر (مثل برون‌سپاری، با انتخاب لات).
+  bool get _chain => widget.edit?['parent_id'] != null;
+  bool get _lotMode => _paid || _chain;
+
+  /// v91: سفارش دریافت‌شده ⇒ بخش خروجی‌ها در فرم ویرایش.
+  bool get _received => _isEdit && '${widget.edit!['receive_date'] ?? ''}'.isNotEmpty;
+
+  /// v91: کاربر بدون مجوز قیمت مبالغ را دریافت نکرده ⇒ مبالغ فرستاده نمی‌شوند (سرور همان مقدار فعلی را نگه می‌دارد).
+  bool get _priceKnown => !_isEdit || widget.edit!.containsKey('fee_value');
+  final List<Map<String, dynamic>> _outs = <Map<String, dynamic>>[];
+  DateTime _rdate = DateTime.now();
 
   final TextEditingController _party = TextEditingController();
   final TextEditingController _note = TextEditingController();
@@ -134,16 +147,46 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
       _date = DateTime.tryParse('${e['date'] ?? ''}') ?? _date;
       _op = kWsOpenTypes.contains(e['op_type']) ? '${e['op_type']}' : null;
       _kind = e['prod_kind'] as String?;
-      _basis = e['fee_basis'] == 'per_kg' ? 'per_kg' : 'fixed';
+      _basis = (e['fee_basis'] ?? 'per_kg') == 'per_kg' ? 'per_kg' : 'fixed';
+      _line = e['crack_line_uid'] as String?;
+      _ext = '${e['ext_party'] ?? ''}'.isNotEmpty;
+      _extParty.text = '${e['ext_party'] ?? ''}';
+      _extFee.text = e['ext_fee'] == null ? '' : '${e['ext_fee']}';
+      String t(Object? v) => v == null ? '' : _numText(ReturnsHelp.d(v));
       _paidIns.clear();
+      _recIns.clear();
       for (final Map<String, dynamic> it in ReturnsHelp.maps(e['inputs'])) {
-        _paidIns.add(_PaidIn()
-          ..lot = '${it['lot_id']}'
-          ..kg.text = '${it['kg']}'
-          ..small.text = '${it['small_sacks'] ?? 0}'
-          ..large.text = '${it['large_sacks'] ?? 0}');
+        if (_lotMode) {
+          _paidIns.add(_PaidIn()
+            ..lot = '${it['lot_id']}'
+            ..kg.text = t(it['kg'])
+            ..small.text = t(it['small_sacks'] ?? 0)
+            ..large.text = t(it['large_sacks'] ?? 0));
+        } else {
+          // v91: فراوری امانی ⇒ مشخصات کامل لات امانی ورودی (دسته، نوع، وزن ناخالص، عدل، انس، گرم، درصدها)
+          final _RecIn r = _RecIn()
+            ..catId = it['category_id'] == null ? null : ReturnsHelp.d(it['category_id']).toInt()
+            ..kind = '${it['type_name'] ?? ''}'.isEmpty ? null : '${it['type_name']}';
+          final double kg = ReturnsHelp.d(it['kg']), sm = ReturnsHelp.d(it['small_sacks']), lg = ReturnsHelp.d(it['large_sacks']);
+          r.gross.text = it['gross_kg'] == null ? _numText(kg + sm * _sack[0] + lg * _sack[1]) : t(it['gross_kg']);
+          r.small.text = t(sm);
+          r.large.text = t(lg);
+          r.ounce.text = t(it['ounce']);
+          r.gram.text = t(it['gram']);
+          for (final MapEntry<String, TextEditingController> p in r.pct.entries) {
+            p.value.text = t(it[p.key]);
+          }
+          _recIns.add(r);
+        }
       }
       if (_paidIns.isEmpty) _paidIns.add(_PaidIn());
+      if (_recIns.isEmpty) _recIns.add(_RecIn());
+      if (_received) {
+        _rdate = DateTime.tryParse('${e['receive_date']}') ?? _rdate;
+        for (final Map<String, dynamic> o in ReturnsHelp.maps(e['outputs'])) {
+          _outs.add(<String, dynamic>{...o});
+        }
+      }
     }
     _init();
   }
@@ -151,13 +194,39 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
   Future<void> _init() async {
     try {
       final WsCrackData d = await WsLotPicker.loadCrack();
-      final List<WsCat> cats = _paid ? <WsCat>[] : await WsCats.load();
+      final List<WsCat> cats = (_paid && !_received) ? <WsCat>[] : await WsCats.load(); // v91: خروجی‌ها در ویرایش
       final List<WhOption> whs = _paid ? <WhOption>[] : await StockLookup.warehouses().catchError((Object _) => <WhOption>[]);
       final List<double> sack = await FormSettingsLocal.sackKg().catchError((Object _) => <double>[0.1, 0.2]);
       final Map<String, dynamic> c = await ProcessingStore.cachedWorkshopList();
+      // v91: پیوسته به شکست ⇒ لات‌های خروجی شکست مادر (امانی‌اند و در فهرست لات‌های ما نیستند)
+      final List<Map<String, dynamic>> parentOuts = <Map<String, dynamic>>[];
+      if (_chain && !_paid) {
+        try {
+          final Map<String, dynamic> par = await StockApi.call('processing.get', <String, dynamic>{'id': ReturnsHelp.d(widget.edit!['parent_id']).toInt()});
+          parentOuts.addAll(ReturnsHelp.maps(par['outputs']).where((Map<String, dynamic> o) => o['lot_id'] != null));
+        } on StockApiException catch (_) {
+          // آفلاین ⇒ فقط لات‌های فعلی همین سفارش
+        }
+      }
       if (!mounted) return;
       setState(() {
         _info = <String, WsLotInfo>{for (final WsLotInfo i in d.lots) i.key: i};
+        for (final Map<String, dynamic> o in parentOuts) {
+          _info.putIfAbsent(
+              '${o['lot_id']}',
+              () => WsLotInfo(
+                    key: '${o['lot_id']}',
+                    code: '${o['code'] ?? ''}',
+                    category: '',
+                    type: procOutTitle(o),
+                    seller: 'شکست مادر',
+                    isMix: 3,
+                    remaining: ReturnsHelp.d(o['lot_remaining']),
+                    netWeight: ReturnsHelp.d(o['kg']),
+                    smallLeft: ReturnsHelp.d(o['lot_small_left']),
+                    largeLeft: ReturnsHelp.d(o['lot_large_left']),
+                  ));
+        }
         // ویرایش: لات‌های همین سفارش (الان از موجودی کم شده‌اند) هم در فهرست باشند؛ سهم همین سفارش به موجودی برگردانده می‌شود
         for (final Map<String, dynamic> it in ReturnsHelp.maps(widget.edit?['inputs'])) {
           final String k = '${it['lot_id']}';
@@ -199,6 +268,8 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
         _cats = cats;
         _whs = whs;
         _wh = whs.isEmpty ? null : (whs.any((WhOption w) => w.isDefault) ? whs.firstWhere((WhOption w) => w.isDefault).uid : whs.first.uid);
+        final Object? ew = widget.edit?['warehouse_uid'];
+        if (ew is String && whs.any((WhOption w) => w.uid == ew)) _wh = ew; // v91: ویرایش ⇒ انبار ذخیره‌شده
         _sack = sack;
         for (final Map<String, dynamic> o in ReturnsHelp.maps(c['items'])) {
           final String v = '${o['prod_kind'] ?? ''}'.trim();
@@ -344,16 +415,81 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
 
   double _netOf(_RecIn r) => ((wsParseNum(r.gross.text) - wsParseNum(r.small.text) * _sack[0] - wsParseNum(r.large.text) * _sack[1]) * 1000).round() / 1000;
 
-  double get _inKg => _paid
+  double get _inKg => _lotMode
       ? _paidIns.fold<double>(0, (double s, _PaidIn r) => s + wsParseNum(r.kg.text))
       : _recIns.fold<double>(0, (double s, _RecIn r) => s + (_netOf(r) > 0 ? _netOf(r) : 0));
+
+  double get _outKg => _outs.fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg']));
+
+  /// v91: افزودن/ویرایش یک خروجی با همان فرم خروجی دریافت (شناسهٔ ردیف و لات خروجی موجود حفظ می‌شود).
+  Future<void> _editOut([int? i]) async {
+    final Map<String, dynamic>? row = i == null ? null : _outs[i];
+    final List<Map<String, dynamic>> ins = ReturnsHelp.maps(widget.edit?['inputs']);
+    final Map<String, dynamic>? res = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (_) => WsOutputDialog(row: row, defaultOwner: '', op: _op ?? 'production', cats: _cats, noPrice: true, inputType: ins.isEmpty ? null : '${ins.first['type_name'] ?? ''}'),
+    );
+    if (res == null || !mounted) return;
+    setState(() {
+      if (i == null) {
+        _outs.add(res);
+      } else {
+        _outs[i] = <String, dynamic>{if (row?['id'] != null) 'id': row!['id'], if (row?['lot_id'] != null) 'lot_id': row!['lot_id'], if (row?['code'] != null) 'code': row!['code'], ...res};
+      }
+    });
+  }
+
+  String _outTitle(Map<String, dynamic> r) {
+    final String kind = '${r['kind_name'] ?? ''}';
+    final String grade = kWsGradeLabels['${r['grade']}'] ?? '${r['grade'] ?? r['type_name'] ?? ''}';
+    if (kind.isEmpty) return grade;
+    if (_op == 'crack') return kind == grade ? grade : '$grade — $kind';
+    final WsCat? c = WsCats.byId(_cats, r['category_id'] == null ? null : ReturnsHelp.d(r['category_id']).toInt());
+    return c == null ? kind : '${c.name} — $kind';
+  }
+
+  Widget _outputsSection() {
+    final double waste = ((_inKg - _outKg) * 1000).round() / 1000;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+          JalaliDateField(label: 'تاریخ پایان (دریافت خروجی)', value: _rdate, onChanged: (DateTime d) => setState(() => _rdate = d)),
+          const SizedBox(height: 6),
+          Row(children: <Widget>[
+            Expanded(child: Text('خروجی‌ها', style: Theme.of(context).textTheme.titleMedium)),
+            TextButton.icon(onPressed: () => _editOut(), icon: const Icon(Icons.add), label: const Text('خروجی دیگر')),
+          ]),
+          if (_outs.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('هنوز خروجی ثبت نشده')),
+          for (int i = 0; i < _outs.length; i++)
+            ListTile(
+              dense: true,
+              contentPadding: EdgeInsets.zero,
+              title: Text('${_outTitle(_outs[i])} — ${_kg(_outs[i]['kg'])} کیلو'),
+              subtitle: Text(<String>[
+                if ('${_outs[i]['code'] ?? ''}'.isNotEmpty) 'لات ${_outs[i]['code']}',
+                if ('${_outs[i]['lot_name'] ?? ''}'.isNotEmpty) 'نام لات ${_outs[i]['lot_name']}',
+                'عدل ${faNum(ReturnsHelp.d(_outs[i]['large_sacks']), dec: 0)} بزرگ / ${faNum(ReturnsHelp.d(_outs[i]['small_sacks']), dec: 0)} کوچک',
+              ].join('  •  ')),
+              onTap: () => _editOut(i),
+              trailing: IconButton(tooltip: 'حذف خروجی', icon: const Icon(Icons.delete_outline), onPressed: () => setState(() => _outs.removeAt(i))),
+            ),
+          const Divider(),
+          Text('جمع خروجی: ${_kg(_outKg)} کیلو  •  ${waste >= 0 ? 'ضایعات' : 'اضافه وزن'}: ${_kg(waste.abs())} کیلو',
+              style: TextStyle(fontWeight: FontWeight.bold, color: waste < -0.0005 && _op != 'abkhandan' ? Colors.red : null)),
+          const Text('خروجیِ فروخته/مصرف‌شده حذف نمی‌شود و وزنش از مقدار مصرف‌شده کمتر نمی‌شود؛ بها و اسناد وابسته خودکار دوباره حساب می‌شوند.',
+              style: TextStyle(fontSize: 12)),
+        ]),
+      ),
+    );
+  }
 
   double get _feeTotal => (_basis == 'per_kg' ? wsParseNum(_fee.text) * _inKg : wsParseNum(_fee.text)) + wsParseNum(_other.text);
 
   /// گرم ارسالی (میانگین موزون).
   double? get _sentGram {
     double gk = 0, k = 0;
-    if (_paid) {
+    if (_lotMode) {
       for (final _PaidIn r in _paidIns) {
         final double? g = _info[r.lot]?.gram;
         final double kg = wsParseNum(r.kg.text);
@@ -376,7 +512,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
 
   /// v85: میانگین موزون انس ارسالی (آبخندان چندلاتی).
   double? get _avgOunce => wsWeightedAvg(<Map<String, num?>>[
-        if (_paid)
+        if (_lotMode)
           for (final _PaidIn r in _paidIns) <String, num?>{'kg': wsParseNum(r.kg.text), 'ounce': _info[r.lot]?.ounce}
         else
           for (final _RecIn r in _recIns) <String, num?>{'kg': _netOf(r), 'ounce': r.ounce.text.trim().isEmpty ? null : wsParseNum(r.ounce.text)},
@@ -421,7 +557,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
     try {
       final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
       double bales = 0;
-      if (_paid) {
+      if (_lotMode) {
         for (int i = 0; i < _paidIns.length; i++) {
           final _PaidIn r = _paidIns[i];
           if (r.lot == null) return msg('برای هر ورودی لات را انتخاب کنید');
@@ -475,7 +611,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
         'service': 'other',
         'op_type': _op,
         if (_op == 'production') 'prod_kind': _kind,
-        if (!_paid && _op == 'crack' && _line != null) 'crack_line_uid': _line,
+        if (!_paid && _op == 'crack' && (_line != null || _isEdit)) 'crack_line_uid': _line ?? '', // ویرایش: '' = بدون خط
         'fee_basis': _basis,
         'fee_value': wsParseNum(_fee.text),
         'other_cost': wsParseNum(_other.text),
@@ -484,7 +620,7 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
         'note': _note.text.trim(),
         'items': items,
         if (!_paid && _wh != null) 'warehouse_uid': _wh,
-        if (!_paid && _ext) 'ext_party': _extParty.text.trim(),
+        if (!_paid && (_ext || _isEdit)) 'ext_party': _ext ? _extParty.text.trim() : '', // ویرایش: '' = بدون فراوری‌کنندهٔ بیرونی
         if (!_paid && _ext) 'ext_fee': wsParseNum(_extFee.text),
         if (_paid) 'receipt_no': _receiptNo.text.trim(),
         if (_paid && bales > 0) 'bale_count': bales,
@@ -495,6 +631,27 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
         payload.remove('uid');
         payload['id'] = widget.edit!['id'];
         if (widget.edit!['edit_version'] != null) payload['base_version'] = widget.edit!['edit_version'];
+        if (!_priceKnown) { // v91: مبالغی که کاربر نمی‌بیند دست نمی‌خورد
+          for (final String k in <String>['fee_basis', 'fee_value', 'other_cost', 'ext_fee', 'standard_yield_pct', 'waste_charge_per_kg']) {
+            payload.remove(k);
+          }
+        }
+        if (_received) { // v91: خروجی‌ها و تاریخ پایان
+          if (_outs.isEmpty) return msg('حداقل یک خروجی ثبت کنید');
+          final double waste = ((_inKg - _outKg) * 1000).round() / 1000;
+          if (waste < -0.0005 && _op != 'abkhandan') return msg('جمع خروجی‌ها (${_kg(_outKg)}) از ورودی (${_kg(_inKg)}) بیشتر است');
+          if (_rdate.isBefore(DateTime(_date.year, _date.month, _date.day))) return msg('تاریخ پایان نمی‌تواند پیش از تاریخ شروع باشد');
+          payload['receive_date'] = ReturnsHelp.iso(_rdate);
+          payload['waste_kg'] = waste;
+          payload['outputs'] = <Map<String, dynamic>>[
+            for (final Map<String, dynamic> r in _outs)
+              <String, dynamic>{
+                for (final String k in <String>['id', 'grade', 'kg', 'small_sacks', 'large_sacks', 'lot_name', 'category_id', 'kind_name', 'gross_kg', 'attrs', 'warehouse_uid', 'owner'])
+                  if (r[k] != null) k: r[k],
+                'type_name': '${r['kind_name'] ?? ''}'.isNotEmpty ? r['kind_name'] : (r['type_name'] ?? kWsGradeLabels['${r['grade']}'] ?? 'خروجی'),
+              },
+          ];
+        }
       }
       final String label = '${_isEdit ? 'ویرایش ' : ''}${_paid ? 'برون‌سپاری' : 'فراوری امانی'} (${kWsOpLabels[_op]}): $party';
       final bool queued = await ProcessingStore.write(_isEdit ? 'processing.update' : 'processing.create', payload, label);
@@ -783,14 +940,14 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
             gap,
             Text(_paid ? 'لات‌های ارسالی (از موجودی کم می‌شود)' : 'پستهٔ تحویلی مشتری (لات امانی؛ در موجودی ما حساب نمی‌شود)', style: Theme.of(context).textTheme.titleMedium),
             if (!_loaded) const Padding(padding: EdgeInsets.all(12), child: LinearProgressIndicator()),
-            if (_paid) for (int i = 0; i < _paidIns.length; i++) _paidCard(i) else for (int i = 0; i < _recIns.length; i++) _recCard(i),
+            if (_lotMode) for (int i = 0; i < _paidIns.length; i++) _paidCard(i) else for (int i = 0; i < _recIns.length; i++) _recCard(i),
             if (!_single)
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: TextButton.icon(
-                  onPressed: () => setState(() => _paid ? _paidIns.add(_PaidIn()) : _recIns.add(_RecIn())),
+                  onPressed: () => setState(() => _lotMode ? _paidIns.add(_PaidIn()) : _recIns.add(_RecIn())),
                   icon: const Icon(Icons.add),
-                  label: Text(_paid ? 'لات دیگر' : 'ورودی دیگر'),
+                  label: Text(_lotMode ? 'لات دیگر' : 'ورودی دیگر'),
                 ),
               ),
             Text('جمع ورودی: ${_kg(_inKg)} کیلو${sg == null ? '' : '  •  ${_op == 'abkhandan' ? 'میانگین گرم ارسالی' : 'گرم ارسالی'} ${_f2(sg)}'}'
@@ -870,13 +1027,14 @@ class _ProcOrderFormScreenState extends State<ProcOrderFormScreen> {
                   ),
                 ]),
             ],
+            if (_received) ...<Widget>[gap, _outputsSection()],
             gap,
             TextField(controller: _note, decoration: _dec('یادداشت (اختیاری)')),
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: _saving ? null : _submit,
               icon: const Icon(Icons.save_outlined),
-              label: Text(_saving ? 'در حال ثبت…' : 'ثبت سفارش'),
+              label: Text(_saving ? 'در حال ثبت…' : (_isEdit ? 'ذخیرهٔ ویرایش' : 'ثبت سفارش')),
             ),
             if (!_isEdit) ...<Widget>[
               const SizedBox(height: 8),

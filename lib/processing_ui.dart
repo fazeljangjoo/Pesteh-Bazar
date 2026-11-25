@@ -1229,10 +1229,12 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
     await _run('processing.receipt_save', payload, 'قبض کارگاه بیرونی: ${_d['party'] ?? ''}');
   }
 
-  /// فاز ۳: ویرایش فراوری برون‌سپاری/امانی (processing.update). برون‌سپاری «در جریان» ⇒ فرم کامل (اقلام، کرایه، …)؛ بقیه ⇒ تاریخ و توضیح.
+  /// ویرایش فراوری برون‌سپاری/امانی (processing.update). v91: در هر وضعیت همان فرم ثبت با همهٔ اقلام باز می‌شود
+  /// (سفارش دریافت‌شده ⇒ خروجی‌ها و تاریخ پایان هم در همان فرم). فرم کوتاه (تاریخ/توضیح/کرایه) فقط برای جهت ناشناخته می‌ماند.
   Future<void> _editDoc() async {
-    if ('${_d['direction']}' == kProcPaid && '${_d['status']}' == 'in_progress') {
-      final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => ProcOrderFormScreen(direction: kProcPaid, edit: _d)));
+    final String dir = '${_d['direction']}';
+    if (dir == kProcPaid || dir == kProcReceived) {
+      final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => ProcOrderFormScreen(direction: dir, edit: _d)));
       if (ok == true) {
         _changed = true;
         await _load();
