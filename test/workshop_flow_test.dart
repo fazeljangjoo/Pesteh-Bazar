@@ -43,6 +43,11 @@ void main() {
           'loss_pct': t.lossPct,
           'sound_pct': t.soundPct,
           'over_output': t.overOutput,
+          // v91 p4: شکست مجدد نشکن
+          'rounds': (s['recracks'] as List<dynamic>? ?? const <dynamic>[]).length,
+          'recrack_kg': (s['recracks'] as List<dynamic>? ?? const <dynamic>[]).fold<int>(0, (int a, dynamic x) => a + wsGrams((x as Map)['kg'] as num?)) / 1000,
+          'uncracked_kg': wsUncrackedG(s['outputs'] as List<dynamic>) / 1000,
+          'kernel_kg': (s['outputs'] as List<dynamic>).fold<int>(0, (int a, dynamic o) => a + ((o as Map)['grade'] == 'kernel' ? wsGrams(o['kg'] as num?) : 0)) / 1000,
         };
         if (r.error != null) expect(kWsFlowErrors.containsKey(r.error), isTrue, reason: 'unknown code ${r.error}');
         for (final MapEntry<String, dynamic> e in (step['expect'] as Map<String, dynamic>).entries) {

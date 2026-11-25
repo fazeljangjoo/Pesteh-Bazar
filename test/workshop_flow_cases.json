@@ -2,6 +2,502 @@
  "_doc": "کیس‌های مشترک «کارگاه مرحله‌ای» (فاز ۲ مجد). هر سناریو: گام‌ها به ترتیب صف آفلاین؛ state از گام قبل ادامه می‌یابد. set (اختیاری) قبل از اکشن روی state اعمال می‌شود (used=true یعنی یکی از لات‌های خروجی مصرف شده). expect.error = کد قاعده (PB_WS_FLOW_ERRORS / kWsFlowErrors) یا null؛ بقیهٔ کلیدهای expect (status، تعداد ورودی/خروجی، جمع‌ها) فقط اگر حاضر باشند بررسی می‌شوند. replay (ردیف/وضعیت تکراری) خطا نیست. cartex_open: گروه «در کارگاه» کارتکس لات برای عملیات باز. کپی بایت‌به‌بایت: backend/api/workshop_flow_cases.json ↔ test/ هر دو پروژهٔ Flutter. PHP: php workshop_flow_selftest.php · Dart: flutter test test/workshop_flow_test.dart",
  "scenarios": [
   {
+   "name": "v91_recrack_two_rounds",
+   "_doc": "شکست مجدد نشکن: ۱۰۰۰ کیلو ورودی؛ دور ۰: مغز ۴۰۰، پوست ۴۵۰، نشکن ۷۰+۵۰؛ شکست مجدد ۱۳۰ رد (بیش از نشکن)؛ ۱۰۰ کیلو (LIFO: ۵۰ کامل + ۵۰ از ۷۰)؛ دور ۱: مغز ۴۵، پوست ۵۰، نشکن ۳؛ شکست مجدد ۲۳ (۳ دور ۱ + ۲۰ دور ۰)؛ دور ۲: مغز ۱۰، پوست ۱۱. ورودی هرگز دوباره شمرده نمی‌شود.",
+   "steps": [
+    {
+     "action": "open",
+     "payload": {
+      "uid": "rc-o",
+      "op_type": "crack",
+      "items": [
+       {
+        "uid": "rc-i1",
+        "purchase_id": 31,
+        "kg": 1000
+       }
+      ]
+     },
+     "expect": {
+      "error": null,
+      "status": "open",
+      "input_kg": 1000.0,
+      "rounds": 0
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-x0",
+      "kg": 10
+     },
+     "expect": {
+      "error": "no_uncracked",
+      "rounds": 0
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "k0",
+      "grade": "kernel",
+      "kg": 400
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "h0",
+      "grade": "hull",
+      "kg": 450
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "u0a",
+      "grade": "uncracked",
+      "kg": 70
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "u0b",
+      "grade": "uncracked",
+      "kg": 50
+     },
+     "expect": {
+      "error": null,
+      "outputs": 4,
+      "output_kg": 970.0,
+      "loss_kg": 30.0,
+      "uncracked_kg": 120.0
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-x1",
+      "kg": 130
+     },
+     "expect": {
+      "error": "over_recrack",
+      "rounds": 0,
+      "uncracked_kg": 120.0
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-x2",
+      "kg": 0
+     },
+     "expect": {
+      "error": "recrack_kg"
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-1",
+      "kg": 100
+     },
+     "expect": {
+      "error": null,
+      "rounds": 1,
+      "recrack_kg": 100.0,
+      "outputs": 3,
+      "uncracked_kg": 20.0,
+      "output_kg": 870.0,
+      "loss_kg": 130.0,
+      "input_kg": 1000.0
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-1",
+      "kg": 100
+     },
+     "expect": {
+      "error": null,
+      "rounds": 1,
+      "recrack_kg": 100.0,
+      "uncracked_kg": 20.0
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "k-bad",
+      "grade": "kernel",
+      "kg": 5,
+      "round": 2
+     },
+     "expect": {
+      "error": "bad_round",
+      "outputs": 3
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "k1",
+      "grade": "kernel",
+      "kg": 45,
+      "round": 1
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "h1",
+      "grade": "hull",
+      "kg": 50,
+      "round": 1
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "u1",
+      "grade": "uncracked",
+      "kg": 3,
+      "round": 1
+     },
+     "expect": {
+      "error": null,
+      "outputs": 6,
+      "output_kg": 968.0,
+      "loss_kg": 32.0,
+      "kernel_kg": 445.0,
+      "uncracked_kg": 23.0,
+      "input_kg": 1000.0
+     }
+    },
+    {
+     "action": "recrack_undo",
+     "payload": {
+      "order_uid": "rc-o",
+      "round": 1
+     },
+     "expect": {
+      "error": "recrack_busy",
+      "rounds": 1
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-2",
+      "kg": 23.5
+     },
+     "expect": {
+      "error": "over_recrack",
+      "rounds": 1
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-2",
+      "kg": 23
+     },
+     "expect": {
+      "error": null,
+      "rounds": 2,
+      "recrack_kg": 123.0,
+      "outputs": 4,
+      "uncracked_kg": 0.0,
+      "output_kg": 945.0
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "k2",
+      "grade": "kernel",
+      "kg": 10,
+      "round": 2
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "h2",
+      "grade": "hull",
+      "kg": 11,
+      "round": 2
+     },
+     "expect": {
+      "error": null,
+      "outputs": 6,
+      "output_kg": 966.0,
+      "loss_kg": 34.0,
+      "kernel_kg": 455.0,
+      "uncracked_kg": 0.0
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-3",
+      "kg": 1
+     },
+     "expect": {
+      "error": "no_uncracked",
+      "rounds": 2
+     }
+    },
+    {
+     "action": "close",
+     "payload": {
+      "order_uid": "rc-o"
+     },
+     "expect": {
+      "error": null,
+      "status": "done",
+      "output_kg": 966.0,
+      "loss_kg": 34.0
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rc-o",
+      "uid": "rc-4",
+      "kg": 1
+     },
+     "expect": {
+      "error": "not_open",
+      "rounds": 2
+     }
+    }
+   ]
+  },
+  {
+   "name": "v91_recrack_undo",
+   "_doc": "لغو آخرین دور: فقط بی‌خروجی و بی‌شیفت؛ نشکن برداشته‌شده (حتی ردیف حذف‌شده) برمی‌گردد؛ لغو تکراری = replay.",
+   "steps": [
+    {
+     "action": "open",
+     "payload": {
+      "uid": "ru-o",
+      "op_type": "crack",
+      "items": [
+       {
+        "uid": "ru-i1",
+        "purchase_id": 32,
+        "kg": 100
+       }
+      ]
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "ru-o",
+      "uid": "ru-k",
+      "grade": "kernel",
+      "kg": 40
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "ru-o",
+      "uid": "ru-u",
+      "grade": "uncracked",
+      "kg": 30
+     },
+     "expect": {
+      "error": null,
+      "uncracked_kg": 30.0
+     }
+    },
+    {
+     "action": "recrack_undo",
+     "payload": {
+      "order_uid": "ru-o",
+      "round": 0
+     },
+     "expect": {
+      "error": "recrack_none"
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "ru-o",
+      "uid": "ru-1",
+      "kg": 30
+     },
+     "expect": {
+      "error": null,
+      "rounds": 1,
+      "outputs": 1,
+      "uncracked_kg": 0.0,
+      "output_kg": 40.0
+     }
+    },
+    {
+     "action": "shifts_save",
+     "payload": {
+      "order_uid": "ru-o",
+      "shifts": [
+       {
+        "shift": "morning",
+        "date": "2026-11-25",
+        "start": "08:00",
+        "end": "12:00",
+        "round": 1
+       }
+      ]
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "recrack_undo",
+     "payload": {
+      "order_uid": "ru-o",
+      "round": 1
+     },
+     "expect": {
+      "error": "recrack_busy",
+      "rounds": 1
+     }
+    },
+    {
+     "action": "shifts_save",
+     "payload": {
+      "order_uid": "ru-o",
+      "shifts": []
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "recrack_undo",
+     "payload": {
+      "order_uid": "ru-o",
+      "round": 1
+     },
+     "expect": {
+      "error": null,
+      "rounds": 0,
+      "outputs": 2,
+      "uncracked_kg": 30.0,
+      "output_kg": 70.0
+     }
+    },
+    {
+     "action": "recrack_undo",
+     "payload": {
+      "order_uid": "ru-o",
+      "round": 1
+     },
+     "expect": {
+      "error": null,
+      "rounds": 0,
+      "uncracked_kg": 30.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "v91_recrack_not_crack",
+   "steps": [
+    {
+     "action": "open",
+     "payload": {
+      "uid": "rn-o",
+      "op_type": "dehull",
+      "items": [
+       {
+        "uid": "rn-i1",
+        "purchase_id": 33,
+        "kg": 100
+       }
+      ]
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "output_save",
+     "payload": {
+      "order_uid": "rn-o",
+      "uid": "rn-u",
+      "grade": "uncracked",
+      "kg": 10
+     },
+     "expect": {
+      "error": null
+     }
+    },
+    {
+     "action": "recrack",
+     "payload": {
+      "order_uid": "rn-o",
+      "uid": "rn-1",
+      "kg": 5
+     },
+     "expect": {
+      "error": "not_crack",
+      "rounds": 0,
+      "uncracked_kg": 10.0
+     }
+    }
+   ]
+  },
+  {
    "name": "majd_open_close_reopen",
    "steps": [
     {

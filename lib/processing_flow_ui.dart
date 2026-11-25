@@ -1560,6 +1560,17 @@ List<List<String>> procReportRows(Map<String, dynamic> d, {double? inKg0}) {
       if (r.lossPct != null) <String>['درصد پرتی', '${_f2(r.lossPct!)}٪'],
     ]);
   }
+  // v91 p4: شکست مجدد نشکن — هر دور: نشکنِ دوباره شکسته‌شده ⇒ مغز/پوست/نشکن همان دور (مغز و پوست بالا = جمع همهٔ دورها، نشکن = نهایی)
+  if (op == 'crack' && ReturnsHelp.maps(d['recracks']).isNotEmpty) {
+    final List<WsRound> rs = wsRecrackRounds(<String, dynamic>{'recracks': d['recracks'], 'outputs': outs, 'shifts': d['shifts']});
+    x.add(<String>['شکست مجدد نشکن (جمع)', '${_kg(rs.fold<double>(0, (double a, WsRound w) => a + w.kg))} کیلو در ${faNum(rs.length - 1, dec: 0)} دور (ورودی یک بار)', 'b']);
+    for (final WsRound w in rs) {
+      x.add(<String>[
+        w.round == 0 ? wsRoundLabel(0) : '${wsRoundLabel(w.round)}: ${_kg(w.kg)} کیلو نشکن',
+        'مغز ${_kg(w.kernelKg)} / پوست ${_kg(w.hullKg)} / نشکن ${_kg(w.uncrackedKg)} کیلو${w.shifts > 0 ? ' • ${faNum(w.shifts, dec: 0)} شیفت' : ''}',
+      ]);
+    }
+  }
   if (op == 'abkhandan' && outs.isNotEmpty) {
     final WsMoisture? m = wsMoisture(inKg, outKg);
     if (m != null) {

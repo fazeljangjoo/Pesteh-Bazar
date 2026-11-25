@@ -934,10 +934,32 @@ const Map<String, String> kWsFlowErrors = <String, String>{
   'no_output': 'برای بستن حداقل یک خروجی ثبت کنید',
   'over_output': 'جمع خروجی‌ها از ورودی بیشتر است',
   'outputs_used': 'خروجی این عملیات فروخته، مصرف یا منتقل شده است؛ ابتدا آن سند را برگردانید',
+  // v91 p4: شکست مجدد نشکن
+  'not_crack': 'شکست مجدد فقط در عملیات «شکست» است',
+  'recrack_kg': 'وزن نشکنِ شکست مجدد باید بیشتر از صفر باشد',
+  'no_uncracked': 'نشکنی برای شکست مجدد ثبت نشده است',
+  'over_recrack': 'وزن شکست مجدد از نشکن موجود بیشتر است',
+  'recrack_none': 'شکست مجددی برای لغو نیست',
+  'recrack_not_last': 'فقط آخرین دور شکست مجدد را می‌توان لغو کرد',
+  'recrack_busy': 'ابتدا خروجی‌ها و شیفت‌های این دور را حذف کنید',
+  'bad_round': 'دور شکست نامعتبر است',
 };
 
 /// کد خطای قاعده (کلید kWsFlowErrors) یا null. [inputs]/[outputs] = تعداد ردیف‌ها، [lossG] = افت خودکار به گرم.
-String? wsFlowCheck(String? status, String action, {int inputs = 0, int outputs = 0, int lossG = 0, bool allowEmpty = false, bool used = false, bool allowOver = false}) {
+/// v91 p4: recrack ⇒ [crack] (عملیات شکست)، [availG] نشکن موجود و [kgG] وزن شکست مجدد (گرم)؛ recrack_undo ⇒ [rounds]، [round]، [busy].
+String? wsFlowCheck(String? status, String action,
+    {int inputs = 0,
+    int outputs = 0,
+    int lossG = 0,
+    bool allowEmpty = false,
+    bool used = false,
+    bool allowOver = false,
+    bool crack = false,
+    int availG = 0,
+    int kgG = 0,
+    int rounds = 0,
+    int round = 0,
+    bool busy = false}) {
   switch (action) {
     case 'input_add':
     case 'output_save':
@@ -954,8 +976,118 @@ String? wsFlowCheck(String? status, String action, {int inputs = 0, int outputs 
     case 'reopen':
       if (status != 'done') return 'not_done';
       return used ? 'outputs_used' : null;
+    case 'recrack': // v91 p4
+      if (status != kWsOpen) return 'not_open';
+      if (!crack) return 'not_crack';
+      if (kgG <= 0) return 'recrack_kg';
+      if (availG <= 0) return 'no_uncracked';
+      return kgG > availG ? 'over_recrack' : null;
+    case 'recrack_undo':
+      if (status != kWsOpen) return 'not_open';
+      if (rounds < 1) return 'recrack_none';
+      if (round != rounds) return 'recrack_not_last';
+      return busy ? 'recrack_busy' : null;
   }
   return null;
+}
+
+// ───────────────────────── v91 p4: شکست مجدد نشکن (آینهٔ pb_ws_round_of / pb_ws_uncracked_g / pb_ws_recrack_take / pb_ws_recrack_rounds) ─────────────────────────
+
+/// دور شکست یک ردیف خروجی/شیفت (غایب/null = ۰ = شکست اول).
+int wsRoundOf(Object? r) {
+  if (r is! Map) return 0;
+  final Object? v = r['round'];
+  final int n = v is num ? v.toInt() : (int.tryParse('${v ?? ''}') ?? 0);
+  return n < 0 ? 0 : n;
+}
+
+/// نشکن موجود (Σ ردیف‌های uncracked) به گرم صحیح.
+int wsUncrackedG(List<dynamic> outs) {
+  int g = 0;
+  for (final dynamic r in outs) {
+    if (r is Map && r['grade'] == 'uncracked') g += wsGrams(r['kg'] as num?);
+  }
+  return g;
+}
+
+/// برداشت وزن شکست مجدد از ردیف‌های نشکن — LIFO: آخرین دور اول، در هر دور آخرین ردیف اول. هر عضو: (اندیس ردیف، برداشت، مانده) به گرم.
+List<({int idx, int takeG, int leftG})> wsRecrackTake(List<dynamic> outs, int kgG) {
+  final List<int> idx = <int>[
+    for (int i = 0; i < outs.length; i++)
+      if (outs[i] is Map && (outs[i] as Map)['grade'] == 'uncracked' && wsGrams((outs[i] as Map)['kg'] as num?) > 0) i,
+  ];
+  idx.sort((int a, int b) {
+    final int c = wsRoundOf(outs[b]).compareTo(wsRoundOf(outs[a]));
+    return c != 0 ? c : b.compareTo(a);
+  });
+  final List<({int idx, int takeG, int leftG})> plan = <({int idx, int takeG, int leftG})>[];
+  int left = kgG;
+  for (final int i in idx) {
+    if (left <= 0) break;
+    final int have = wsGrams((outs[i] as Map)['kg'] as num?);
+    final int t = have < left ? have : left;
+    plan.add((idx: i, takeG: t, leftG: have - t));
+    left -= t;
+  }
+  return plan;
+}
+
+/// یک دور شکست: [kg] = نشکنِ دوباره شکسته‌شده (دور ۰ = ۰)؛ مغز/پوست/نشکن = خروجی‌های همان دور (نشکن = ماندهٔ فعلی)؛ شیفت‌ها و دقیقه‌ها.
+class WsRound {
+  const WsRound(this.round, {this.kg = 0, this.kernelKg = 0, this.hullKg = 0, this.uncrackedKg = 0, this.shifts = 0, this.minutes = 0, this.date});
+  final int round;
+  final double kg, kernelKg, hullKg, uncrackedKg;
+  final int shifts, minutes;
+  final String? date;
+}
+
+/// خلاصهٔ دورهای شکست (۰ = شکست اول، ۱.. = شکست مجدد). آینهٔ pb_ws_recrack_rounds.
+List<WsRound> wsRecrackRounds(Map<String, dynamic> s) {
+  final List<Map<String, dynamic>> recs = <Map<String, dynamic>>[
+    for (final dynamic r in (s['recracks'] as List<dynamic>? ?? const <dynamic>[])) if (r is Map) Map<String, dynamic>.from(r),
+  ];
+  final int n = recs.length;
+  final List<int> kg = List<int>.filled(n + 1, 0), k = List<int>.filled(n + 1, 0), h = List<int>.filled(n + 1, 0), u = List<int>.filled(n + 1, 0);
+  final List<int> sh = List<int>.filled(n + 1, 0), mi = List<int>.filled(n + 1, 0);
+  final List<String?> dates = List<String?>.filled(n + 1, null);
+  for (final Map<String, dynamic> r in recs) {
+    final int i = (wsRoundOf(r).clamp(1, n < 1 ? 1 : n)).toInt();
+    if (i <= n) {
+      kg[i] += wsGrams(r['kg'] as num?);
+      dates[i] = r['date'] as String?;
+    }
+  }
+  for (final dynamic o in (s['outputs'] as List<dynamic>? ?? const <dynamic>[])) {
+    if (o is! Map) continue;
+    final int i = wsRoundOf(o) > n ? n : wsRoundOf(o);
+    final int g = wsGrams(o['kg'] as num?);
+    switch (o['grade']) {
+      case 'kernel':
+        k[i] += g;
+      case 'hull':
+        h[i] += g;
+      case 'uncracked':
+        u[i] += g;
+    }
+  }
+  for (final dynamic x in (s['shifts'] as List<dynamic>? ?? const <dynamic>[])) {
+    if (x is! Map) continue;
+    final int i = wsRoundOf(x) > n ? n : wsRoundOf(x);
+    sh[i]++;
+    mi[i] += wsShiftMinutes('${x['start'] ?? ''}', '${x['end'] ?? ''}') ?? 0;
+  }
+  return <WsRound>[
+    for (int i = 0; i <= n; i++)
+      WsRound(i, kg: kg[i] / 1000, kernelKg: k[i] / 1000, hullKg: h[i] / 1000, uncrackedKg: u[i] / 1000, shifts: sh[i], minutes: mi[i], date: dates[i]),
+  ];
+}
+
+/// عنوان یک دور: «شکست اول» / «شکست مجدد ۱».
+String wsRoundLabel(int round) => round <= 0 ? 'شکست اول' : 'شکست مجدد ${_faDigits(round)}';
+
+String _faDigits(int n) {
+  const String fa = '۰۱۲۳۴۵۶۷۸۹';
+  return '$n'.split('').map((String c) => RegExp(r'\d').hasMatch(c) ? fa[int.parse(c)] : c).join();
 }
 
 /// نوار زنده (ورودی / Σخروجی / افت / درصد سالم) از state یا پاسخ workshop.get.
@@ -1023,6 +1155,12 @@ WsFlowStep wsFlowApply(Map<String, dynamic> s0, String action, Map<String, dynam
       if (err != null) break;
       int i = find(outs, p['uid']);
       if (i < 0 && p['output_id'] != null) i = outs.indexWhere((Map<String, dynamic> r) => r['id'] == p['output_id']);
+      // v91 p4: دور شکست (غایب ⇒ دور ذخیره‌شدهٔ ردیف یا ۰)؛ دوری که هنوز شروع نشده ⇒ bad_round
+      final int round = p['round'] != null ? wsRoundOf(p) : (i >= 0 ? wsRoundOf(outs[i]) : 0);
+      if ((p['round'] is num && (p['round'] as num) < 0) || round > (s['recracks'] as List<dynamic>? ?? const <dynamic>[]).length) {
+        err = 'bad_round';
+        break;
+      }
       if (i >= 0) {
         outs[i] = <String, dynamic>{...outs[i], ...row(p)};
       } else {
@@ -1073,6 +1211,46 @@ WsFlowStep wsFlowApply(Map<String, dynamic> s0, String action, Map<String, dynam
       break;
     case 'shifts_save': // v86: شیفت‌های شکست (کل فهرست جایگزین می‌شود)
       s['shifts'] = p['shifts'];
+      break;
+    case 'recrack': // v91 p4 — {uid, kg, date?}: نشکن (LIFO) کم می‌شود؛ دور تازه = تعداد دورها + ۱. replay با uid.
+      final List<Map<String, dynamic>> recs = <Map<String, dynamic>>[
+        for (final dynamic r in (s['recracks'] as List<dynamic>? ?? const <dynamic>[])) Map<String, dynamic>.from(r as Map),
+      ];
+      if (p['uid'] != null && recs.any((Map<String, dynamic> r) => r['uid'] == p['uid'])) break;
+      final int kgG = wsGrams(p['kg'] as num?);
+      err = wsFlowCheck(status, 'recrack', crack: (s['op_type'] ?? 'crack') == 'crack', availG: wsUncrackedG(outs), kgG: kgG);
+      if (err != null) break;
+      final List<Map<String, dynamic>> from = <Map<String, dynamic>>[];
+      for (final ({int idx, int takeG, int leftG}) t in wsRecrackTake(outs, kgG)) {
+        final Map<String, dynamic> snap = Map<String, dynamic>.from(outs[t.idx]);
+        from.add(<String, dynamic>{'uid': snap['uid'], if (snap['id'] != null) 'id': snap['id'], 'kg': t.takeG / 1000, 'row': snap});
+        outs[t.idx]['kg'] = t.leftG / 1000;
+      }
+      outs.removeWhere((Map<String, dynamic> r) => r['grade'] == 'uncracked' && wsGrams(r['kg'] as num?) <= 0);
+      recs.add(<String, dynamic>{'uid': p['uid'], 'round': recs.length + 1, 'kg': kgG / 1000, 'date': p['date'], 'from': from});
+      s['recracks'] = recs;
+      break;
+    case 'recrack_undo': // v91 p4 — {round}: فقط آخرین دور، بی‌خروجی و بی‌شیفت؛ نشکن برمی‌گردد. دورِ ازپیش‌لغوشده ⇒ replay.
+      final List<Map<String, dynamic>> recs = <Map<String, dynamic>>[
+        for (final dynamic r in (s['recracks'] as List<dynamic>? ?? const <dynamic>[])) Map<String, dynamic>.from(r as Map),
+      ];
+      final int round = wsRoundOf(p);
+      if (round > 0 && round > recs.length) break;
+      final bool busy = outs.any((Map<String, dynamic> o) => wsRoundOf(o) == round) ||
+          (s['shifts'] as List<dynamic>? ?? const <dynamic>[]).any((dynamic x) => wsRoundOf(x) == round);
+      err = wsFlowCheck(status, 'recrack_undo', rounds: recs.length, round: round, busy: busy);
+      if (err != null) break;
+      final Map<String, dynamic> last = recs.removeLast();
+      for (final dynamic f0 in (last['from'] as List<dynamic>? ?? const <dynamic>[]).reversed) {
+        final Map<String, dynamic> f = Map<String, dynamic>.from(f0 as Map);
+        final int j = f['uid'] != null ? find(outs, f['uid']) : (f['id'] == null ? -1 : outs.indexWhere((Map<String, dynamic> r) => r['id'] == f['id']));
+        if (j >= 0) {
+          outs[j]['kg'] = (wsGrams(outs[j]['kg'] as num?) + wsGrams(f['kg'] as num?)) / 1000;
+        } else {
+          outs.add(<String, dynamic>{...(f['row'] is Map ? Map<String, dynamic>.from(f['row'] as Map) : <String, dynamic>{'uid': f['uid'], 'grade': 'uncracked'}), 'kg': wsGrams(f['kg'] as num?) / 1000}..remove('id'));
+        }
+      }
+      s['recracks'] = recs;
       break;
   }
   return WsFlowStep(s, err);
@@ -1143,6 +1321,7 @@ class WsCrackResult {
     this.gramVsLine,
     this.wasteKg,
     this.uncrackedCost,
+    this.uncrackedValue,
   });
   final double? initGram;
   final double? recvGram;
@@ -1156,8 +1335,17 @@ class WsCrackResult {
   final double? gramVsLine;
   final double? wasteKg;
   final double? uncrackedCost;
+
+  /// v91 p4: ارزش نشکنِ کسرشده از بهای مغز (فقط فرمول ۲).
+  final double? uncrackedValue;
 }
 
+/// v91 p4: نسخهٔ فرمول بهای «شکست» برای بستن‌های تازه (آینهٔ PB_WS_COST_FORMULA). ۱ = v88 (عملیات بسته‌شدهٔ قدیمی)، ۲ = پایستگی ارزش.
+const int kWsCostFormula = 2;
+
+/// [formula] ۱ (پیش‌فرض؛ v88): بهای مغز = P × ورودی ÷ مغز + هزینهٔ شکست.
+/// ۲ (v91 p4): (P × ورودی − ارزش نشکن − ارزش پوست) ÷ مغز + هزینهٔ شکست؛ ارزش نشکن = [uncrackedValue] یا نشکن × P؛ ارزش پوست = [hullValue] (بی‌قیمت = ۰).
+/// شکست مجدد: [kernelKg] = Σ مغز همهٔ دورها، [uncrackedKg] = نشکن نهایی؛ [inKg] = ورودی واقعی (یک بار).
 WsCrackResult wsCrackResult({
   required num inKg,
   num? gram,
@@ -1168,13 +1356,21 @@ WsCrackResult wsCrackResult({
   num uncrackedKg = 0,
   num hullValue = 0,
   num? outKg,
+  num? uncrackedValue,
+  int formula = 1,
 }) {
   final double? g = (gram != null && gram > 0) ? gram.toDouble() : null;
   final double cracked = (inKg - (uncrackedKg > 0 ? uncrackedKg : 0)).toDouble().clamp(0, double.infinity).toDouble();
   final double base = inKg.toDouble() > 0 ? inKg.toDouble() : 0; // v88: پایهٔ گرم و پرتی = کل ورودی (نشکن اثری ندارد)
   final double? recv = (base > 0 && kernelKg > 0) ? kernelKg * 100 / base : null;
   final double? loss = (g != null && recv != null) ? g - recv : null;
-  final double? unit = (base > 0 && kernelKg > 0 && buyPerKg != null && buyPerKg > 0) ? (buyPerKg * base) / kernelKg + crackCost : null; // v88: کل ورودی؛ بدون کسر پوست/نشکن
+  final bool priced = base > 0 && kernelKg > 0 && buyPerKg != null && buyPerKg > 0;
+  final double? uv = (priced && formula >= 2) ? (uncrackedValue ?? (uncrackedKg > 0 ? uncrackedKg : 0) * buyPerKg).toDouble() : null;
+  final double? unit = !priced
+      ? null
+      : (formula >= 2
+          ? (buyPerKg * base - uv! - (hullValue > 0 ? hullValue : 0)) / kernelKg + crackCost // v91 p4: پایستگی ارزش
+          : (buyPerKg * base) / kernelKg + crackCost); // v88: کل ورودی؛ بدون کسر پوست/نشکن
   final double? line = (lineLoss != null && lineLoss >= 0) ? lineLoss.toDouble() : null;
   return WsCrackResult(
     initGram: g,
@@ -1189,7 +1385,101 @@ WsCrackResult wsCrackResult({
     gramVsLine: (loss != null && line != null) ? loss - line : null,
     wasteKg: outKg == null ? null : ((inKg - outKg) * 1000).round() / 1000,
     uncrackedCost: (buyPerKg != null && buyPerKg > 0) ? (buyPerKg * 10000).round() / 10000 : null,
+    uncrackedValue: uv == null ? null : (uv * 100).round() / 100,
   );
+}
+
+/// گرد ۴ رقم مثل round($v, 4).
+double _r4(double v) => (v * 10000).round() / 10000;
+
+/// نتیجهٔ wsCrackLots (آینهٔ pb_ws_crack_plan_calc).
+class WsCrackLots {
+  const WsCrackLots({required this.lots, required this.rowPrices, this.unit, required this.recoveryValue, required this.costSound, this.warning});
+  final List<double> lots;
+  final List<double?> rowPrices;
+  final double? unit;
+  final double recoveryValue;
+  final double costSound;
+  final String? warning;
+}
+
+/// v80..v91 — بهای لات‌های خروجی «شکست» (آینهٔ pb_ws_crack_plan_calc؛ تست مشترک workshop_v81_cases.json «crack_plan»).
+/// [outs]: [{grade, kg, price?}]؛ [lots0]/[rowPrices0] = بهای اولیه (پوست = وزن × قیمت)؛ [valueIn] = W؛ [z] = اجرت/سایر.
+/// formula ۲: Σ لات‌ها = W + Z + r2(هزینهٔ شکست × مغز) دقیق؛ سهم مغز به نسبت وزن، باقی گرد روی آخرین لات مغز.
+WsCrackLots wsCrackLots(List<Map<String, dynamic>> outs, List<double> lots0, List<double?> rowPrices0,
+    {required double inKg, double? gram, required double buy, required double valueIn, double z = 0, double crackCost = 0, int formula = 1}) {
+  final List<double> lots = <double>[...lots0];
+  final List<double?> rowPrices = <double?>[...rowPrices0];
+  double kernel = 0, uncr = 0, outKg = 0;
+  double kg(int i) => (outs[i]['kg'] as num).toDouble();
+  double? price(int i) => (outs[i]['price'] as num?)?.toDouble();
+  for (int i = 0; i < outs.length; i++) {
+    outKg += kg(i);
+    if (outs[i]['grade'] == 'kernel') kernel += kg(i);
+    if (outs[i]['grade'] == 'uncracked') uncr += kg(i);
+  }
+  double af = 0, kv = 0;
+  double? unit;
+  String? warning;
+  if (formula >= 2) {
+    final List<int> kIdx = <int>[];
+    for (int i = 0; i < outs.length; i++) {
+      final String g = '${outs[i]['grade']}';
+      if (g == 'kernel') {
+        kIdx.add(i);
+        rowPrices[i] = null;
+        continue;
+      }
+      if (g == 'uncracked') {
+        final double up = price(i) ?? buy;
+        lots[i] = _r2(kg(i) * up);
+        rowPrices[i] = _r4(up);
+      }
+      af += lots[i];
+    }
+    if (kernel > 0) {
+      final double pool = _r2(valueIn + z + _r2(crackCost * kernel) - af);
+      double left = pool;
+      for (int j = 0; j < kIdx.length; j++) {
+        final int i = kIdx[j];
+        final double part = j == kIdx.length - 1 ? _r2(left) : _r2(pool * kg(i) / kernel);
+        lots[i] = part;
+        left = _r2(left - part);
+        kv += part;
+      }
+      unit = _r4(pool / kernel);
+      if (pool < 0) warning = 'negative_cost';
+    }
+  } else {
+    final WsCrackResult res = wsCrackResult(inKg: inKg, gram: gram, kernelKg: kernel, buyPerKg: buy, crackCost: crackCost, uncrackedKg: uncr, outKg: outKg);
+    unit = res.unitCost == null ? null : _r4(res.unitCost! + (kernel > 0 ? z / kernel : 0));
+    for (int i = 0; i < outs.length; i++) {
+      final String g = '${outs[i]['grade']}';
+      if (g == 'kernel') {
+        if (unit != null) lots[i] = _r2(kg(i) * unit);
+        rowPrices[i] = null;
+        kv += lots[i];
+      } else if (g == 'uncracked') {
+        final double up = price(i) ?? buy;
+        lots[i] = _r2(kg(i) * up);
+        rowPrices[i] = _r4(up);
+      }
+      if (g != 'kernel') af += lots[i];
+    }
+  }
+  if (unit == null && kernel <= 0 && uncr > 0) {
+    final double rest = _r2(valueIn + z - af);
+    double left = rest;
+    final List<int> idx = <int>[for (int i = 0; i < outs.length; i++) if (outs[i]['grade'] == 'uncracked') i];
+    for (int j = 0; j < idx.length; j++) {
+      final int i = idx[j];
+      final double share = j == idx.length - 1 ? left : _r2(rest * kg(i) / uncr);
+      lots[i] = _r2(lots[i] + share);
+      left = _r2(left - share);
+    }
+    af = _r2(af + rest);
+  }
+  return WsCrackLots(lots: lots, rowPrices: rowPrices, unit: unit, recoveryValue: _r2(af), costSound: _r2(kv), warning: warning);
 }
 
 // ---------------------------------------------------------------------------

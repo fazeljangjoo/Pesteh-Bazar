@@ -33,7 +33,7 @@ List<List<String>> wsShiftReportRows(List<Map<String, dynamic>> shifts) {
   return <List<String>>[
     for (final Map<String, dynamic> r in shifts)
       <String>[
-        'شیفت ${kWsShiftLabels['${r['shift']}'] ?? ''} ${jalaliDate('${r['date'] ?? ''}')}${'${r['operator'] ?? ''}'.isEmpty ? '' : ' — ${r['operator']}'}',
+        'شیفت ${kWsShiftLabels['${r['shift']}'] ?? ''} ${jalaliDate('${r['date'] ?? ''}')}${'${r['operator'] ?? ''}'.isEmpty ? '' : ' — ${r['operator']}'}${wsRoundOf(r) > 0 ? ' (${wsRoundLabel(wsRoundOf(r))})' : ''}', // v91 p4
         '${toFaDigits('${r['start'] ?? ''}')} تا ${toFaDigits('${r['end'] ?? ''}')} = ${toFaDigits(wsHm(wsShiftMinutes('${r['start']}', '${r['end']}') ?? 0))}',
       ],
     <String>['جمع ساعات شیفت‌ها', toFaDigits(wsHm(t.minutes)), 'b'],
@@ -42,11 +42,14 @@ List<List<String>> wsShiftReportRows(List<Map<String, dynamic>> shifts) {
 }
 
 class WsShiftsCard extends StatelessWidget {
-  const WsShiftsCard({super.key, required this.shifts, required this.onSave, this.editable = true, this.hint});
+  const WsShiftsCard({super.key, required this.shifts, required this.onSave, this.editable = true, this.hint, this.round = 0});
   final List<Map<String, dynamic>> shifts;
   final Future<void> Function(List<Map<String, dynamic>> shifts) onSave;
   final bool editable;
   final String? hint;
+
+  /// v91 p4: دور جاری شکست (شکست مجدد نشکن)؛ شیفت تازه با همین دور ذخیره می‌شود، ویرایش دور شیفت را عوض نمی‌کند.
+  final int round;
 
   Future<void> _edit(BuildContext context, [int? i]) async {
     final Map<String, dynamic>? r = await showDialog<Map<String, dynamic>>(
@@ -55,6 +58,8 @@ class WsShiftsCard extends StatelessWidget {
     );
     if (r == null) return;
     final List<Map<String, dynamic>> next = <Map<String, dynamic>>[...shifts];
+    final int rd = i == null ? round : wsRoundOf(shifts[i]); // v91 p4
+    if (rd > 0) r['round'] = rd;
     if (i == null) {
       next.add(r);
     } else {
@@ -96,7 +101,8 @@ class WsShiftsCard extends StatelessWidget {
           contentPadding: const EdgeInsets.symmetric(horizontal: 4),
           leading: Icon(shifts[i]['shift'] == 'night' ? Icons.nightlight_round : (shifts[i]['shift'] == 'evening' ? Icons.wb_twilight : Icons.wb_sunny_outlined)),
           title: Text('شیفت ${kWsShiftLabels['${shifts[i]['shift']}'] ?? ''}  •  ${jalaliDate('${shifts[i]['date'] ?? ''}')}'
-              '${'${shifts[i]['operator'] ?? ''}'.isEmpty ? '' : '  •  ${shifts[i]['operator']}'}'),
+              '${'${shifts[i]['operator'] ?? ''}'.isEmpty ? '' : '  •  ${shifts[i]['operator']}'}'
+              '${wsRoundOf(shifts[i]) > 0 ? '  •  ${wsRoundLabel(wsRoundOf(shifts[i]))}' : ''}'), // v91 p4
           subtitle: Text('${toFaDigits('${shifts[i]['start'] ?? ''}')} تا ${toFaDigits('${shifts[i]['end'] ?? ''}')}  =  '
               '${toFaDigits(wsHm(wsShiftMinutes('${shifts[i]['start']}', '${shifts[i]['end']}') ?? 0))}'),
           onTap: editable ? () => _edit(context, i) : null,
