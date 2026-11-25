@@ -15,6 +15,7 @@ const Map<String, String> kPartyTypesFa = <String, String>{
   'processor': 'فرآوری‌کار',
   'consignor': 'امانت‌دار',
   'other': 'سایر',
+  'exchanger': 'صراف', // v91 p5
 };
 
 class PartyMasterScreen extends StatefulWidget {

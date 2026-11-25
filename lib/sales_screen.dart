@@ -205,6 +205,8 @@ class _SalesScreenState extends State<SalesScreen> {
                         infoRow('وزن پسته (خالص)', '${faNum(net)} کیلو'),
                         infoRow('فی فروش', '${Fmt.money(price)}'),
                         infoRow('مبلغ فروش', '${Fmt.money(revenue)}'),
+                        if ((sale['ccy'] ?? '').toString().isNotEmpty && sale['ccy'] != 'IRT') // v91 p5: مبلغ به ارز خود سند
+                          infoRow('مبلغ به ارز سند', '${faCcy('${sale['ccy']}', (sale['total_ccy'] as num?) ?? 0, dec: 2)}  •  نرخ ${faNum((sale['fx_rate'] as num?) ?? 0, dec: 0)}'),
                         if (fx) ...[
                           if (rate != null) infoRow('قیمت دلار روز فروش', '${faNum(rate, dec: 0)} ریال'),
                           if (rate != null) infoRow('فی فروش به دلار', faUsd(price / rate, dec: 4)),

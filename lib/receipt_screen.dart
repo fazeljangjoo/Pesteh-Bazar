@@ -10,6 +10,7 @@ import 'pdf_output.dart';
 import 'pdf_service.dart';
 import 'utils.dart';
 import 'widgets.dart';
+import 'treasury_link.dart'; // v91 p5: optional internal account
 
 /// مدیریت وصول مطالبات فروش (دریافت وجه) — نظیر مدیریت پرداخت خرید
 class ReceiptScreen extends StatefulWidget {
@@ -489,6 +490,7 @@ class _ReceiptLumpFormState extends State<_ReceiptLumpForm> {
   late final FxTxController _fx;
   late final TextEditingController _amount;
   late final TextEditingController _fromAccount;
+  String? _acct; // v91 p5: uid صندوق/حساب بانکی (اختیاری)
   late final TextEditingController _payerName;
   late final TextEditingController _toAccount;
   late final TextEditingController _receiverName;
@@ -506,6 +508,7 @@ class _ReceiptLumpFormState extends State<_ReceiptLumpForm> {
       if (mounted) setState(() {});
     });
     _fromAccount = TextEditingController(text: e?['from_account'] as String? ?? '');
+    _acct = e?['account_uid'] as String?; // v91 p5
     _payerName = TextEditingController(text: e?['payer_name'] as String? ?? '');
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _receiverName = TextEditingController(text: e?['receiver_name'] as String? ?? '');
@@ -525,6 +528,7 @@ class _ReceiptLumpFormState extends State<_ReceiptLumpForm> {
       'amount': MoneyField.stored(_amount) ?? 0,
       'date': (_date ?? DateTime.now()).toIso8601String(),
       'from_account': _fromAccount.text.trim(),
+      'account_uid': _acct, // v91 p5
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'receiver_name': _receiverName.text.trim(),
@@ -550,6 +554,13 @@ class _ReceiptLumpFormState extends State<_ReceiptLumpForm> {
               dateField(context, 'تاریخ دریافت', _date, (d) => setState(() => _date = d)),
               textField(_fromAccount, 'از کدام حساب (خریدار)'),
               textField(_payerName, 'به نام چه کسی (پرداخت‌کننده)'),
+              InternalAccountPicker( // v91 p5: اختیاری
+                value: _acct,
+                onChanged: (String? u, InternalAccount? a) => setState(() {
+                  _acct = u;
+                  if (a != null && _toAccount.text.trim().isEmpty) _toAccount.text = a.name;
+                }),
+              ),
               textField(_toAccount, 'به کدام حساب ما'),
               textField(_receiverName, 'به نام چه کسی (دریافت‌کننده)'),
               SwitchListTile(
@@ -584,6 +595,7 @@ class _ReceiptCreditFormState extends State<_ReceiptCreditForm> {
   late final FxTxController _fx;
   late final TextEditingController _amount;
   late final TextEditingController _fromAccount;
+  String? _acct; // v91 p5: uid صندوق/حساب بانکی (اختیاری)
   late final TextEditingController _payerName;
   late final TextEditingController _toAccount;
   late final TextEditingController _receiverName;
@@ -601,6 +613,7 @@ class _ReceiptCreditFormState extends State<_ReceiptCreditForm> {
       if (mounted) setState(() {});
     });
     _fromAccount = TextEditingController(text: e?['from_account'] as String? ?? '');
+    _acct = e?['account_uid'] as String?; // v91 p5
     _payerName = TextEditingController(text: e?['payer_name'] as String? ?? '');
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _receiverName = TextEditingController(text: e?['receiver_name'] as String? ?? '');
@@ -624,6 +637,7 @@ class _ReceiptCreditFormState extends State<_ReceiptCreditForm> {
       'amount': MoneyField.stored(_amount) ?? 0,
       'due_date': _due!.toIso8601String(),
       'from_account': _fromAccount.text.trim(),
+      'account_uid': _acct, // v91 p5
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'receiver_name': _receiverName.text.trim(),
@@ -648,6 +662,13 @@ class _ReceiptCreditFormState extends State<_ReceiptCreditForm> {
               dateField(context, 'تاریخ سررسید', _due, (d) => setState(() => _due = d)),
               textField(_fromAccount, 'از کدام حساب (خریدار)'),
               textField(_payerName, 'به نام چه کسی (پرداخت‌کننده)'),
+              InternalAccountPicker( // v91 p5: اختیاری
+                value: _acct,
+                onChanged: (String? u, InternalAccount? a) => setState(() {
+                  _acct = u;
+                  if (a != null && _toAccount.text.trim().isEmpty) _toAccount.text = a.name;
+                }),
+              ),
               textField(_toAccount, 'به کدام حساب ما'),
               textField(_receiverName, 'به نام چه کسی (دریافت‌کننده)'),
               SwitchListTile(
@@ -684,6 +705,7 @@ class _ReceiptChequeFormState extends State<_ReceiptChequeForm> {
   late final TextEditingController _chequeNo;
   late final TextEditingController _bankName;
   late final TextEditingController _fromAccount;
+  String? _acct; // v91 p5: uid صندوق/حساب بانکی (اختیاری)
   late final TextEditingController _payerName;
   late final TextEditingController _toAccount;
   late final TextEditingController _receiverName;
@@ -703,6 +725,7 @@ class _ReceiptChequeFormState extends State<_ReceiptChequeForm> {
     _chequeNo = TextEditingController(text: e?['cheque_no'] as String? ?? '');
     _bankName = TextEditingController(text: e?['bank_name'] as String? ?? '');
     _fromAccount = TextEditingController(text: e?['from_account'] as String? ?? '');
+    _acct = e?['account_uid'] as String?; // v91 p5
     _payerName = TextEditingController(text: e?['payer_name'] as String? ?? '');
     _toAccount = TextEditingController(text: e?['to_account'] as String? ?? '');
     _receiverName = TextEditingController(text: e?['receiver_name'] as String? ?? '');
@@ -728,6 +751,7 @@ class _ReceiptChequeFormState extends State<_ReceiptChequeForm> {
       'cheque_no': _chequeNo.text.trim(),
       'bank_name': _bankName.text.trim(),
       'from_account': _fromAccount.text.trim(),
+      'account_uid': _acct, // v91 p5
       'payer_name': _payerName.text.trim(),
       'to_account': _toAccount.text.trim(),
       'receiver_name': _receiverName.text.trim(),
@@ -754,6 +778,13 @@ class _ReceiptChequeFormState extends State<_ReceiptChequeForm> {
               textField(_bankName, 'نام بانک'),
               textField(_fromAccount, 'از کدام حساب (خریدار)'),
               textField(_payerName, 'به نام چه کسی (پرداخت‌کننده)'),
+              InternalAccountPicker( // v91 p5: اختیاری
+                value: _acct,
+                onChanged: (String? u, InternalAccount? a) => setState(() {
+                  _acct = u;
+                  if (a != null && _toAccount.text.trim().isEmpty) _toAccount.text = a.name;
+                }),
+              ),
               textField(_toAccount, 'به کدام حساب ما'),
               textField(_receiverName, 'به نام چه کسی (دریافت‌کننده)'),
               SwitchListTile(

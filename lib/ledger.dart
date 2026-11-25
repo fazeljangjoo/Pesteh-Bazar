@@ -1,5 +1,11 @@
+import 'dart:convert';
+
+import 'package:sqflite/sqflite.dart' show DatabaseExecutor;
+
 import 'db.dart';
+import 'entity_store.dart'; // v91 p5: xch_moves
 import 'return_calc.dart';
+import 'xch_calc.dart'; // v91 p5
 
 /// یکسان‌سازی نام طرف حساب: «ي/ك» عربی، فاصله‌های اضافه
 String partyKey(String? name) {
@@ -302,7 +308,12 @@ class PartyEntry {
   final String label;
   final double weight;
   final double total;
-  final double settled;
+  double settled; // v91 p5: تسویه از طریق صراف هم اضافه می‌شود
+
+  /// v91 p5: ارز سند (null = ریالی)، مبلغ ارزی و تسویه‌شده به همان ارز (ردیف‌های هم‌ارز + تسویه از طریق صراف)
+  final String? ccy;
+  final double totalCcy;
+  double settledCcy;
   PartyEntry({
     required this.isPurchase,
     required this.id,
@@ -311,8 +322,13 @@ class PartyEntry {
     required this.weight,
     required this.total,
     required this.settled,
+    this.ccy,
+    this.totalCcy = 0,
+    this.settledCcy = 0,
   });
   double get remaining => total - settled;
+  double get remainingCcy => totalCcy - settledCcy;
+  bool get isForeign => ccy != null;
 }
 
 /// نام‌های رسمی انواع تراکنش دفتر قرض و وام
@@ -362,6 +378,36 @@ class PartyAccount {
 
   PartyAccount(this.key);
 
+  // ---- v91 p5: مانده به ارز سند ----
+  /// کلید = کد ارز؛ 'IRR' = رویدادهای ریالیِ بدون ارز (به واحد ذخیره). مثبت = او به ما بدهکار است، منفی = ما بدهکاریم.
+  final Map<String, double> byCcy = <String, double>{};
+
+  /// نوع‌های طرف‌حساب (customer, supplier, …, exchanger) از جدول parties
+  final Set<String> types = <String>{};
+
+  /// تاریخ همهٔ رویدادها (برای فیلتر بازهٔ تاریخ)
+  final List<DateTime> dates = <DateTime>[];
+
+  /// موقعیت‌های صراف (وقتی این طرف‌حساب صراف است) و سود/زیان تحقق‌یافتهٔ آن (ریال)
+  final List<XchPosition> xchPositions = <XchPosition>[];
+  int xchRealized = 0;
+
+  void addCcy(String? ccy, double v) {
+    final String c = xchNormCcy(ccy);
+    byCcy[c] = (byCcy[c] ?? 0) + v;
+  }
+
+  /// مانده‌های غیرصفر به ارز (ریال: |v| ≥ ۰٫۵، ارز: ≥ ۰٫۰۰۵)
+  Map<String, double> get openByCcy => <String, double>{
+        for (final MapEntry<String, double> e in byCcy.entries)
+          if (e.value.abs() >= (e.key == 'IRR' ? 0.5 : 0.005)) e.key: e.value,
+      };
+
+  bool get isExchanger => types.contains('exchanger') || xchPositions.isNotEmpty;
+
+  /// آخرین تاریخ فعالیت (یا null)
+  DateTime? get lastDate => dates.isEmpty ? null : dates.reduce((DateTime a, DateTime b) => a.isAfter(b) ? a : b);
+
   /// مانده طلب قرضی: چقدر از قرضِ اعطایی هنوز به ما برنگشته
   double get loanReceivable => loanGiven - repaidToUs;
 
@@ -396,6 +442,133 @@ double _settledOf(String? type, String? staged, num lump, num credit, num cheque
   return 0;
 }
 
+/// v91 p5: کد ارز سند خارجی یا null (ریالی / IRT)
+String? _fxCcy(Object? v) {
+  final String c = xchNormCcy(v);
+  return c == 'IRR' ? null : c;
+}
+
+/// v91 p5: نوع‌های طرف‌حساب از ستون JSON `types`
+Set<String> partyTypesOf(Object? raw) {
+  if (raw == null || '$raw'.isEmpty) return <String>{};
+  try {
+    final Object? j = jsonDecode('$raw');
+    if (j is List) return <String>{for (final Object? t in j) if (t is String && t.isNotEmpty) t};
+  } catch (_) {}
+  return <String>{};
+}
+
+/// v91 p5: ردیف‌های پرداخت‌شدهٔ هر سند (کلید p<id> / s<id>) با نوع جدول، ارز و مبلغ
+Future<Map<String, List<Map<String, Object?>>>> _paidLinesByDoc(DatabaseExecutor d) async {
+  final out = <String, List<Map<String, Object?>>>{};
+  const src = <(String, String, String, String, String)>[
+    ('lump_tx', 'payments', 'payment_id', 'purchase_id', 'p'),
+    ('credit_inst', 'payments', 'payment_id', 'purchase_id', 'p'),
+    ('cheque_inst', 'payments', 'payment_id', 'purchase_id', 'p'),
+    ('receipt_lump_tx', 'receipts', 'receipt_id', 'sale_id', 's'),
+    ('receipt_credit_inst', 'receipts', 'receipt_id', 'sale_id', 's'),
+    ('receipt_cheque_inst', 'receipts', 'receipt_id', 'sale_id', 's'),
+  ];
+  for (final (String t, String h, String fk, String doc, String pre) in src) {
+    try {
+      final rows = await d.rawQuery('SELECT h.$doc AS did, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca FROM $t x JOIN $h h ON h.id = x.$fk WHERE x.paid = 1');
+      for (final Map<String, Object?> r in rows) {
+        (out['$pre${r['did']}'] ??= <Map<String, Object?>>[]).add(<String, Object?>{...r, 't': t});
+      }
+    } catch (_) {/* ستون ارز در پایگاه خیلی قدیمی */}
+  }
+  return out;
+}
+
+/// v91 p5: همان قاعدهٔ _settledOf: کدام جدول ردیف در این نوع پرداخت حساب می‌شود
+bool _lineCounts(String table, String? type, String? staged) {
+  final bool lump = table.endsWith('lump_tx');
+  final bool credit = table.endsWith('credit_inst');
+  if (type == 'mixed') return true;
+  if (type == 'lump') return lump;
+  if (type == 'staged' && staged == 'credit') return credit;
+  if (type == 'staged' && staged == 'cheque') return !lump && !credit;
+  return false;
+}
+
+void _applyLines(PartyAccount a, PartyEntry e, List<Map<String, Object?>>? lines, String? type, String? staged) {
+  if (lines == null) return;
+  final double sign = e.isPurchase ? 1 : -1; // پرداخت به فروشنده بدهی ما را کم می‌کند (+)، دریافت از خریدار طلب را (−)
+  for (final Map<String, Object?> l in lines) {
+    if (!_lineCounts(l['t'] as String, type, staged)) continue;
+    final String? lc = _fxCcy(l['ccy']);
+    if (lc == null) {
+      a.addCcy('IRR', sign * ((l['amount'] as num?) ?? 0).toDouble());
+    } else {
+      final double ca = ((l['ca'] as num?) ?? 0).toDouble();
+      a.addCcy(lc, sign * ca);
+      if (lc == e.ccy) e.settledCcy += ca;
+    }
+  }
+}
+
+/// v91 p5: حرکت‌های صراف از موجودیت محلی (مرتب: تاریخ، ترتیب ثبت)
+Future<List<XchMove>> loadXchMoves() async {
+  try {
+    final rows = await EntityStore.I.list('xch_moves');
+    // list() جدیدترین را اول می‌دهد (rowid DESC) ⇒ برعکس تا ترتیب ثبت حفظ شود، بعد مرتب‌سازی پایدار بر اساس تاریخ
+    return xchSorted(<XchMove>[for (final Map<String, dynamic> r in rows.reversed) XchMove.fromRow(r)]);
+  } catch (_) {
+    return <XchMove>[];
+  }
+}
+
+/// v91 p5 (خالص): اثر حرکت‌های صراف روی حساب طرف‌ها — آینهٔ pb_xch_apply_sums سرور.
+/// [rialPerStored] = ۱ برای مستأجر ریالی، ۱۰ برای تومانی (مبالغ IRR حرکت‌ها ریال‌اند).
+void applyXchMoves(Map<String, PartyAccount> map, List<XchMove> moves, PartyAccount Function(String?) acc, {int rialPerStored = 1}) {
+  if (moves.isEmpty) return;
+  final XchRun run = xchRun(moves);
+  for (int i = 0; i < moves.length; i++) {
+    final XchMove m = moves[i];
+    final XchResult r = run.results[i];
+    final DateTime dt = DateTime.tryParse(m.date) ?? DateTime(2000);
+    final PartyAccount e = acc(m.exchanger);
+    e.types.add('exchanger');
+    e.dates.add(dt);
+    if (m.isSettle) {
+      final double amt = r.dr.abs() / rialPerStored;
+      final PartyAccount p = acc(m.party);
+      p.dates.add(dt);
+      final bool sale = m.kind == 'cust_paid';
+      final double ccyAmt = m.ccy == 'IRR' ? m.amountCcy / rialPerStored : m.amountCcy;
+      if (sale) {
+        p.received += amt;
+        e.sold += amt;
+        p.addCcy(m.ccy, -ccyAmt);
+      } else {
+        p.paid += amt;
+        e.bought += amt;
+        p.addCcy(m.ccy, ccyAmt);
+      }
+      for (final PartyEntry en in p.entries) {
+        if (en.isPurchase == !sale && en.id == m.docId) {
+          en.settled += amt;
+          if (m.ccy != 'IRR') en.settledCcy += m.amountCcy;
+          break;
+        }
+      }
+    } else {
+      final double db = r.db / rialPerStored;
+      if (db < 0) {
+        e.received += -db;
+      } else {
+        e.paid += db;
+      }
+    }
+  }
+  for (final XchPosition p in run.positions.values) {
+    final PartyAccount e = acc(p.exchanger);
+    e.xchPositions.add(p);
+    e.xchRealized += p.realized;
+    e.addCcy(p.ccy, p.ccy == 'IRR' ? p.book / rialPerStored : p.amount);
+  }
+}
+
 Future<List<PartyAccount>> loadParties() async {
   final d = await AppDb.I.db;
   final map = <String, PartyAccount>{};
@@ -403,13 +576,14 @@ Future<List<PartyAccount>> loadParties() async {
 
   final purchases = await d.rawQuery('''
       SELECT p.id AS id, p.seller AS party, p.date AS date, p.type_name AS label,
-             p.net_weight AS net, p.price AS price,
+             p.net_weight AS net, p.price AS price, p.ccy AS ccy, p.price_ccy AS pccy,
              pay.pay_type AS pt, pay.staged_type AS st,
              COALESCE((SELECT SUM(amount) FROM lump_tx WHERE payment_id = pay.id AND paid = 1), 0) AS lp,
              COALESCE((SELECT SUM(amount) FROM credit_inst WHERE payment_id = pay.id AND paid = 1), 0) AS cp,
              COALESCE((SELECT SUM(amount) FROM cheque_inst WHERE payment_id = pay.id AND paid = 1), 0) AS hp
       FROM purchases p LEFT JOIN payments pay ON pay.purchase_id = p.id
       WHERE p.is_mix = 0''');
+  final lines = await _paidLinesByDoc(d); // v91 p5: ردیف‌های پرداخت‌شده با ارزشان
   for (final r in purchases) {
     final net = (r['net'] as num).toDouble();
     final total = net * (r['price'] as num).toDouble();
@@ -418,7 +592,9 @@ Future<List<PartyAccount>> loadParties() async {
     final a = acc(r['party'] as String?);
     a.bought += total;
     a.paid += settled;
-    a.entries.add(PartyEntry(
+    final String? ccy = _fxCcy(r['ccy']);
+    final double totalCcy = ccy == null ? 0 : net * ((r['pccy'] as num?) ?? 0).toDouble();
+    final e = PartyEntry(
       isPurchase: true,
       id: r['id'] as int,
       date: DateTime.parse(r['date'] as String),
@@ -426,12 +602,22 @@ Future<List<PartyAccount>> loadParties() async {
       weight: net,
       total: total,
       settled: settled,
-    ));
+      ccy: ccy,
+      totalCcy: totalCcy,
+    );
+    a.entries.add(e);
+    a.dates.add(e.date);
+    if (ccy == null) {
+      a.addCcy('IRR', -total);
+    } else {
+      a.addCcy(ccy, -totalCcy);
+    }
+    _applyLines(a, e, lines['p${e.id}'], r['pt'] as String?, r['st'] as String?);
   }
 
   final sales = await d.rawQuery('''
       SELECT s.id AS id, s.buyer AS party, s.date AS date,
-             s.net_weight AS net, s.price AS price,
+             s.net_weight AS net, s.price AS price, s.ccy AS ccy, s.total_ccy AS tccy,
              rec.recv_type AS rt, rec.staged_type AS st,
              COALESCE((SELECT SUM(amount) FROM receipt_lump_tx WHERE receipt_id = rec.id AND paid = 1), 0) AS lp,
              COALESCE((SELECT SUM(amount) FROM receipt_credit_inst WHERE receipt_id = rec.id AND paid = 1), 0) AS cp,
@@ -445,7 +631,9 @@ Future<List<PartyAccount>> loadParties() async {
     final a = acc(r['party'] as String?);
     a.sold += total;
     a.received += settled;
-    a.entries.add(PartyEntry(
+    final String? ccy = _fxCcy(r['ccy']);
+    final double totalCcy = ccy == null ? 0 : ((r['tccy'] as num?) ?? 0).toDouble();
+    final e = PartyEntry(
       isPurchase: false,
       id: r['id'] as int,
       date: DateTime.parse(r['date'] as String),
@@ -453,7 +641,17 @@ Future<List<PartyAccount>> loadParties() async {
       weight: net,
       total: total,
       settled: settled,
-    ));
+      ccy: ccy,
+      totalCcy: totalCcy,
+    );
+    a.entries.add(e);
+    a.dates.add(e.date);
+    if (ccy == null) {
+      a.addCcy('IRR', total);
+    } else {
+      a.addCcy(ccy, totalCcy);
+    }
+    _applyLines(a, e, lines['s${e.id}'], r['rt'] as String?, r['st'] as String?);
   }
 
   // برگشت از فروش: ارزش کالای برگشتی (V) از طلب ما کم می‌شود؛ مبلغی که نقد/چکی به خریدار پس داده‌ایم (R) دوباره به طلب اضافه می‌شود.
@@ -466,6 +664,7 @@ Future<List<PartyAccount>> loadParties() async {
     final a = acc(r['party'] as String?);
     a.sold -= (r['total'] as num).toDouble();
     a.received -= (r['refund'] as num).toDouble();
+    a.addCcy('IRR', -((r['total'] as num).toDouble() - (r['refund'] as num).toDouble())); // v91 p5
   }
 
   // برگشت از خرید (قرینهٔ برگشت از فروش؛ همان منطق سرور returns.php: bought −= V، paid −= R).
@@ -479,11 +678,12 @@ Future<List<PartyAccount>> loadParties() async {
     final a = acc(r['party'] as String?);
     a.bought -= (r['total'] as num).toDouble();
     a.paid -= (r['refund'] as num).toDouble();
+    a.addCcy('IRR', (r['total'] as num).toDouble() - (r['refund'] as num).toDouble()); // v91 p5
   }
 
   // طرف‌حساب‌هایی که دستی تعریف شده‌اند (حتی اگر هنوز خرید/فروشی نداشته باشند)
   for (final r in await d.query('parties')) {
-    acc(r['name'] as String?);
+    acc(r['name'] as String?).types.addAll(partyTypesOf(r['types'])); // v91 p5: نوع‌ها (ستون types از سرور)
   }
 
   // دفتر قرض و وام
@@ -507,6 +707,8 @@ Future<List<PartyAccount>> loadParties() async {
       default:
         continue;
     }
+    a.addCcy('IRR', loanKindIsIn(kind) ? -amount : amount); // v91 p5: قرض در ماندهٔ ریالی
+    a.dates.add(DateTime.parse(r['date'] as String));
     a.loans.add(LoanEntry(
       id: (r['id'] as num).toInt(),
       uid: (r['uid'] as String?) ?? '',
@@ -516,6 +718,9 @@ Future<List<PartyAccount>> loadParties() async {
       note: r['note'] as String?,
     ));
   }
+
+  // v91 p5: حرکت‌های صراف (همان ارقام سرور: pb_xch_apply_sums)
+  applyXchMoves(map, await loadXchMoves(), acc, rialPerStored: AppDb.I.moneyUnit == 'rial' ? 1 : 10);
 
   final list = map.values.toList();
   for (final a in list) {

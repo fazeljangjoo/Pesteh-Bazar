@@ -81,7 +81,13 @@ List<T> _mapList<T>(dynamic raw, T Function(Map<String, dynamic>) f) {
 }
 
 /// برچسب فارسی طرف: ar = طلب (فروش)، ap = بدهی (خرید).
-String fxRevalSideLabel(String side) => side == 'ap' ? 'بدهی (خرید)' : 'طلب (فروش)';
+String fxRevalSideLabel(String side) => side == 'ap' ? 'بدهی (خرید)' : (side == 'xr' ? 'صراف' : 'طلب (فروش)'); // v91 p5: xr
+
+/// v91 p5: طرف یک ردیف تسعیر: ar (طلب)، ap (بدهی)، xr (موقعیت صراف؛ تفاوت علامت‌دار، مثبت = سود)
+String fxRevalSideOf(Object? v) {
+  final String s = (v ?? '').toString();
+  return s == 'ap' || s == 'xr' ? s : 'ar';
+}
 
 // ───────────────────────── نرخ ─────────────────────────
 
@@ -160,7 +166,7 @@ class FxRevalDoc {
     final int id = _i(j['doc_id'] ?? j['id']);
     final String ref = _s(j['ref']);
     return FxRevalDoc(
-      side: _s(j['side'], 'ar') == 'ap' ? 'ap' : 'ar',
+      side: fxRevalSideOf(j['side']),
       docId: id,
       ref: ref.isNotEmpty ? ref : (id > 0 ? '#$id' : ''),
       party: _s(j['party']),
@@ -197,7 +203,7 @@ class FxRevalParty {
 
   factory FxRevalParty.fromJson(Map<String, dynamic> j) => FxRevalParty(
         party: _s(j['party']),
-        side: _s(j['side'], 'ar') == 'ap' ? 'ap' : 'ar',
+        side: fxRevalSideOf(j['side']),
         noParty: _b(j['no_party']),
         up: _i(j['up']),
         down: _i(j['down']),
@@ -222,7 +228,7 @@ class FxRevalItem {
   const FxRevalItem({this.side = 'ar', this.ccy = '', this.rate = 0, this.openCcy = 0, this.delta = 0});
 
   factory FxRevalItem.fromJson(Map<String, dynamic> j) => FxRevalItem(
-        side: _s(j['side'], 'ar') == 'ap' ? 'ap' : 'ar',
+        side: fxRevalSideOf(j['side']),
         ccy: _s(j['ccy']).toUpperCase(),
         rate: _d(j['rate']),
         openCcy: _d(j['open_ccy']),
@@ -329,7 +335,7 @@ class FxRevalCandidate {
   });
 
   factory FxRevalCandidate.fromJson(Map<String, dynamic> j) {
-    final String side = _s(j['side'], 'ar') == 'ap' ? 'ap' : 'ar';
+    final String side = fxRevalSideOf(j['side']);
     final int id = _i(j['doc_id']);
     final String k = _s(j['key']);
     final String ref = _s(j['ref']);
@@ -378,6 +384,12 @@ class FxRevalPreview {
   final int netDelta;
   final String fingerprint;
 
+  /// v91 p5: تسعیر موقعیت صرافان (افزایش / کاهش ریالی)، مانده باز هر طرف‌حساب به ارز، توضیح خط‌به‌خط فارسی
+  final int xrUp;
+  final int xrDown;
+  final List<Map<String, dynamic>> partyCcy;
+  final List<String> explain;
+
   const FxRevalPreview({
     this.asOf = '',
     this.items = const <FxRevalItem>[],
@@ -391,6 +403,10 @@ class FxRevalPreview {
     this.docCount = 0,
     this.netDelta = 0,
     this.fingerprint = '',
+    this.xrUp = 0,
+    this.xrDown = 0,
+    this.partyCcy = const <Map<String, dynamic>>[],
+    this.explain = const <String>[],
   });
 
   /// `detail` ردیف‌های قدیمی fx_revals یک آرایهٔ items بود؛ این‌جا فقط شکل شیء پشتیبانی می‌شود (قدیمی را FxRevalRecord تبدیل می‌کند).
@@ -409,17 +425,27 @@ class FxRevalPreview {
       docCount: j.containsKey('doc_count') ? _i(j['doc_count']) : docs.length,
       netDelta: _i(j['net_delta']),
       fingerprint: _s(j['fingerprint']),
+      xrUp: _i(j['xr_up']),
+      xrDown: _i(j['xr_down']),
+      partyCcy: <Map<String, dynamic>>[
+        if (j['party_ccy'] is List)
+          for (final Object? x in j['party_ccy'] as List) if (x is Map) Map<String, dynamic>.from(x),
+      ],
+      explain: <String>[
+        if (j['explain'] is List)
+          for (final Object? x in j['explain'] as List) if (x != null) '$x',
+      ],
     );
   }
 
   DateTime? get asOfDate => _parseDate(asOf);
 
   /// آیا چیزی برای ثبت هست؟ (سند تسعیر فقط وقتی ساخته می‌شود که حداقل یکی از چهار مبلغ غیرصفر باشد.)
-  bool get hasChanges => arUp != 0 || arDown != 0 || apUp != 0 || apDown != 0;
+  bool get hasChanges => arUp != 0 || arDown != 0 || apUp != 0 || apDown != 0 || xrUp != 0 || xrDown != 0;
 
   /// جمع سودها / زیان‌ها (ناخالص بین طرف‌حساب‌ها): سود = بالارفتنِ طلب + پایین‌رفتنِ بدهی.
-  int get totalGain => arUp + apDown;
-  int get totalLoss => arDown + apUp;
+  int get totalGain => arUp + apDown + xrUp; // v91 p5: + صرافان
+  int get totalLoss => arDown + apUp + xrDown;
 
   /// سود خالص تحقق‌نیافته: اول از ریز فاکتورها (طلب delta − بدهی delta)، بعد از items، و در نبود هر دو از ستون‌های up/down.
   int get netGain {
@@ -431,7 +457,7 @@ class FxRevalPreview {
       }
       return n;
     }
-    return (arUp - arDown) - (apUp - apDown);
+    return (arUp - arDown) - (apUp - apDown) + (xrUp - xrDown);
   }
 
   bool get isGain => netGain > 0;

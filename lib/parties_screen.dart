@@ -13,6 +13,20 @@ import 'receipt_screen.dart';
 import 'fmt.dart' show Fmt;
 import 'utils.dart';
 import 'widgets.dart';
+import 'party_filter.dart'; // v91 p5
+import 'xch_ui.dart'; // v91 p5: صرافان
+
+/// v91 p5: مانده‌های ارزی یک طرف‌حساب به‌صورت متن کوتاه («۱۰٬۰۰۰ USD طلب • ۵۰۰ AED بدهی»)؛ ریال فقط وقتی ارز دیگری هست یا [withRial].
+String partyCcyLine(PartyAccount a, {bool withRial = false}) {
+  final Map<String, double> m = a.openByCcy;
+  final bool foreign = m.keys.any((String k) => k != 'IRR');
+  final List<String> parts = <String>[
+    for (final MapEntry<String, double> e in m.entries)
+      if (e.key != 'IRR' || withRial || foreign)
+        '${e.key == 'IRR' ? Fmt.money(e.value.abs(), label: true) : faCcy(e.key, e.value.abs(), dec: 2)} ${e.value > 0 ? 'طلب' : 'بدهی'}',
+  ];
+  return parts.join('  •  ');
+}
 
 /// طرف‌حساب‌ها: برای هر فروشنده/خریدار، جمع خرید و فروش و بدهی/طلب باقی‌مانده
 class PartiesScreen extends StatefulWidget {
@@ -23,11 +37,114 @@ class PartiesScreen extends StatefulWidget {
 
 class _PartiesScreenState extends State<PartiesScreen> {
   String _query = '';
+  PartyFilter _f = const PartyFilter(); // v91 p5
+
+  /// v91 p5: پنل فیلترها (ارز، نوع، بدهکار/بستانکار، بازهٔ مانده، بازهٔ تاریخ، مرتب‌سازی)
+  Future<void> _openFilters(List<String> ccys) async {
+    PartyFilter f = _f;
+    final TextEditingController minC = TextEditingController(text: f.minBalance == null ? '' : f.minBalance!.toStringAsFixed(0));
+    final TextEditingController maxC = TextEditingController(text: f.maxBalance == null ? '' : f.maxBalance!.toStringAsFixed(0));
+    final PartyFilter? res = await showModalBottomSheet<PartyFilter>(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext ctx) => StatefulBuilder(
+        builder: (BuildContext ctx, void Function(void Function()) set) => Padding(
+          padding: EdgeInsets.only(bottom: MediaQuery.of(ctx).viewInsets.bottom, left: 16, right: 16, top: 16),
+          child: SafeArea(
+            child: SingleChildScrollView(
+              child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+                Text('فیلتر طرف‌حساب‌ها', style: Theme.of(ctx).textTheme.titleMedium),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  value: f.ccy,
+                  decoration: const InputDecoration(labelText: 'ارز', border: OutlineInputBorder(), helperText: 'با انتخاب ارز، مانده‌ها به همان ارز سنجیده می‌شوند'),
+                  items: <DropdownMenuItem<String?>>[
+                    const DropdownMenuItem<String?>(value: null, child: Text('همهٔ ارزها (معادل ریالی)')),
+                    for (final String c in ccys) DropdownMenuItem<String?>(value: c, child: Text(c == 'IRR' ? 'فقط ریالی' : c)),
+                  ],
+                  onChanged: (String? v) => set(() => f = f.copyWith(ccy: v)),
+                ),
+                const SizedBox(height: 12),
+                DropdownButtonFormField<String?>(
+                  value: f.type,
+                  decoration: const InputDecoration(labelText: 'نوع طرف‌حساب', border: OutlineInputBorder()),
+                  items: <DropdownMenuItem<String?>>[
+                    const DropdownMenuItem<String?>(value: null, child: Text('همه')),
+                    for (final MapEntry<String, String> e in kPartyTypesFa.entries) DropdownMenuItem<String?>(value: e.key, child: Text(e.value)),
+                  ],
+                  onChanged: (String? v) => set(() => f = f.copyWith(type: v)),
+                ),
+                const SizedBox(height: 12),
+                Wrap(spacing: 6, runSpacing: 6, children: <Widget>[
+                  for (final MapEntry<String, String> e in const <String, String>{
+                    'all': 'همه', 'debtor': 'بدهکار (طلب ما)', 'creditor': 'بستانکار (بدهی ما)', 'open': 'مانده‌دار', 'settled': 'تسویه‌شده',
+                  }.entries)
+                    ChoiceChip(label: Text(e.value), selected: f.side == e.key, onSelected: (bool _) => set(() => f = f.copyWith(side: e.key))),
+                ]),
+                const SizedBox(height: 12),
+                Row(children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      controller: minC,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'حداقل مانده', border: OutlineInputBorder()),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: TextField(
+                      controller: maxC,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      decoration: const InputDecoration(labelText: 'حداکثر مانده', border: OutlineInputBorder()),
+                    ),
+                  ),
+                ]),
+                const Padding(
+                  padding: EdgeInsets.only(top: 4),
+                  child: Text('مانده بدون ارز = به واحد ذخیرهٔ برنامه؛ با ارز = به همان ارز (قدرمطلق).', style: TextStyle(fontSize: 11)),
+                ),
+                const SizedBox(height: 8),
+                dateField(ctx, 'فعالیت از تاریخ', f.from, (DateTime d) => set(() => f = f.copyWith(from: d))),
+                dateField(ctx, 'فعالیت تا تاریخ', f.to, (DateTime d) => set(() => f = f.copyWith(to: d))),
+                DropdownButtonFormField<String>(
+                  value: f.sort,
+                  decoration: const InputDecoration(labelText: 'مرتب‌سازی', border: OutlineInputBorder()),
+                  items: const <DropdownMenuItem<String>>[
+                    DropdownMenuItem<String>(value: 'balance', child: Text('بیشترین مانده')),
+                    DropdownMenuItem<String>(value: 'recent', child: Text('آخرین فعالیت')),
+                    DropdownMenuItem<String>(value: 'name', child: Text('نام')),
+                  ],
+                  onChanged: (String? v) => set(() => f = f.copyWith(sort: v ?? 'balance')),
+                ),
+                const SizedBox(height: 12),
+                Row(children: <Widget>[
+                  TextButton(onPressed: () => Navigator.pop(ctx, const PartyFilter()), child: const Text('پاک کردن همه')),
+                  const Spacer(),
+                  FilledButton(
+                    onPressed: () => Navigator.pop(
+                        ctx, f.copyWith(minBalance: parseNum(minC.text), maxBalance: parseNum(maxC.text))),
+                    child: const Text('اعمال'),
+                  ),
+                ]),
+                const SizedBox(height: 16),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    );
+    if (res != null && mounted) setState(() => _f = res);
+  }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(title: const Text('طرف‌حساب‌ها'), actions: <Widget>[
+        IconButton( // v91 p5
+          tooltip: 'صرافان',
+          icon: const Icon(Icons.currency_exchange),
+          onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ExchangersScreen())),
+        ),
         IconButton(
           tooltip: 'سن بدهی و مطالبات',
           icon: const Icon(Icons.hourglass_bottom),
@@ -61,8 +178,16 @@ class _PartiesScreenState extends State<PartiesScreen> {
               if (a.loanReceivable > 0) loanRecv += a.loanReceivable;
               if (a.loanPayable > 0) loanPay += a.loanPayable;
             }
-            final q = partyKey(_query);
-            final list = q.isEmpty ? all : all.where((a) => a.key.contains(q)).toList();
+            final list = applyPartyFilter(all, _f.copyWith(query: _query)); // v91 p5: فیلترها
+            final ccys = partyCurrencies(all);
+            final String? fc = _f.ccy;
+            double fcRecv = 0, fcPay = 0;
+            if (fc != null) {
+              for (final a in list) {
+                final double b = partyBalanceFor(a, fc);
+                if (b > 0) fcRecv += b; else fcPay -= b;
+              }
+            }
             final scheme = Theme.of(context).colorScheme;
             return ListView(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
@@ -98,14 +223,47 @@ class _PartiesScreenState extends State<PartiesScreen> {
                 const SizedBox(height: 8),
                 const CashFlowCard(),
                 const SizedBox(height: 8),
-                TextField(
-                  decoration: const InputDecoration(
-                    labelText: 'جستجوی نام',
-                    prefixIcon: Icon(Icons.search),
-                    border: OutlineInputBorder(),
+                Row(children: <Widget>[
+                  Expanded(
+                    child: TextField(
+                      decoration: const InputDecoration(
+                        labelText: 'جستجوی نام',
+                        prefixIcon: Icon(Icons.search),
+                        border: OutlineInputBorder(),
+                      ),
+                      onChanged: (v) => setState(() => _query = v),
+                    ),
                   ),
-                  onChanged: (v) => setState(() => _query = v),
-                ),
+                  const SizedBox(width: 8),
+                  Badge( // v91 p5
+                    isLabelVisible: _f.activeCount > 0,
+                    label: Text('${_f.activeCount}'),
+                    child: IconButton.filledTonal(
+                      tooltip: 'فیلترها',
+                      icon: const Icon(Icons.filter_list),
+                      onPressed: () => _openFilters(ccys),
+                    ),
+                  ),
+                ]),
+                if (fc != null)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(10),
+                      child: Column(children: <Widget>[
+                        infoRow('جمع طلب‌ها ($fc)', fc == 'IRR' ? Fmt.money(fcRecv) : faCcy(fc, fcRecv, dec: 2), valueColor: Colors.green.shade800),
+                        infoRow('جمع بدهی‌ها ($fc)', fc == 'IRR' ? Fmt.money(fcPay) : faCcy(fc, fcPay, dec: 2), valueColor: Colors.red.shade800),
+                      ]),
+                    ),
+                  ),
+                if (_f.activeCount > 0)
+                  Align(
+                    alignment: AlignmentDirectional.centerStart,
+                    child: TextButton.icon(
+                      onPressed: () => setState(() => _f = PartyFilter(sort: _f.sort)),
+                      icon: const Icon(Icons.clear),
+                      label: Text('${faNum(list.length, dec: 0)} مورد • حذف فیلترها'),
+                    ),
+                  ),
                 const SizedBox(height: 8),
                 for (final a in list) _tile(context, a),
                 const SizedBox(height: 70), // جا برای دکمهٔ شناور
@@ -120,8 +278,10 @@ class _PartiesScreenState extends State<PartiesScreen> {
   }
 
   Widget _tile(BuildContext context, PartyAccount a) {
-    final total = a.totalNet;
-    final settled = total.abs() < 1;
+    final String? fc = _f.ccy; // v91 p5: با فیلتر ارز، مانده همان ارز نمایش داده می‌شود
+    final total = fc == null ? a.totalNet : partyBalanceFor(a, fc);
+    final settled = total.abs() < (fc == null || fc == 'IRR' ? 1 : 0.005);
+    final String ccyLine = partyCcyLine(a);
     final color = settled
         ? Colors.black54
         : (total > 0 ? Colors.green.shade800 : Colors.red.shade800);
@@ -134,13 +294,16 @@ class _PartiesScreenState extends State<PartiesScreen> {
     return Card(
       key: ValueKey('party${a.key}'),
       child: ListTile(
-        title: Text(a.name),
-        subtitle: Text(lines.isEmpty ? 'بدون تراکنش' : lines),
+        title: Row(children: <Widget>[
+          Flexible(child: Text(a.name)),
+          if (a.isExchanger) ...<Widget>[const SizedBox(width: 6), const Icon(Icons.currency_exchange, size: 16)],
+        ]),
+        subtitle: Text((lines.isEmpty ? 'بدون تراکنش' : lines) + (ccyLine.isEmpty ? '' : '\n$ccyLine')),
         trailing: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           crossAxisAlignment: CrossAxisAlignment.end,
           children: [
-            Text(settled ? 'تسویه' : Fmt.money(total.abs(), label: false),
+            Text(settled ? 'تسویه' : (fc == null || fc == 'IRR' ? Fmt.money(total.abs(), label: false) : faCcy(fc, total.abs(), dec: 2)),
                 style: TextStyle(fontWeight: FontWeight.w700, color: color)),
             Text(settled ? '' : (total > 0 ? 'طلب ما' : 'بدهی ما'),
                 style: TextStyle(fontSize: 11, color: color)),
@@ -241,6 +404,27 @@ class PartyDetailScreen extends StatelessWidget {
             ]),
           ),
         ),
+        if (a.openByCcy.keys.any((String k) => k != 'IRR')) // v91 p5: مانده به ارز سند
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+                Text('مانده به تفکیک ارز', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                for (final MapEntry<String, double> e in a.openByCcy.entries)
+                  infoRow(
+                    e.key == 'IRR' ? 'ریالی' : e.key,
+                    '${e.key == 'IRR' ? Fmt.money(e.value.abs()) : faCcy(e.key, e.value.abs(), dec: 2)} ${e.value > 0 ? '(او به ما بدهکار است)' : '(ما به او بدهکاریم)'}',
+                    valueColor: e.value > 0 ? Colors.green.shade800 : Colors.red.shade800,
+                  ),
+              ]),
+            ),
+          ),
+        if (a.isExchanger) ...<Widget>[ // v91 p5: صراف
+          XchCard(account: a),
+          if (a.xchPositions.isEmpty)
+            const Padding(padding: EdgeInsets.all(4), child: Text('این طرف‌حساب صراف است؛ حرکت‌هایش را از «صرافان» ثبت کنید.')),
+        ],
         const SizedBox(height: 8),
         if (a.key.isNotEmpty) ...[
           _loanBook(context, a),
@@ -381,7 +565,7 @@ class PartyDetailScreen extends StatelessWidget {
   }
 
   Widget _entry(BuildContext context, PartyAccount a, PartyEntry e) {
-    final open = e.remaining > 0.5;
+    final open = e.isForeign ? e.remainingCcy > 0.005 : e.remaining > 0.5; // v91 p5: فاکتور ارزی با ارز خودش سنجیده می‌شود
     return Card(
       key: ValueKey('${e.isPurchase}${e.id}'),
       child: ListTile(
@@ -389,6 +573,8 @@ class PartyDetailScreen extends StatelessWidget {
         title: Text('${e.isPurchase ? 'خرید' : 'فروش'} ${e.label} • ${faNum(e.weight)} کیلو (خالص)'),
         subtitle: Text(
           '${jalaliDateFromDt(e.date)}\n'
+          '${e.isForeign ? 'مبلغ ${faCcy(e.ccy!, e.totalCcy, dec: 2)} • تسویه‌شده ${faCcy(e.ccy!, e.settledCcy, dec: 2)}'
+              '${e.remainingCcy > 0.005 ? ' • مانده ${faCcy(e.ccy!, e.remainingCcy, dec: 2)}' : ' • تسویه کامل'}\nمعادل: ' : ''}' // v91 p5: به ارز سند
           'مبلغ ${Fmt.money(e.total, label: false)} • تسویه‌شده ${Fmt.money(e.settled, label: false)}'
           '${open ? ' • مانده ${Fmt.money(e.remaining, label: false)}' : ' • تسویه کامل'}',
           style: TextStyle(color: open ? Theme.of(context).colorScheme.error : null),
