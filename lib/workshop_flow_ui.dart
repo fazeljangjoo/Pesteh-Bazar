@@ -16,6 +16,7 @@ import 'workshop_calc.dart';
 import 'anomaly_ui.dart' show YieldAssessmentCard; // فاز ۱ قابلیت‌های فناورانه (پشت پرچم features.anomaly)
 import 'workshop_reports_ui.dart' show CrackLineReportScreen, wsPrintOp, wsPrintOpsList;
 import 'ws_shifts_ui.dart' show WsShiftsCard; // v86: شیفت‌های شکست
+import 'ws_recrack_ui.dart' show WsRecrackCard; // v91 p4: شکست مجدد نشکن
 import 'workshop_ui.dart' show kWsBuyLabel, kWsCostFields, kWsMissingInputCost, wsCanCost, wsParseNum, wsReadOnlyField;
 
 /// فاز ۲ مجد — «کارگاه مرحله‌ای» (فایل مشترک اندروید و ویندوز؛ بدون واژهٔ مخصوص پلتفرم).
@@ -1208,6 +1209,23 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
 
   double get _outKg => _outs.fold<double>(0, (double s, Map<String, dynamic> r) => s + ReturnsHelp.d(r['kg']));
 
+  // ── v91 p4: شکست مجدد نشکن (همین فرم؛ دور ۰ = شکست اول) ──
+  /// دور جاری = تعداد شکست‌های مجدد ثبت‌شده؛ خروجی‌ها و شیفت‌های تازه با همین دور ثبت می‌شوند.
+  int get _round => _isCrack ? ReturnsHelp.maps(_d['recracks']).length : 0;
+
+  /// خروجی‌ها به ترتیب دور، با سرتیتر هر دور (فقط وقتی شکست مجدد هست).
+  List<Map<String, dynamic>> get _outsByRound {
+    if (_round == 0) return _outs;
+    final List<WsRound> rs = wsRecrackRounds(_d);
+    return <Map<String, dynamic>>[
+      for (final WsRound w in rs) ...<Map<String, dynamic>>[
+        <String, dynamic>{'_hdr': w.round == 0 ? wsRoundLabel(0) : '${wsRoundLabel(w.round)} — ${_kg(w.kg)} کیلو نشکن'},
+        ..._outs.where((Map<String, dynamic> r) => wsRoundOf(r) == w.round),
+      ],
+    ];
+  }
+
+
   Widget _kvRow(String k, String v, {bool strong = false, Color? color}) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(children: <Widget>[
@@ -1238,14 +1256,18 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
     if (!_isCrack || _outs.isEmpty) return null;
     final double kernel = _sumGrade('kernel');
     final double uncr = _sumGrade('uncracked');
-    double hullVal = 0, uncrAdj = 0;
+    double hullVal = 0, uncrAdj = 0, uncrVal = 0;
     final double? buy0 = _optD(_d['buy_per_kg']);
     for (final Map<String, dynamic> r in _outs) {
       final dynamic hp = r['out_price'] ?? r['price_per_kg']; // صف آفلاین: price_per_kg
       if (r['grade'] == 'hull' && hp != null) hullVal += ReturnsHelp.d(r['kg']) * ReturnsHelp.d(hp);
       // v87: نشکن با بهای واردشده (به‌جای P) ⇒ اختلافش روی بهای مغز
       if (r['grade'] == 'uncracked' && hp != null && buy0 != null) uncrAdj += ReturnsHelp.d(r['kg']) * (buy0 - ReturnsHelp.d(hp));
+      if (r['grade'] == 'uncracked' && buy0 != null) uncrVal += ReturnsHelp.d(r['kg']) * (hp == null ? buy0 : ReturnsHelp.d(hp)); // v91 p4
     }
+    // v91 p4: بسته با فرمول قدیمی (cost_formula=1) ⇒ همان عدد ذخیره‌شده؛ باز یا تازه ⇒ پایستگی ارزش
+    final bool legacy = _d['status'] == 'done' && ReturnsHelp.d(_d['cost_formula'] ?? 1) < 2;
+    final List<WsRound> rounds = wsRecrackRounds(_d);
     final bool cost = wsCanCost();
     final double? buy = _optD(_d['buy_per_kg']);
     final double crackCost = ReturnsHelp.d(_d['crack_cost_per_kg']);
@@ -1259,6 +1281,9 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
       lineLoss: line,
       uncrackedKg: uncr,
       outKg: _outKg,
+      hullValue: hullVal,
+      uncrackedValue: buy == null ? null : uncrVal,
+      formula: legacy ? 1 : kWsCostFormula, // v91 p4
     );
     // بسته ⇒ مقدار ذخیره‌شدهٔ سرور (همان که روی لات مغز نشسته)
     final double? unit = (_d['status'] == 'done' && _d['kernel_cost_per_kg'] != null) ? ReturnsHelp.d(_d['kernel_cost_per_kg']) : r.unitCost;
@@ -1282,7 +1307,9 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
           Text('اطلاعات خروجی شکست', style: Theme.of(context).textTheme.titleMedium),
           const Divider(),
           ..._weightBalance(t.inputKg, 'وزن ارسالی به خط'),
-          _kvRow('مغز / پوست / نشکن', '${_kg(kernel)} / ${_kg(_sumGrade('hull'))} / ${_kg(uncr)} کیلو'),
+          _kvRow(rounds.length > 1 ? 'مغز / پوست (همهٔ دورها) / نشکن نهایی' : 'مغز / پوست / نشکن', '${_kg(kernel)} / ${_kg(_sumGrade('hull'))} / ${_kg(uncr)} کیلو'),
+          if (rounds.length > 1) // v91 p4
+            _kvRow('شکست مجدد نشکن', '${_kg(rounds.fold<double>(0, (double a, WsRound x) => a + x.kg))} کیلو در ${faNum(rounds.length - 1, dec: 0)} دور (ورودی یک بار شمرده می‌شود)'),
           const Divider(),
           if (kernel > 0) ...<Widget>[
             if (r.expectedKernelKg != null) _kvRow('مغز مورد انتظار (طبق گرم پرتی خط)', '${_kg(r.expectedKernelKg)} کیلو'),
@@ -1302,13 +1329,15 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
             if (uncr > 0)
               _kvRow(uncrAdj.abs() > 0.005 ? 'بهای نشکن (واردشده)' : 'بهای هر کیلو نشکن (= P)',
                   uncrAdj.abs() > 0.005 ? 'ارزش ${Fmt.money(uncr * (buy ?? 0) - uncrAdj, label: false)}' : (buy == null ? '—' : Fmt.money(buy, label: false))),
-            if (hullVal > 0) _kvRow('ارزش پوست (بر بهای مغز اثری ندارد)', Fmt.money(hullVal, label: false)),
+            if (hullVal > 0) _kvRow(legacy ? 'ارزش پوست (بر بهای مغز اثری ندارد)' : 'ارزش پوست (از بهای مغز کسر می‌شود)', Fmt.money(hullVal, label: false)),
             Row(children: <Widget>[
               Expanded(child: Text('هزینهٔ شکست هر کیلو مغز: ${Fmt.money(crackCost, label: false)}')),
               if (_open && StaffPerms.I.fieldEditable('ws.costs')) TextButton.icon(onPressed: _busy ? null : _editCosts, icon: const Icon(Icons.edit, size: 18), label: const Text('ثبت هزینه')),
             ]),
             _kvRow('بهای تمام‌شدهٔ هر کیلو مغز', unit == null ? '—' : Fmt.money(unit, label: false), strong: true),
-            Text('بهای مغز = بهای کل پستهٔ ورودی ÷ وزن مغز + هزینهٔ شکست؛ ضایعات و پرتی هم روی مغز می‌نشیند. پوست و نشکن روی بهای مغز اثری ندارند (نشکن = بهای واردشده یا قیمت ورودی).',
+            Text(legacy
+                ? 'این عملیات پیش از v91 بسته شده و بهایش با فرمول قبلی ذخیره شده است (بهای کل ورودی ÷ مغز + هزینهٔ شکست).'
+                : 'بهای مغز = (ارزش کل پستهٔ ورودی − ارزش نشکن − ارزش پوستِ قیمت‌دار) ÷ وزن مغز + هزینهٔ شکست؛ ضایعات و پرتی روی مغز می‌نشیند. نشکن = بهای واردشده یا قیمت ورودی؛ پوست بی‌قیمت محصول جانبی است. با شکست مجدد، مغز همهٔ دورها جمع و نشکنِ نهایی کسر می‌شود.',
                 style: TextStyle(fontSize: 12, color: Theme.of(context).hintColor)),
             if ('${_d['input_cost_warning'] ?? ''}' == 'missing_input_cost') const Text(kWsMissingInputCost, style: TextStyle(color: Colors.orange)),
           ],
@@ -1505,6 +1534,7 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
         'uid': r?['uid'] ?? ReturnsHelp.newUid('wx'),
         if (r?['id'] != null) 'output_id': r!['id'],
         ...res,
+        if (r == null && _round > 0) 'round': _round, // v91 p4: خروجی تازه ⇒ دور جاری
       },
       'خروجی کارگاه: ${_outTitle(res)} ${faNum(ReturnsHelp.d(res['kg']), dec: 3)} کیلو',
       localError: wsFlowCheck(_d['status'] as String?, 'output_save'),
@@ -1801,12 +1831,22 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
                       WsShiftsCard(
                         shifts: ReturnsHelp.maps(_d['shifts']),
                         editable: !_busy && (_can('workshop.operate') || _can('workshop.manage')) && StaffPerms.I.fieldEditable('ws.shifts'),
-                        hint: _outs.isEmpty ? 'پیش از ثبت خروجی‌ها، شیفت‌های کار خط را وارد کنید.' : null,
+                        hint: _outs.isEmpty
+                            ? 'پیش از ثبت خروجی‌ها، شیفت‌های کار خط را وارد کنید.'
+                            : (_round > 0 ? 'شیفت‌های تازه برای «${wsRoundLabel(_round)}» ثبت می‌شوند.' : null),
+                        round: _round, // v91 p4: شیفت‌های تازه با دور شکست مجدد
                         onSave: (List<Map<String, dynamic>> v) => _send('shifts_save', <String, dynamic>{'shifts': v}, 'شیفت‌های شکست'),
                       ),
                     _section('خروجی‌ها (فقط هنگام بستن وارد موجودی می‌شوند)', <Widget>[
                       if (_outs.isEmpty) const Padding(padding: EdgeInsets.all(8), child: Text('هنوز خروجی ثبت نشده')),
-                      for (final Map<String, dynamic> r in _outs)
+                      // v91 p4: با شکست مجدد، خروجی‌ها به تفکیک دور (شکست اول / شکست مجدد n)
+                      for (final Map<String, dynamic> r in _outsByRound)
+                        if (r['_hdr'] != null)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(8, 8, 8, 0),
+                            child: Text('${r['_hdr']}', style: TextStyle(fontWeight: FontWeight.bold, color: Theme.of(context).colorScheme.primary)),
+                          )
+                        else
                         ListTile(
                           dense: true,
                           title: Text('${_outTitle(r)} — ${_kg(r['kg'])} کیلو'),
@@ -1825,6 +1865,14 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
                           trailing: edit ? IconButton(tooltip: 'حذف', icon: const Icon(Icons.delete_outline), onPressed: () => _deleteOutput(r)) : null,
                         ),
                     ], action: edit ? TextButton.icon(onPressed: () => _editOutput(), icon: const Icon(Icons.add), label: const Text('ثبت خروجی')) : null),
+                    if (WsRecrackCard.shown(_d)) // v91 p4: شکست مجدد نشکن (قبل از ارسال به سورت)
+                      WsRecrackCard(
+                        detail: _d,
+                        editable: !_busy && (_can('workshop.operate') || _can('workshop.manage')),
+                        onRecrack: (double kg, String date) => _send('recrack', <String, dynamic>{'uid': ReturnsHelp.newUid('wr'), 'kg': kg, 'date': date},
+                            'شکست مجدد نشکن: ${faNum(kg, dec: 3)} کیلو'),
+                        onUndo: (int r) => _send('recrack_undo', <String, dynamic>{'round': r}, 'لغو شکست مجدد نشکن'),
+                      ),
                     if (outCard != null) outCard,
                     if (_chainCard() != null) _chainCard()!, // v85: تولید (سورت) در همین فرایند شکست
                     const SizedBox(height: 12),
@@ -2317,7 +2365,7 @@ class _CloseDialogState extends State<_CloseDialog> {
             if (_crack) ...<Widget>[
               gap,
               Text('بهای مغز با فرمول شکست حساب می‌شود (هزینهٔ شکست هر کیلو مغز: '
-                  '${Fmt.money(ReturnsHelp.d(widget.detail['crack_cost_per_kg']), label: false)}). بهای مغز = بهای کل ورودی ÷ مغز + هزینهٔ شکست. نشکن = بهای واردشده یا قیمت ورودی. قیمت پوست اختیاری است و روی بهای مغز اثری ندارد.'),
+                  '${Fmt.money(ReturnsHelp.d(widget.detail['crack_cost_per_kg']), label: false)}). بهای مغز = (ارزش ورودی − ارزش نشکن − ارزش پوستِ قیمت‌دار) ÷ مغز + هزینهٔ شکست؛ نشکن = بهای واردشده یا قیمت ورودی؛ پوست بی‌قیمت محصول جانبی است. مغز همهٔ دورهای شکست مجدد جمع می‌شود.'),
             ],
             if (_single) ...<Widget>[
               gap,

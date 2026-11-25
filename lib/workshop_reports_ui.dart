@@ -77,13 +77,15 @@ class _CrackLineReportScreenState extends State<CrackLineReportScreen> {
       ];
 
   List<String> get _opHeads => <String>[
-        'تاریخ', 'خط', 'نوع پسته', 'ورودی', 'مغز', 'پوست', 'نشکن', 'ضایعات', 'گرم اولیه', 'گرم دریافتی', 'افت گرم', 'اعلامی', 'اختلاف', 'وزن پرتی',
+        'تاریخ', 'خط', 'نوع پسته', 'ورودی', 'مغز', 'پوست', 'نشکن', 'شکست مجدد', 'ضایعات', // v91 p4: نشکنِ دوباره شکسته‌شده 'گرم اولیه', 'گرم دریافتی', 'افت گرم', 'اعلامی', 'اختلاف', 'وزن پرتی',
         if (wsCanCost()) 'بهای هر کیلو مغز',
       ];
 
   List<String> _opRow(Map<String, dynamic> r) => <String>[
         jalaliDate('${r['date'] ?? ''}'), '${r['line_name'] ?? '—'}', '${r['pistachio_type'] ?? ''}', _kg(r['input_kg']), _kg(r['kernel_kg']), _kg(r['hull_kg']),
-        _kg(r['uncracked_kg']), r['waste_kg'] == null ? '—' : _kg(r['waste_kg']), _g2(r['init_gram']), _g2(r['recv_gram']), _g2(r['loss_gram']),
+        _kg(r['uncracked_kg']),
+        ReturnsHelp.d(r['recrack_kg']) > 0 ? '${_kg(r['recrack_kg'])} (${faNum(ReturnsHelp.d(r['recrack_rounds']), dec: 0)} دور)' : '—', // v91 p4 (سرور قدیمی ⇒ —)
+        r['waste_kg'] == null ? '—' : _kg(r['waste_kg']), _g2(r['init_gram']), _g2(r['recv_gram']), _g2(r['loss_gram']),
         _g2(r['declared_loss']), _signed(r['gram_vs_line']), r['loss_kg'] == null ? '—' : _kg(r['loss_kg']),
         if (wsCanCost()) r['kernel_cost_per_kg'] == null ? '—' : Fmt.money(ReturnsHelp.d(r['kernel_cost_per_kg']), label: false),
       ];
@@ -162,7 +164,7 @@ class _CrackLineReportScreenState extends State<CrackLineReportScreen> {
                 rows: <DataRow>[
                   for (final Map<String, dynamic> r in _items)
                     DataRow(cells: <DataCell>[
-                      for (int i = 0; i < _opHeads.length; i++) cell(_opRow(r)[i], color: i == 12 ? tone(r['gram_vs_line']) : null, bold: i == 12),
+                      for (int i = 0; i < _opHeads.length; i++) cell(_opRow(r)[i], color: i == 13 ? tone(r['gram_vs_line']) : null, bold: i == 13), // v91 p4: +ستون شکست مجدد
                     ]),
                 ],
               ),
@@ -201,7 +203,7 @@ Future<void> wsPrintOp(BuildContext context, Map<String, dynamic> d, {required S
         <String>['ورودی', '${r['type_name'] ?? ''}', '${r['code'] ?? ''}', _kg(r['kg']), '${faNum(ReturnsHelp.d(r['small_sacks']), dec: 0)}/${faNum(ReturnsHelp.d(r['large_sacks']), dec: 0)}',
           if (cost) r['cost'] == null ? '—' : Fmt.money(ReturnsHelp.d(r['cost']), label: false)],
       for (final Map<String, dynamic> r in outs)
-        <String>['خروجی', titleOf(r) + ('${r['lot_name'] ?? ''}'.isEmpty ? '' : ' (${r['lot_name']})'), '${r['code'] ?? ''}', _kg(r['kg']),
+        <String>['خروجی', titleOf(r) + ('${r['lot_name'] ?? ''}'.isEmpty ? '' : ' (${r['lot_name']})') + (wsRoundOf(r) > 0 ? ' — ${wsRoundLabel(wsRoundOf(r))}' : ''), '${r['code'] ?? ''}', _kg(r['kg']),
           '${faNum(ReturnsHelp.d(r['small_sacks']), dec: 0)}/${faNum(ReturnsHelp.d(r['large_sacks']), dec: 0)}',
           if (cost) ReturnsHelp.d(r['cost']) == 0 ? '—' : Fmt.money(ReturnsHelp.d(r['cost']), label: false)],
     ],
