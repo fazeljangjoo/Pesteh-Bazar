@@ -7,7 +7,7 @@ import 'db.dart';
 
 /// Bump when [kEntityRegistry] changes in a way the server must know about (informational; the server
 /// stays the authority: only entities it exports/lists are shown, see [EntityStore.visibleNames]).
-const int kEntityRegistryVersion = 5; // v91 p5: xch_moves (صراف) // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
+const int kEntityRegistryVersion = 6; // v92: settlements (شناسنامهٔ پرداخت/وصول) + xch_moves.links // v91 p5: xch_moves (صراف) // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
 
 /// One field of an entity (mirrors a column spec of `server/backend/api/entities.php`).
 /// type: string | text | int | bigint | decimal | bool | date | datetime | enum | ref | json
@@ -332,9 +332,33 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
       EntityField('cash_box', 'صندوق', 'ref', ref: 'cash_boxes'),
       EntityField('bank_account', 'حساب بانکی', 'ref', ref: 'bank_accounts'),
       EntityField('note', 'توضیح', 'string', max: 500),
+      EntityField('links', 'پیوند به واریزها', 'json', max: 20000), // v92: [{lot, amt}] لات‌هایی که اول بسته می‌شوند
     ],
     search: <String>['exchanger', 'party', 'note'],
     listFields: <String>['date', 'exchanger', 'amount_ccy'],
+    orderCol: 'date',
+    permCreate: 'receipts.save',
+    permEdit: 'receipts.save',
+    permDelete: 'receipts.save',
+  ),
+  // v92 — شناسنامهٔ پرداخت/وصول (آینهٔ موجودیت سرور `settlements`؛ صفحهٔ خودش در settle_ui.dart). مبالغ به ارز خودشان (IRR = ریال)؛ هیچ‌کدام ×۱۰ نمی‌شود.
+  'settlements': EntitySpec(
+    'settlements',
+    'شناسنامهٔ پرداخت/وصول',
+    <EntityField>[
+      EntityField('date', 'تاریخ', 'date', required: true),
+      EntityField('dir', 'جهت', 'enum', required: true, values: <String>['recv', 'pay'], valueLabels: <String, String>{'recv': 'وصول', 'pay': 'پرداخت'}),
+      EntityField('party', 'طرف‌حساب', 'string', required: true, max: 150, party: true),
+      EntityField('ccy', 'ارز', 'string', required: true, max: 8),
+      EntityField('amount_ccy', 'مبلغ', 'decimal', vmin: 0, scale: 4),
+      EntityField('alloc_mode', 'روش تخصیص', 'enum', values: <String>['fifo', 'manual'], defaultValue: 'fifo'),
+      EntityField('alloc', 'تخصیص', 'json', max: 60000),
+      EntityField('legs', 'مراحل', 'json', required: true, max: 60000),
+      EntityField('ref_no', 'شماره', 'string', max: 20),
+      EntityField('note', 'توضیح', 'string', max: 500),
+    ],
+    search: <String>['party', 'ref_no', 'note'],
+    listFields: <String>['date', 'party', 'amount_ccy'],
     orderCol: 'date',
     permCreate: 'receipts.save',
     permEdit: 'receipts.save',

@@ -17,6 +17,7 @@ import 'entity_store.dart';
 import 'money_unit.dart'; // S29.T29.3
 import 'fmt.dart' show Fmt; // S35.T35.11
 import 'fx_doc_field.dart' show kFxRialPerStoredUnit;
+import 'loan_calc.dart'; // v92 فاز ج
 import 'return_calc.dart' show settleDueRow, DueSettle; // S36: return-credit settlement (pure)
 
 
@@ -97,7 +98,7 @@ const List<(String, List<String>)> _kSnapshot = [
   ),
   // طرف‌حساب‌های تعریف‌شده‌ی دستی و دفتر قرض/وام (در سود و زیان حساب نمی‌شوند)
   ('parties', ['id', 'name', 'types']), // v91 p5: types (JSON) ⇒ فیلتر نوع طرف‌حساب (صراف و …)
-  ('loan_entries', ['id', 'uid', 'party', 'kind', 'amount', 'date', 'note', 'created_at']),
+  ('loan_entries', ['id', 'uid', 'party', 'kind', 'amount', 'date', 'note', 'created_at', 'ccy', 'ccy_amount', 'fx_rate', 'account_uid', 'loan_ref']), // v92 فاز ج: قرض چندارزی
   ('loan_dues', ['id', 'loan_uid', 'seq', 'due_date', 'amount', 'note', 'paid']),
   // S04.T04.4b: برگشت از خرید/فروش (آینهٔ محلی؛ سرور در backup.export می‌فرستد)
   ('purchase_returns', ['id', 'uid', 'number', 'party', 'date', 'refund_mode', 'refund_amount', 'cheque_no', 'cheque_due', 'note', 'tax_amount', 'created_at', 'edit_version']),
@@ -231,6 +232,7 @@ class AppDb {
     // سرعت: ایندکس‌های جدید روی دیتابیس‌های قدیمی هم ساخته می‌شود (IF NOT EXISTS؛ بار دوم تقریباً رایگان است)
     try { await _createSpeedIndexes(d); } catch (_) {}
     try { await addV91P5Cols(d); } catch (_) {} // v91 p5
+    try { await addV92LoanCols(d); } catch (_) {} // v92 فاز ج
     moneyUnit = await MoneyUnit.localUnit(d);
     try { await Fmt.loadFrom(d); } catch (_) {} // S35.T35.11: display unit / digits (meta table may be absent on first open)
     return d;
@@ -425,6 +427,18 @@ class AppDb {
 
   /// v91 p5 (سرور v99): `account_uid` اختیاری روی ۶ جدول ردیف پرداخت/دریافت (پیوند به صندوق/حساب بانکی) + `parties.types`.
   /// در هر بار باز شدن بررسی می‌شود (بدون افزایش schemaVersion)؛ ستون موجود ⇒ کاری نمی‌کند.
+  /// v92 فاز ج: ستون‌های ارزی دفتر قرض (بررسی در هر باز شدن؛ بدون افزایش schemaVersion)
+  static Future<void> addV92LoanCols(DatabaseExecutor d) async {
+    final List<Map<String, Object?>> info = await d.rawQuery('PRAGMA table_info(loan_entries)');
+    if (info.isEmpty) return;
+    for (final (String c, String type) in const <(String, String)>[('ccy', 'TEXT'), ('ccy_amount', 'REAL'), ('fx_rate', 'REAL'), ('account_uid', 'TEXT'), ('loan_ref', 'TEXT')]) {
+      if (info.any((Map<String, Object?> r) => r['name'] == c)) continue;
+      try {
+        await d.execute('ALTER TABLE loan_entries ADD COLUMN $c $type');
+      } catch (_) {/* همزمان ساخته شد */}
+    }
+  }
+
   static Future<void> addV91P5Cols(DatabaseExecutor d) async {
     for (final String t in const <String>[
       'lump_tx', 'credit_inst', 'cheque_inst', 'receipt_lump_tx', 'receipt_credit_inst', 'receipt_cheque_inst', 'parties',
@@ -838,6 +852,7 @@ class AppDb {
     await addEditVersionCols(d); // فاز ۳
     await addStockHoldCol(d); // v89
     await addV91P5Cols(d); // v91 p5
+    await addV92LoanCols(d); // v92 فاز ج
     await _createIndexes(d);
     // نکته: دسته‌ها و انواع پیش‌فرض را سرور می‌سازد (bootstrap) و هنگام ورود دریافت می‌شوند.
   }
@@ -3570,6 +3585,9 @@ class AppDb {
   ///  repay_in = بازپرداخت دریافتی (او پس داد)   repay_out = بازپرداخت پرداختی (ما پس دادیم)
   /// [dues]: برای اعطا/دریافت قرض، تا ۲۰ سررسید {due_date, amount, note}؛ مبلغ و تاریخ سررسید الزامی است
   /// و جمع مبلغ‌ها باید با مبلغ قرض برابر باشد. سررسیدها در صفحهٔ «سررسیدها» یادآوری می‌شوند.
+  ///
+  /// v92 فاز ج: [ccy] غیر از IRR ⇒ قرض ارزی: [ccyAmount] به ارز خودش و [fxRate] ریال بر واحد؛ `amount` معادل ریالی (واحد ذخیره) خودکار حساب می‌شود
+  /// و مبلغ سررسیدها به ارز قرض است. [accountUid] = صندوق/حساب ما (اختیاری)، [loanRef] = بازپرداخت ⇐ کدام قرض (اختیاری؛ خالی = قدیمی‌ترین).
   Future<int> addLoanEntry({
     required String party,
     required String kind,
@@ -3577,10 +3595,21 @@ class AppDb {
     required DateTime date,
     String? note,
     List<Map<String, dynamic>> dues = const [],
+    String ccy = 'IRR',
+    double ccyAmount = 0,
+    double fxRate = 0,
+    String? accountUid,
+    String? loanRef,
   }) async {
     final p = _partyNorm(party);
     if (p.isEmpty) throw Exception('طرف‌حساب مشخص نیست');
     if (!kLoanKinds.contains(kind)) throw Exception('نوع تراکنش نامعتبر است');
+    final bool foreign = ccy != 'IRR';
+    if (foreign) {
+      if (ccyAmount <= 0) throw Exception('مبلغ ارزی را وارد کنید');
+      if (fxRate <= 0) throw Exception('نرخ ریالی $ccy را وارد کنید');
+      amount = _r(ccyAmount * fxRate / kFxRialPerStoredUnit, 2);
+    }
     if (amount <= 0 || amount > 1e13) throw Exception('مبلغ را درست وارد کنید');
     final isRepay = kind == 'repay_in' || kind == 'repay_out';
     if (isRepay && dues.isNotEmpty) throw Exception('برای بازپرداخت سررسید ثبت نمی‌شود');
@@ -3599,12 +3628,22 @@ class AppDb {
       cleanDues.add({'seq': i + 1, 'due_date': _dateOnly('$dd'), 'amount': a, 'note': _s(dues[i]['note'], 200)});
       sum += a;
     }
-    if (cleanDues.isNotEmpty && (sum - amt).abs() > 0.5) {
-      throw Exception('جمع مبلغ سررسیدها (${_fmt(sum)}) باید برابر مبلغ قرض (${_fmt(amt)}) باشد');
+    final double dueTotal = foreign ? ccyAmount : amt; // v92: سررسید قرض ارزی به ارز خودش
+    if (cleanDues.isNotEmpty && (sum - dueTotal).abs() > (foreign ? 0.005 : 0.5)) {
+      throw Exception('جمع مبلغ سررسیدها (${_fmt(sum)}) باید برابر مبلغ قرض (${_fmt(dueTotal)}) باشد');
     }
     late int id;
     await _write((d) => d.transaction((t) async {
-          if (isRepay) {
+          if (isRepay && foreign) { // v92: ماندهٔ قرض‌های همین ارز (همان تطبیق سرور)
+            final LoanMatch lm = loanMatch(<LoanRow>[for (final r in await t.query('loan_entries')) LoanRow.fromRow(r)], kFxRialPerStoredUnit.round());
+            final String side = kind == 'repay_in' ? 'given' : 'taken';
+            double open = 0;
+            for (final LoanLot l in lm.loans.values) {
+              if (l.kind == side && l.party == p && l.ccy == ccy) open += l.open;
+            }
+            if (open <= 0.005) throw Exception('قرض بازی به $ccy برای بازپرداخت وجود ندارد');
+            if (ccyAmount > open + 0.005) throw Exception('مبلغ بازپرداخت (${_fmt(ccyAmount)} $ccy) از مانده (${_fmt(open)} $ccy) بیشتر است');
+          } else if (isRepay) {
             final owed = await _loanOutstanding(t, p, kind == 'repay_in' ? 'given' : 'taken');
             if (owed <= 0.5) throw Exception('بدهی برای بازپرداخت وجود ندارد');
             if (amt > owed + 0.5) {
@@ -3621,6 +3660,11 @@ class AppDb {
             'date': dt,
             'note': nt,
             'created_at': _stamp(),
+            if (foreign) 'ccy': ccy,
+            if (foreign) 'ccy_amount': ccyAmount,
+            if (foreign) 'fx_rate': fxRate,
+            if ((accountUid ?? '').isNotEmpty) 'account_uid': accountUid,
+            if ((loanRef ?? '').isNotEmpty && isRepay) 'loan_ref': loanRef,
           });
           for (final du in cleanDues) {
             final did = await _tempId(t, 'loan_dues');
@@ -3637,6 +3681,11 @@ class AppDb {
                 'date': dt,
                 'note': nt,
                 if (cleanDues.isNotEmpty) 'dues': cleanDues,
+                if (foreign) 'ccy': ccy, // v92 فاز ج (سرور قدیمی این کلیدها را نادیده می‌گیرد)
+                if (foreign) 'ccy_amount': ccyAmount,
+                if (foreign) 'fx_rate': fxRate,
+                if ((accountUid ?? '').isNotEmpty) 'account_uid': accountUid,
+                if ((loanRef ?? '').isNotEmpty && isRepay) 'loan_ref': loanRef,
               },
               refKind: 'loan',
               refId: id);
@@ -3717,6 +3766,17 @@ class AppDb {
   /// «پرداخت/دریافت شد» برای یک سررسید قرض: سررسید بسته می‌شود و بازپرداخت متناظر
   /// (حداکثر تا مانده‌ی قرض) خودکار در دفتر ثبت می‌شود.
   Future<void> payLoanDue(int dueId) async {
+    // v92 فاز ج: قرض ارزی ⇒ نرخ روز (پیش از تراکنش خوانده می‌شود)
+    double dayRate = 0;
+    try {
+      final d0 = await db;
+      final r0 = await d0.rawQuery('SELECT l.ccy AS ccy, l.fx_rate AS fr FROM loan_dues x JOIN loan_entries l ON l.uid = x.loan_uid WHERE x.id = ?', [dueId]);
+      final String c0 = r0.isEmpty ? 'IRR' : '${r0.first['ccy'] ?? ''}'.toUpperCase();
+      if (c0.isNotEmpty && c0 != 'IRR' && c0 != 'IRT') {
+        dayRate = (await FxLocal.rateAt(c0, _ymd(DateTime.now())))?.rate ?? 0;
+        if (dayRate <= 0) dayRate = (r0.first['fr'] as num?)?.toDouble() ?? double.tryParse('${r0.first['fr']}') ?? 0;
+      }
+    } catch (_) {/* ستون ارزی هنوز نیامده */}
     await _write((d) => d.transaction((t) async {
           final dr = await t.query('loan_dues', where: 'id=?', whereArgs: [dueId]);
           if (dr.isEmpty) throw SaveNotConfirmed('این سررسید دیگر وجود ندارد؛ صفحه را ببندید و دوباره باز کنید.');
@@ -3727,8 +3787,15 @@ class AppDb {
           final loan = lr.first;
           final kind = loan['kind'] as String;
           final party = loan['party'] as String;
-          final owed = await _loanOutstanding(t, party, kind);
-          final pay = math.min((due['amount'] as num).toDouble(), owed);
+          final LoanRow lrow = LoanRow.fromRow(loan);
+          double owed = await _loanOutstanding(t, party, kind);
+          double ccyPay = 0;
+          if (lrow.isForeign && dayRate > 0) { // v92: مبلغ سررسید به ارز قرض؛ حداکثر تا ماندهٔ همین قرض
+            final LoanMatch lm = loanMatch(<LoanRow>[for (final r in await t.query('loan_entries')) LoanRow.fromRow(r)], kFxRialPerStoredUnit.round());
+            ccyPay = math.min((due['amount'] as num).toDouble(), lm.loans[lrow.uid]?.open ?? 0);
+            owed = _r(ccyPay * dayRate / kFxRialPerStoredUnit, 2);
+          }
+          final pay = lrow.isForeign && dayRate > 0 ? owed : math.min((due['amount'] as num).toDouble(), owed);
           await t.update('loan_dues', {'paid': 1}, where: 'id=?', whereArgs: [dueId]);
           await _enqueue(t, 'loans.due_paid', {'loan_uid': due['loan_uid'], 'seq': due['seq']},
               refKind: 'loandue', refId: dueId);
@@ -3748,10 +3815,18 @@ class AppDb {
               'date': dt,
               'note': nt,
               'created_at': _stamp(),
+              if (ccyPay > 0) 'ccy': lrow.ccy,
+              if (ccyPay > 0) 'ccy_amount': ccyPay,
+              if (ccyPay > 0) 'fx_rate': dayRate,
+              if (ccyPay > 0) 'loan_ref': lrow.uid,
             });
             await _enqueue(t, 'loans.create',
                 {
                   'uid': uid, 'party': party, 'kind': repayKind, 'amount': amt, 'date': dt, 'note': nt,
+                  if (ccyPay > 0) 'ccy': lrow.ccy, // v92 فاز ج
+                  if (ccyPay > 0) 'ccy_amount': ccyPay,
+                  if (ccyPay > 0) 'fx_rate': dayRate,
+                  if (ccyPay > 0) 'loan_ref': lrow.uid,
                   // STAGE12: اگر سرور همین سررسید را قبلاً (دستیار/وب) تسویه کرده، ردیف موجود برمی‌گردد (بدون دوبل)
                   'due_ref': {'loan_uid': due['loan_uid'], 'seq': due['seq']},
                 },

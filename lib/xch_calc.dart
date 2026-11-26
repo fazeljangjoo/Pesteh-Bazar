@@ -5,8 +5,11 @@
 //   paid_seller صراف به فروشندهٔ ما پرداخت کرد ⇒ فاکتور خرید تسویه، ما به صراف بدهکار (−)
 //   xch_paid_us صراف به ما پرداخت کرد        ⇒ از طلب ما از صراف کم می‌شود
 //   we_paid_xch ما به صراف پرداخت کردیم       ⇒ از بدهی ما به صراف کم می‌شود
-// مانده هر (صراف، ارز) با «نرخ میانگین دفتری» نگه داشته می‌شود؛ تسویه به نرخ دیگر ⇒ سود/زیان تحقق‌یافته (حساب ۵۲۰۷).
+// v92: مانده هر (صراف، ارز) «لات به لات» (FIFO؛ یا پیوند دستی links) نگه داشته می‌شود؛ تسویه به نرخ دیگر ⇒ سود/زیان تحقق‌یافته (حساب ۵۲۰۷).
+// با یک لات دقیقاً همان میانگین موزون v91 است. مراحل «از طریق صراف» شناسنامه‌ها (settle_calc.dart) با kind = leg_in / leg_out وارد همین محاسبه می‌شوند.
 // واحدها: مبلغ ارزی به همان ارز (برای IRR = ریال، نه تومان)؛ نرخ‌ها ریال بر واحد؛ نتیجه‌ها ریال صحیح.
+
+import 'dart:convert';
 
 /// انواع چهارگانهٔ حرکت و برچسب فارسی‌شان
 const Map<String, String> kXchKindsFa = <String, String>{
@@ -62,6 +65,15 @@ class XchMove {
   final String? bankAccount;
   final String? note;
 
+  /// v92: مرحلهٔ صرافیِ یک شناسنامه (kind leg_in / leg_out): ارزش ریالی مرحله، شناسهٔ شناسنامه و مرحله، شمارهٔ شناسنامه
+  final int value;
+  final String stlUid;
+  final String lid;
+  final String? refNo;
+
+  /// v92: لات‌هایی که این تسویه اول می‌بندد (به ترتیب؛ amt = 0 یعنی تا جای ممکن)
+  final List<XchLink> links;
+
   const XchMove({
     this.uid = '',
     required this.date,
@@ -79,6 +91,11 @@ class XchMove {
     this.cashBox,
     this.bankAccount,
     this.note,
+    this.value = 0,
+    this.stlUid = '',
+    this.lid = '',
+    this.refNo,
+    this.links = const <XchLink>[],
   }) : payCcy = payCcy ?? ccy;
 
   factory XchMove.fromRow(Map<String, dynamic> m) {
@@ -101,14 +118,22 @@ class XchMove {
       cashBox: m['cash_box'] as String?,
       bankAccount: m['bank_account'] as String?,
       note: m['note'] as String?,
+      links: XchLink.listFrom(m['links']),
     );
   }
 
   bool get isSettle => kind == 'cust_paid' || kind == 'paid_seller';
+
+  /// v92: مرحلهٔ صرافیِ شناسنامه
+  bool get isLeg => kind == 'leg_in' || kind == 'leg_out';
+
+  /// v92: شناسهٔ لاتی که این ردیف (در صورت باز کردن موقعیت) می‌سازد — همان سرور
+  String get lotId => isLeg ? 's:$stlUid:$lid' : 'm:$uid';
   String get key => '$exchanger\u001f$ccy';
 
   /// [dq4, dr]: تغییر مانده (ده‌هزارم ارز، علامت‌دار) و ارزش ریالی خود حرکت (ریال صحیح، علامت‌دار)
   (int, int) get delta {
+    if (isLeg) return kind == 'leg_in' ? (_q4(amountCcy), value) : (-_q4(amountCcy), -value);
     if (isSettle) {
       final double rate = ccy == 'IRR' ? 1.0 : docRate;
       final int r = (amountCcy * rate).round();
@@ -120,6 +145,49 @@ class XchMove {
   }
 }
 
+/// v92: پیوند دستی یک تسویه به یک لات
+class XchLink {
+  final String lot;
+  final double amt;
+  const XchLink(this.lot, [this.amt = 0]);
+  Map<String, dynamic> toJson() => <String, dynamic>{'lot': lot, 'amt': amt};
+  static List<XchLink> listFrom(Object? raw) {
+    Object? v = raw;
+    if (v is String) {
+      try {
+        v = jsonDecode(v);
+      } catch (_) {
+        v = null;
+      }
+    }
+    if (v is! List) return const <XchLink>[];
+    return <XchLink>[
+      for (final Object? x in v)
+        if (x is Map && x['lot'] is String) XchLink(x['lot'] as String, _d(x['amt'])),
+    ];
+  }
+}
+
+/// v92: یک لات باز (واریز/پرداختی که هنوز با صراف تسویه نشده)
+class XchLot {
+  final String id;
+  final String date;
+  int q; // ده‌هزارم ارز، علامت‌دار (+ صراف به ما بدهکار)
+  int b; // ریال دفتری، علامت‌دار
+  XchLot(this.id, this.date, this.q, this.b);
+  double get amount => q / kXchScale;
+}
+
+/// v92: سهم بسته‌شدهٔ یک لات توسط یک ردیف
+class XchClosed {
+  final String lot;
+  final int q4;
+  final int carry;
+  final int dr;
+  final int realized;
+  const XchClosed(this.lot, this.q4, this.carry, this.dr, this.realized);
+}
+
 /// نتیجهٔ یک حرکت پس از محاسبهٔ موقعیت
 class XchResult {
   final int dq4;
@@ -128,7 +196,9 @@ class XchResult {
   final int realized; // سود (+) / زیان (−) تحقق‌یافته
   final int q4After;
   final int bAfter;
-  const XchResult(this.dq4, this.dr, this.db, this.realized, this.q4After, this.bAfter);
+  final String lot; // v92: لات این ردیف
+  final List<XchClosed> closed; // v92: لات‌هایی که بست
+  const XchResult(this.dq4, this.dr, this.db, this.realized, this.q4After, this.bAfter, [this.lot = '', this.closed = const <XchClosed>[]]);
   double get balanceAfter => q4After / kXchScale;
 }
 
@@ -140,6 +210,7 @@ class XchPosition {
   int book = 0; // ریال دفتری (علامت‌دار)
   int realized = 0;
   int moves = 0;
+  final List<XchLot> lots = <XchLot>[]; // v92: لات‌های باز (قدیمی‌ترین اول)
   XchPosition(this.exchanger, this.ccy);
   double get amount => q4 / kXchScale;
 
@@ -158,47 +229,89 @@ class XchRun {
   int get realizedTotal => positions.values.fold(0, (int s, XchPosition p) => s + p.realized);
 }
 
-/// مرتب‌سازی استاندارد حرکت‌ها (تاریخ، بعد ترتیب ورود) — ورودی xchRun باید همین ترتیب را داشته باشد
+/// مرتب‌سازی استاندارد حرکت‌ها (تاریخ، v92: مراحل شناسنامه قبل از حرکت‌ها، بعد ترتیب ورود) — ورودی xchRun باید همین ترتیب را داشته باشد
 List<XchMove> xchSorted(List<XchMove> moves) {
   final List<(int, XchMove)> ix = <(int, XchMove)>[for (int i = 0; i < moves.length; i++) (i, moves[i])];
   ix.sort(((int, XchMove) a, (int, XchMove) b) {
-    final int c = a.$2.date.compareTo(b.$2.date);
+    int c = a.$2.date.compareTo(b.$2.date);
+    if (c != 0) return c;
+    c = (a.$2.isLeg ? 0 : 1).compareTo(b.$2.isLeg ? 0 : 1);
     return c != 0 ? c : a.$1.compareTo(b.$1);
   });
   return <XchMove>[for (final (int, XchMove) e in ix) e.$2];
 }
 
-/// حسابداری موقعیت با میانگین موزون — همان الگوریتم سرور (ریال صحیح، گرد کردن معمولی).
+/// v92: حسابداری موقعیت با «لات»ها — همان الگوریتم سرور pb_xch_run (ریال صحیح، گرد کردن معمولی).
+/// حرکت هم‌جهت ⇒ لات تازه؛ حرکت خلاف جهت ⇒ اول لات‌های پیوندشده (links)، بعد قدیمی‌ترین‌ها بسته می‌شوند، هرکدام به ارزش دفتری خودش.
 XchRun xchRun(List<XchMove> moves) {
   final Map<String, XchPosition> g = <String, XchPosition>{};
   final List<XchResult> out = <XchResult>[];
   for (final XchMove m in moves) {
     final XchPosition p = g.putIfAbsent(m.key, () => XchPosition(m.exchanger, m.ccy));
     final (int dq, int dr) = m.delta;
+    final String lotId = m.lotId;
     int q = p.q4, b = p.book, db = 0, real = 0;
+    final List<XchClosed> closed = <XchClosed>[];
     if (dq == 0) {
       db = dr;
       b += dr;
+      if (p.lots.isNotEmpty) {
+        p.lots.first.b += dr;
+      } else if (dr != 0) {
+        p.lots.add(XchLot(lotId, m.date, 0, dr));
+      }
     } else if (q == 0 || (q > 0) == (dq > 0)) {
       q += dq;
       b += dr;
       db = dr;
+      p.lots.add(XchLot(lotId, m.date, dq, dr));
     } else {
-      final int close = dq.abs() < q.abs() ? dq.abs() : q.abs();
-      final int drClose = close == dq.abs() ? dr : (dr.toDouble() * close / dq.abs()).round();
-      final int drOpen = dr - drClose;
-      final int carry = close == q.abs() ? b : (b.toDouble() * close / q.abs()).round();
-      real = -(drClose + carry);
+      final int need = dq.abs() < q.abs() ? dq.abs() : q.abs();
+      final List<(int, int)> plan = <(int, int)>[];
+      const int inf = 1 << 62;
+      for (final XchLink ln in m.links) {
+        for (int li = 0; li < p.lots.length; li++) {
+          if (p.lots[li].id == ln.lot) {
+            plan.add((li, ln.amt > 0 ? _q4(ln.amt) : inf));
+            break;
+          }
+        }
+      }
+      for (int li = 0; li < p.lots.length; li++) {
+        plan.add((li, inf));
+      }
+      int done = 0, drCum = 0, carryTot = 0;
+      for (final (int li, int cap) in plan) {
+        if (done >= need) break;
+        final XchLot l = p.lots[li];
+        final int avail = l.q.abs();
+        int c = avail < need - done ? avail : need - done;
+        if (cap < c) c = cap;
+        if (c <= 0) continue;
+        final int carry = c == avail ? l.b : (l.b.toDouble() * c / avail).round();
+        done += c;
+        final int drPart = (done == dq.abs() ? dr : (dr.toDouble() * done / dq.abs()).round()) - drCum;
+        drCum += drPart;
+        l.q += l.q > 0 ? -c : c;
+        l.b -= carry;
+        final int r = -(drPart + carry);
+        real += r;
+        carryTot += carry;
+        closed.add(XchClosed(l.id, c, carry, drPart, r));
+      }
+      p.lots.removeWhere((XchLot l) => l.q == 0);
+      final int drOpen = dr - drCum;
       q += dq;
-      b = b - carry + drOpen;
-      db = -carry + drOpen;
+      b = b - carryTot + drOpen;
+      db = -carryTot + drOpen;
+      if (dq.abs() > need) p.lots.add(XchLot(lotId, m.date, dq > 0 ? dq.abs() - need : -(dq.abs() - need), drOpen));
     }
     p
       ..q4 = q
       ..book = b
       ..realized += real
       ..moves += 1;
-    out.add(XchResult(dq, dr, db, real, q, b));
+    out.add(XchResult(dq, dr, db, real, q, b, lotId, closed));
   }
   return XchRun(out, g);
 }

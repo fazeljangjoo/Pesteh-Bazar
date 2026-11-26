@@ -18,6 +18,7 @@ import 'pdf_output.dart';
 import 'pdf_service.dart';
 import 'perms.dart';
 import 'receipt_screen.dart';
+import 'settle_ui.dart' show showDocTrails; // v92
 import 'returns_ui.dart';
 import 'sale_export_ui.dart';
 import 'utils.dart';
@@ -111,6 +112,7 @@ class PurchaseDocActions extends StatelessWidget {
         case 'payment':
           out.add(_btn(k, Icons.payments_outlined, 'مدیریت پرداخت', filled: true, () => Navigator.push(context, MaterialPageRoute<void>(
               builder: (_) => PaymentScreen(purchaseId: p['id'] as int, purchaseLabel: '${p['category_name'] ?? ''} - ${p['type_name'] ?? ''}')))));
+          out.add(_btn('${k}_trail', Icons.fact_check_outlined, 'شناسنامهٔ پرداخت', () => showDocTrails(context, isPurchase: true, docId: p['id'] as int))); // v92
         case 'cartex':
           out.add(_btn(k, Icons.picture_as_pdf_outlined, 'دریافت کارتکس A6', () async {
             final file = await PdfService.buildStockCard(
@@ -183,6 +185,7 @@ class SaleDocActions extends StatelessWidget {
         case 'receipt':
           out.add(_btn(k, Icons.request_quote_outlined, 'وصول مطالبات', filled: true, () => Navigator.push(context, MaterialPageRoute<void>(
               builder: (_) => ReceiptScreen(saleId: id, saleLabel: sale['buyer'] != null ? '${sale['buyer']}' : jalaliDate(sale['date'] as String))))));
+          out.add(_btn('${k}_trail', Icons.fact_check_outlined, 'شناسنامهٔ وصول', () => showDocTrails(context, isPurchase: false, docId: id))); // v92
         case 'invoice':
           out.add(_btn(k, Icons.receipt_long_outlined, 'فاکتور فروش', () => InvoiceService.forSale(context, sale)));
         case 'weigh_slip':

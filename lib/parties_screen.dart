@@ -15,6 +15,7 @@ import 'utils.dart';
 import 'widgets.dart';
 import 'party_filter.dart'; // v91 p5
 import 'xch_ui.dart'; // v91 p5: صرافان
+import 'settle_ui.dart'; // v92: شناسنامهٔ پرداخت/وصول
 
 /// v91 p5: مانده‌های ارزی یک طرف‌حساب به‌صورت متن کوتاه («۱۰٬۰۰۰ USD طلب • ۵۰۰ AED بدهی»)؛ ریال فقط وقتی ارز دیگری هست یا [withRial].
 String partyCcyLine(PartyAccount a, {bool withRial = false}) {
@@ -136,27 +137,84 @@ class _PartiesScreenState extends State<PartiesScreen> {
     if (res != null && mounted) setState(() => _f = res);
   }
 
+  /// v92: سه تب — طرف‌حساب‌ها (بدون صراف‌های خالص)، صرافان، پرداخت و وصول (شناسنامه‌ها)
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('طرف‌حساب‌ها'), actions: <Widget>[
-        IconButton( // v91 p5
-          tooltip: 'صرافان',
-          icon: const Icon(Icons.currency_exchange),
-          onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const ExchangersScreen())),
-        ),
-        IconButton(
-          tooltip: 'سن بدهی و مطالبات',
-          icon: const Icon(Icons.hourglass_bottom),
-          onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const PartyAgingScreen())),
-        ),
-      ]),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => showNewPartyDialog(context),
-        icon: const Icon(Icons.person_add_alt_1),
-        label: const Text('طرف‌حساب جدید'),
+    return DefaultTabController(
+      length: 4, // v92 فاز ج: + قرض‌ها
+      child: Builder(builder: (BuildContext ctx) {
+        final TabController tc = DefaultTabController.of(ctx);
+        return AnimatedBuilder(
+          animation: tc,
+          builder: (BuildContext ctx, Widget? _) => Scaffold(
+            appBar: AppBar(
+              title: const Text('طرف‌حساب‌ها'),
+              actions: <Widget>[
+                IconButton(
+                  tooltip: 'سن بدهی و مطالبات',
+                  icon: const Icon(Icons.hourglass_bottom),
+                  onPressed: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => const PartyAgingScreen())),
+                ),
+              ],
+              bottom: const TabBar(tabs: <Widget>[
+                Tab(icon: Icon(Icons.people_alt_outlined), text: 'طرف‌حساب‌ها'),
+                Tab(icon: Icon(Icons.currency_exchange), text: 'صرافان'),
+                Tab(icon: Icon(Icons.fact_check_outlined), text: 'پرداخت و وصول'),
+                Tab(icon: Icon(Icons.handshake_outlined), text: 'قرض‌ها'),
+              ]),
+            ),
+            floatingActionButton: switch (tc.index) {
+              1 => FloatingActionButton.extended(
+                  heroTag: 'fab_xch',
+                  onPressed: () => showXchMoveSheet(context),
+                  icon: const Icon(Icons.currency_exchange),
+                  label: const Text('تسویه با صراف'),
+                ),
+              3 => FloatingActionButton.extended(
+                  heroTag: 'fab_loan',
+                  onPressed: () => showNewLoanDialog(context),
+                  icon: const Icon(Icons.handshake_outlined),
+                  label: const Text('ثبت قرض'),
+                ),
+              2 => FloatingActionButton.extended(
+                  heroTag: 'fab_stl',
+                  onPressed: () => _newSettlement(context),
+                  icon: const Icon(Icons.add_card),
+                  label: const Text('پرداخت / وصول'),
+                ),
+              _ => FloatingActionButton.extended(
+                  heroTag: 'fab_party',
+                  onPressed: () => showNewPartyDialog(context),
+                  icon: const Icon(Icons.person_add_alt_1),
+                  label: const Text('طرف‌حساب جدید'),
+                ),
+            },
+            body: TabBarView(children: <Widget>[_partiesTab(context), const ExchangersBody(), const SettlementsTab(), const LoansTab()]),
+          ),
+        );
+      }),
+    );
+  }
+
+  Future<void> _newSettlement(BuildContext context) async {
+    final String? dir = await showModalBottomSheet<String>(
+      context: context,
+      showDragHandle: true,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: <Widget>[
+          ListTile(leading: const Icon(Icons.south_west), title: const Text('وصول از طرف‌حساب'), subtitle: const Text('مشتری پرداخت کرد (مستقیم یا به صراف)'), onTap: () => Navigator.pop(ctx, 'recv')),
+          ListTile(leading: const Icon(Icons.north_east), title: const Text('پرداخت به طرف‌حساب'), subtitle: const Text('ما پرداختیم (مستقیم یا از طریق صراف)'), onTap: () => Navigator.pop(ctx, 'pay')),
+        ]),
       ),
-      body: LiveQuery<List<PartyAccount>>(
+    );
+    if (dir != null && context.mounted) await openSettlementForm(context, dir: dir);
+  }
+
+  /// v92: صرافی که خرید/فروش/قرض/شناسنامه ندارد فقط در تب «صرافان» است
+  static bool _pureExchanger(PartyAccount a) => a.isExchanger && a.entries.isEmpty && !a.hasLoans && a.settlementUids.isEmpty;
+
+  Widget _partiesTab(BuildContext context) {
+    return LiveQuery<List<PartyAccount>>(
         load: loadParties,
         builder: (context, snap) {
             if (snap.hasError) return Center(child: Text('خطا: ${snap.error}'));
@@ -178,7 +236,7 @@ class _PartiesScreenState extends State<PartiesScreen> {
               if (a.loanReceivable > 0) loanRecv += a.loanReceivable;
               if (a.loanPayable > 0) loanPay += a.loanPayable;
             }
-            final list = applyPartyFilter(all, _f.copyWith(query: _query)); // v91 p5: فیلترها
+            final list = applyPartyFilter(_f.type == 'exchanger' ? all : all.where((PartyAccount a) => !_pureExchanger(a)).toList(), _f.copyWith(query: _query)); // v91 p5: فیلترها · v92: صراف‌ها در تب خودشان
             final ccys = partyCurrencies(all);
             final String? fc = _f.ccy;
             double fcRecv = 0, fcPay = 0;
@@ -273,7 +331,6 @@ class _PartiesScreenState extends State<PartiesScreen> {
               ],
             );
           },
-      ),
     );
   }
 
@@ -425,6 +482,7 @@ class PartyDetailScreen extends StatelessWidget {
           if (a.xchPositions.isEmpty)
             const Padding(padding: EdgeInsets.all(4), child: Text('این طرف‌حساب صراف است؛ حرکت‌هایش را از «صرافان» ثبت کنید.')),
         ],
+        if (a.key.isNotEmpty) PartySettlementsCard(account: a), // v92: وصول/پرداخت با شناسنامه + فهرست شناسنامه‌ها
         const SizedBox(height: 8),
         if (a.key.isNotEmpty) ...[
           _loanBook(context, a),
@@ -456,10 +514,13 @@ class PartyDetailScreen extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: Colors.black54)),
           const SizedBox(height: 8),
           if (a.hasLoans) ...[
-            if (a.loanGiven > 0) infoRow('قرض اعطایی (به او داده‌ایم)', Fmt.money(a.loanGiven)),
-            if (a.loanTaken > 0) infoRow('قرض دریافتی (از او گرفته‌ایم)', Fmt.money(a.loanTaken)),
-            if (a.repaidToUs > 0) infoRow('بازپرداخت دریافتی', Fmt.money(a.repaidToUs)),
-            if (a.repaidByUs > 0) infoRow('بازپرداخت پرداختی', Fmt.money(a.repaidByUs)),
+            if (a.loanGiven > 0) infoRow('قرض دادیم (معادل ریالی)', Fmt.money(a.loanGiven)),
+            if (a.loanTaken > 0) infoRow('قرض گرفتیم (معادل ریالی)', Fmt.money(a.loanTaken)),
+            if (a.repaidToUs > 0) infoRow('قرض ما را پس داد', Fmt.money(a.repaidToUs)),
+            if (a.repaidByUs > 0) infoRow('قرضش را پس دادیم', Fmt.money(a.repaidByUs)),
+            for (final l in a.loans) // v92 فاز ج: مانده هر قرض ارزی به ارز خودش
+              if (l.isForeign && (l.kind == 'given' || l.kind == 'taken') && l.open > 0.005)
+                infoRow('${l.label} ${jalaliDateFromDt(l.date)} — مانده', faCcy(l.ccy, l.open), valueColor: l.kind == 'given' ? Colors.green.shade800 : Colors.red.shade800),
             const Divider(),
             infoRow(
               settledLoan ? 'مانده قرض' : (net > 0 ? 'مانده طلب قرضی (او به ما بدهکار است)' : 'مانده بدهی قرضی (ما به او بدهکاریم)'),
@@ -476,18 +537,18 @@ class PartyDetailScreen extends StatelessWidget {
             FilledButton.tonalIcon(
               onPressed: () => showLoanSheet(context, party: a.name, kind: 'given'),
               icon: const Icon(Icons.north_east),
-              label: const Text('اعطای قرض'),
+              label: const Text('قرض دادیم'), // v92
             ),
             FilledButton.tonalIcon(
               onPressed: () => showLoanSheet(context, party: a.name, kind: 'taken'),
               icon: const Icon(Icons.south_west),
-              label: const Text('دریافت قرض'),
+              label: const Text('قرض گرفتیم'), // v92
             ),
             OutlinedButton.icon(
               onPressed: () {
                 // بازپرداخت فقط وقتی معنی دارد که بدهی/طلب قرضی باز داشته باشیم
                 if (a.loanReceivable <= 0.5 && a.loanPayable <= 0.5) {
-                  snack(context, 'بدهی برای بازپرداخت وجود ندارد. برای قرض تازه از «اعطای قرض» یا «دریافت قرض» استفاده کنید.');
+                  snack(context, 'قرض بازی برای بازپرداخت وجود ندارد. برای قرض تازه از «قرض دادیم» یا «قرض گرفتیم» استفاده کنید.');
                   return;
                 }
                 showLoanSheet(context,
@@ -497,7 +558,7 @@ class PartyDetailScreen extends StatelessWidget {
                     maxOut: a.loanPayable > 0.5 ? a.loanPayable : 0);
               },
               icon: const Icon(Icons.swap_horiz),
-              label: const Text('ثبت بازپرداخت'),
+              label: const Text('بازپرداخت قرض'), // v92
             ),
             if (a.hasLoans)
               OutlinedButton.icon(
@@ -518,7 +579,7 @@ class PartyDetailScreen extends StatelessWidget {
   /// فاز ۳: ویرایش قرض/بازپرداخت؛ محلی ذخیره و در صف همگام‌سازی (loans.update). سررسید پرداخت‌شده ⇒ سرور فقط تاریخ و توضیح را می‌پذیرد.
   Future<void> _editLoan(BuildContext context, LoanEntry l) async {
     final Map<String, dynamic>? v = await showEditDocDialog(context, 'ویرایش ${l.label}', <EditField>[
-      EditField('amount', 'مبلغ', l.amount, kind: EditKind.number),
+      if (!l.isForeign) EditField('amount', 'مبلغ', l.amount, kind: EditKind.number), // v92: قرض ارزی ⇒ حذف و ثبت دوباره
       EditField('date', 'تاریخ', l.date.toIso8601String(), kind: EditKind.date),
       EditField('note', 'توضیح', l.note),
     ]);
@@ -537,8 +598,9 @@ class PartyDetailScreen extends StatelessWidget {
       dense: true,
       contentPadding: EdgeInsets.zero,
       leading: Icon(l.isIn ? Icons.south_west : Icons.north_east, color: color),
-      title: Text('${l.label} • ${Fmt.money(l.amount)}', style: TextStyle(color: color, fontWeight: FontWeight.w600)),
-      subtitle: Text('${jalaliDateFromDt(l.date)}${(l.note ?? '').isEmpty ? '' : '\n${l.note}'}'),
+      title: Text('${l.label} • ${l.isForeign ? faCcy(l.ccy, l.ccyAmount) : Fmt.money(l.amount)}', style: TextStyle(color: color, fontWeight: FontWeight.w600)),
+      subtitle: Text('${jalaliDateFromDt(l.date)}${l.isForeign ? ' • نرخ ${faNum(l.fxRate, dec: 0)} • معادل ${Fmt.money(l.amount)}' : ''}'
+          '${l.realized == 0 ? '' : ' • ${l.realized > 0 ? 'سود' : 'زیان'} تفاوت نرخ ${Fmt.money(l.realized.abs(), from: 'rial')}'}${(l.note ?? '').isEmpty ? '' : '\n${l.note}'}'),
       isThreeLine: (l.note ?? '').isNotEmpty,
       onTap: () => _editLoan(context, l), // فاز ۳: ویرایش امن (loans.update)
       trailing: IconButton(

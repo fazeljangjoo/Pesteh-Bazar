@@ -81,12 +81,33 @@ List<T> _mapList<T>(dynamic raw, T Function(Map<String, dynamic>) f) {
 }
 
 /// برچسب فارسی طرف: ar = طلب (فروش)، ap = بدهی (خرید).
-String fxRevalSideLabel(String side) => side == 'ap' ? 'بدهی (خرید)' : (side == 'xr' ? 'صراف' : 'طلب (فروش)'); // v91 p5: xr
+String fxRevalSideLabel(String side) => side == 'ap' ? 'بدهی (خرید)' : (kFxRevalBookSides[side] ?? 'طلب (فروش)'); // v91 p5: xr · v92: + علی‌الحساب، قرض، صندوق/بانک ارزی
 
-/// v91 p5: طرف یک ردیف تسعیر: ar (طلب)، ap (بدهی)، xr (موقعیت صراف؛ تفاوت علامت‌دار، مثبت = سود)
+/// v92 فاز د: طرف‌های «دفتری» (مثل صراف: مقدار علامت‌دار، تفاوت = round(مقدار × نرخ) − دفتری، مثبت = سود)
+const Map<String, String> kFxRevalBookSides = <String, String>{
+  'xr': 'صراف',
+  'ai': 'پیش‌دریافت (علی‌الحساب)',
+  'ao': 'پیش‌پرداخت (علی‌الحساب)',
+  'lg': 'قرض دادیم',
+  'lt': 'قرض گرفتیم',
+  'tc': 'صندوق ارزی',
+  'tb': 'حساب بانکی ارزی',
+};
+
+/// v91 p5: طرف یک ردیف تسعیر: ar (طلب)، ap (بدهی)، xr (موقعیت صراف؛ تفاوت علامت‌دار، مثبت = سود) · v92: + طرف‌های دفتری دیگر
 String fxRevalSideOf(Object? v) {
   final String s = (v ?? '').toString();
-  return s == 'ap' || s == 'xr' ? s : 'ar';
+  return s == 'ap' || kFxRevalBookSides.containsKey(s) ? s : 'ar';
+}
+
+/// v92: جمع افزایش/کاهش همهٔ طرف‌های دفتری (xr_up + ai_up + …)
+int _bookSum(Map<String, dynamic> j, String suffix) {
+  int t = 0;
+  for (final String s in kFxRevalBookSides.keys) {
+    final Object? v = j['${s}_$suffix'];
+    t += v is num ? v.toInt() : (int.tryParse('${v ?? ''}') ?? 0);
+  }
+  return t;
 }
 
 // ───────────────────────── نرخ ─────────────────────────
@@ -425,8 +446,8 @@ class FxRevalPreview {
       docCount: j.containsKey('doc_count') ? _i(j['doc_count']) : docs.length,
       netDelta: _i(j['net_delta']),
       fingerprint: _s(j['fingerprint']),
-      xrUp: _i(j['xr_up']),
-      xrDown: _i(j['xr_down']),
+      xrUp: _bookSum(j, 'up'), // v92: همهٔ طرف‌های دفتری (صراف، علی‌الحساب، قرض، صندوق/بانک ارزی)
+      xrDown: _bookSum(j, 'down'),
       partyCcy: <Map<String, dynamic>>[
         if (j['party_ccy'] is List)
           for (final Object? x in j['party_ccy'] as List) if (x is Map) Map<String, dynamic>.from(x),

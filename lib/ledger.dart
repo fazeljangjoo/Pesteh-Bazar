@@ -6,6 +6,9 @@ import 'db.dart';
 import 'entity_store.dart'; // v91 p5: xch_moves
 import 'return_calc.dart';
 import 'xch_calc.dart'; // v91 p5
+import 'settle_calc.dart'; // v92
+import 'settle_data.dart'; // v92
+import 'loan_calc.dart'; // v92 فاز ج
 
 /// یکسان‌سازی نام طرف حساب: «ي/ك» عربی، فاصله‌های اضافه
 String partyKey(String? name) {
@@ -331,13 +334,8 @@ class PartyEntry {
   bool get isForeign => ccy != null;
 }
 
-/// نام‌های رسمی انواع تراکنش دفتر قرض و وام
-const Map<String, String> kLoanKindLabel = {
-  'given': 'قرض اعطایی',
-  'taken': 'قرض دریافتی',
-  'repay_in': 'بازپرداخت دریافتی',
-  'repay_out': 'بازپرداخت پرداختی',
-};
+/// نام‌های رسمی انواع تراکنش دفتر قرض و وام (v92: نام‌های روشن‌تر — loan_calc.dart)
+const Map<String, String> kLoanKindLabel = kLoanKindFa;
 
 /// آیا این نوع تراکنش پول به حساب ما وارد می‌کند؟ (قرض دریافتی / بازپرداخت دریافتی)
 bool loanKindIsIn(String kind) => kind == 'taken' || kind == 'repay_in';
@@ -349,6 +347,14 @@ class LoanEntry {
   final double amount;
   final DateTime date;
   final String? note;
+
+  /// v92 فاز ج: ارز قرض (IRR = ریالی)، مبلغ ارزی، نرخ، سود/زیان تفاوت نرخ (ریال؛ فقط بازپرداخت)، ماندهٔ باز (فقط قرض، به ارز خودش)
+  final String ccy;
+  final double ccyAmount;
+  final double fxRate;
+  final int realized;
+  final double open;
+  final String? loanRef;
   LoanEntry({
     required this.id,
     required this.uid,
@@ -356,7 +362,14 @@ class LoanEntry {
     required this.amount,
     required this.date,
     required this.note,
+    this.ccy = 'IRR',
+    this.ccyAmount = 0,
+    this.fxRate = 0,
+    this.realized = 0,
+    this.open = 0,
+    this.loanRef,
   });
+  bool get isForeign => ccy != 'IRR';
   String get label => kLoanKindLabel[kind] ?? kind;
   bool get isIn => loanKindIsIn(kind);
 }
@@ -391,6 +404,9 @@ class PartyAccount {
   /// موقعیت‌های صراف (وقتی این طرف‌حساب صراف است) و سود/زیان تحقق‌یافتهٔ آن (ریال)
   final List<XchPosition> xchPositions = <XchPosition>[];
   int xchRealized = 0;
+
+  /// v92: شناسنامه‌های پرداخت/وصول این طرف‌حساب (uid)
+  final List<String> settlementUids = <String>[];
 
   void addCcy(String? ccy, double v) {
     final String c = xchNormCcy(ccy);
@@ -530,19 +546,24 @@ void applyXchMoves(Map<String, PartyAccount> map, List<XchMove> moves, PartyAcco
     final PartyAccount e = acc(m.exchanger);
     e.types.add('exchanger');
     e.dates.add(dt);
+    if (m.isLeg) continue; // v92: مرحلهٔ صرافی شناسنامه ⇒ applySettlements
     if (m.isSettle) {
       final double amt = r.dr.abs() / rialPerStored;
       final PartyAccount p = acc(m.party);
       p.dates.add(dt);
       final bool sale = m.kind == 'cust_paid';
       final double ccyAmt = m.ccy == 'IRR' ? m.amountCcy / rialPerStored : m.amountCcy;
+      final double db = r.db / rialPerStored; // v92: سمت صراف = تغییر دفتری (اگر لات مخالف را ببندد با سود/زیان)
+      if (db >= 0) {
+        e.sold += db;
+      } else {
+        e.bought += -db;
+      }
       if (sale) {
         p.received += amt;
-        e.sold += amt;
         p.addCcy(m.ccy, -ccyAmt);
       } else {
         p.paid += amt;
-        e.bought += amt;
         p.addCcy(m.ccy, ccyAmt);
       }
       for (final PartyEntry en in p.entries) {
@@ -686,11 +707,14 @@ Future<List<PartyAccount>> loadParties() async {
     acc(r['name'] as String?).types.addAll(partyTypesOf(r['types'])); // v91 p5: نوع‌ها (ستون types از سرور)
   }
 
-  // دفتر قرض و وام
+  // دفتر قرض و وام · v92 فاز ج: بازپرداخت به ارزش دفتری (قرض ارزی)، مانده به ارز قرض
+  final int loanMult = AppDb.I.moneyUnit == 'rial' ? 1 : 10;
+  final LoanMatch lm = loanMatch(await loadLoanRows(db: d), loanMult);
   for (final r in await d.query('loan_entries', orderBy: 'date DESC, id DESC')) {
     final a = acc(r['party'] as String?);
     final kind = (r['kind'] as String?) ?? '';
-    final amount = (r['amount'] as num).toDouble();
+    final LoanRes? lr = lm.entries['${r['uid']}'];
+    final amount = lr == null ? (r['amount'] as num).toDouble() : lr.carry / loanMult;
     switch (kind) {
       case 'given':
         a.loanGiven += amount;
@@ -707,7 +731,8 @@ Future<List<PartyAccount>> loadParties() async {
       default:
         continue;
     }
-    a.addCcy('IRR', loanKindIsIn(kind) ? -amount : amount); // v91 p5: قرض در ماندهٔ ریالی
+    final bool fx = lr != null && lr.ccy != 'IRR';
+    a.addCcy(fx ? lr.ccy : 'IRR', (loanKindIsIn(kind) ? -1 : 1) * (fx ? lr.amountCcy : amount)); // v91 p5 · v92: قرض ارزی به ارز خودش
     a.dates.add(DateTime.parse(r['date'] as String));
     a.loans.add(LoanEntry(
       id: (r['id'] as num).toInt(),
@@ -716,11 +741,20 @@ Future<List<PartyAccount>> loadParties() async {
       amount: amount,
       date: DateTime.parse(r['date'] as String),
       note: r['note'] as String?,
+      ccy: lr?.ccy ?? 'IRR',
+      ccyAmount: lr?.amountCcy ?? 0,
+      fxRate: (r['fx_rate'] as num?)?.toDouble() ?? double.tryParse('${r['fx_rate'] ?? ''}') ?? 0,
+      realized: lr?.realized ?? 0,
+      open: (lm.loans['${r['uid']}']?.open4 ?? 0) / 10000,
+      loanRef: r['loan_ref'] as String?,
     ));
   }
 
-  // v91 p5: حرکت‌های صراف (همان ارقام سرور: pb_xch_apply_sums)
-  applyXchMoves(map, await loadXchMoves(), acc, rialPerStored: AppDb.I.moneyUnit == 'rial' ? 1 : 10);
+  // v91 p5: حرکت‌های صراف (همان ارقام سرور: pb_xch_apply_sums) · v92: + مراحل صرافی شناسنامه‌ها و خود شناسنامه‌ها (pb_stl_apply_sums)
+  final int rialPerStored = AppDb.I.moneyUnit == 'rial' ? 1 : 10;
+  final StlState stl = await loadStlState(xchMoves: await loadXchMoves());
+  applyXchMoves(map, stl.xmoves, acc, rialPerStored: rialPerStored);
+  applySettlements(stl, acc, rialPerStored: rialPerStored);
 
   final list = map.values.toList();
   for (final a in list) {

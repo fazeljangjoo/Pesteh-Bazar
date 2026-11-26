@@ -11,6 +11,8 @@ import 'treasury_link.dart';
 import 'utils.dart';
 import 'widgets.dart';
 import 'xch_calc.dart';
+import 'settle_data.dart'; // v92
+import 'settle_ui.dart'; // v92
 
 /// مبلغ به ارز خودش (IRR = ریال)
 String xchAmount(String ccy, num v, {bool sign = false}) {
@@ -29,7 +31,7 @@ class _XchData {
   List<PartyAccount> get exchangers => parties.where((PartyAccount a) => a.isExchanger && a.key.isNotEmpty).toList()..sort((PartyAccount a, PartyAccount b) => a.key.compareTo(b.key));
 }
 
-Future<_XchData> _load() async => _XchData(await loadXchMoves(), await loadParties());
+Future<_XchData> _load() async => _XchData((await loadStlState()).xmoves, await loadParties()); // v92: + مراحل صرافی شناسنامه‌ها
 
 /// فهرست صرافان
 class ExchangersScreen extends StatelessWidget {
@@ -42,9 +44,20 @@ class ExchangersScreen extends StatelessWidget {
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showXchMoveSheet(context),
         icon: const Icon(Icons.currency_exchange),
-        label: const Text('ثبت حرکت صراف'),
+        label: const Text('تسویه با صراف'),
       ),
-      body: ValueListenableBuilder<int>(
+      body: const ExchangersBody(),
+    );
+  }
+}
+
+/// v92: بدنهٔ فهرست صرافان (در تب «صرافان» طرف‌حساب‌ها هم استفاده می‌شود)
+class ExchangersBody extends StatelessWidget {
+  const ExchangersBody({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
         valueListenable: AppDb.I.version,
         builder: (BuildContext _, int __, Widget? ___) => FutureBuilder<_XchData>(
           future: _load(),
@@ -69,8 +82,8 @@ class ExchangersScreen extends StatelessWidget {
                   child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
                     const Text('صراف چیست؟', style: TextStyle(fontWeight: FontWeight.bold)),
                     const SizedBox(height: 4),
-                    const Text('وقتی مشتری پول را به صراف می‌دهد، فاکتور مشتری تسویه و صراف به ما بدهکار می‌شود؛ وقتی صراف به فروشندهٔ ما می‌پردازد، فاکتور خرید تسویه و ما به صراف بدهکار می‌شویم. '
-                        'مانده هر صراف برای هر ارز جدا نگه داشته می‌شود و تسویه به نرخ دیگر، سود/زیان تفاوت نرخ می‌سازد.',
+                    const Text('وقتی طرف‌حساب پول را به صراف می‌دهد (در «پرداخت و وصول» به‌عنوان مرحلهٔ «از طریق صراف»)، بدهی طرف‌حساب تسویه و صراف به همان ارزِ واریز به ما بدهکار می‌شود؛ '
+                        'وقتی صراف به طرف‌حساب ما می‌پردازد، ما به صراف بدهکار می‌شویم. هر واریز جدا دنبال می‌شود تا صراف (به هر ارزی) با ما تسویه کند؛ تسویه به نرخ دیگر، سود/زیان تفاوت نرخ می‌سازد.',
                         style: TextStyle(fontSize: 12)),
                     const Divider(),
                     for (final MapEntry<String, double> e in totRecv.entries) infoRow('طلب از صرافان (${e.key})', xchAmount(e.key, e.value), valueColor: Colors.green.shade800),
@@ -89,7 +102,6 @@ class ExchangersScreen extends StatelessWidget {
             ]);
           },
         ),
-      ),
     );
   }
 }
@@ -173,8 +185,33 @@ class ExchangerDetailScreen extends StatelessWidget {
               if (a.key == exchanger) acc = a;
             }
             final List<int> idx = <int>[for (int i = all.length - 1; i >= 0; i--) if (all[i].exchanger == exchanger) i];
+            final List<(XchPosition, XchLot)> lots = <(XchPosition, XchLot)>[
+              for (final XchPosition p in run.positions.values)
+                if (p.exchanger == exchanger)
+                  for (final XchLot l in p.lots) (p, l),
+            ];
+            final Map<String, XchMove> bySrc = <String, XchMove>{for (final XchMove m in all) m.lotId: m};
             return ListView(padding: const EdgeInsets.fromLTRB(12, 8, 12, 90), children: <Widget>[
               if (acc != null) XchCard(account: acc, tappable: false),
+              if (lots.isNotEmpty) ...<Widget>[ // v92: واریزها/پرداخت‌های باز نزد این صراف
+                sectionTitle(context, 'واریزها و پرداخت‌های باز (هنوز تسویه‌نشده)'),
+                Card(
+                  child: Column(children: <Widget>[
+                    for (final (XchPosition p, XchLot l) in lots)
+                      ListTile(
+                        dense: true,
+                        title: Text(bySrc[l.id]?.isLeg ?? false
+                            ? '${bySrc[l.id]!.kind == 'leg_in' ? 'واریز' : 'پرداخت به'} «${bySrc[l.id]!.party}» — شناسنامهٔ ${bySrc[l.id]!.refNo ?? ''}'
+                            : (l.q > 0 ? 'پیش‌پرداخت ما به صراف' : 'پیش‌دریافت از صراف')),
+                        subtitle: Text('${jalaliDate(l.date)} • ارزش دفتری ${xchRial(l.b.abs())}'),
+                        trailing: Text(xchAmount(p.ccy, l.amount), style: TextStyle(fontWeight: FontWeight.w700, color: _sideColor(l.q))),
+                        onTap: (bySrc[l.id]?.isLeg ?? false)
+                            ? () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SettlementTrailScreen(uid: bySrc[l.id]!.stlUid)))
+                            : null,
+                      ),
+                  ]),
+                ),
+              ],
               if (idx.isNotEmpty) sectionTitle(context, 'حرکت‌ها (جدیدترین اول)'),
               if (idx.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('حرکتی ثبت نشده است'))),
               for (final int i in idx) _moveTile(context, all, all[i], run.results[i]),
@@ -186,6 +223,21 @@ class ExchangerDetailScreen extends StatelessWidget {
   }
 
   Widget _moveTile(BuildContext context, List<XchMove> all, XchMove m, XchResult r) {
+    if (m.isLeg) { // v92: مرحلهٔ صرافی یک شناسنامه ⇒ باز کردن شناسنامه
+      return Card(
+        child: ListTile(
+          leading: const Icon(Icons.fact_check_outlined),
+          title: Text(m.kind == 'leg_in'
+              ? '«${m.party}» ${xchAmount(m.ccy, m.amountCcy)} به صراف داد'
+              : 'صراف ${xchAmount(m.ccy, m.amountCcy)} به «${m.party}» داد'),
+          subtitle: Text('${jalaliDate(m.date)} • شناسنامهٔ ${m.refNo ?? ''} • ارزش ${xchRial(m.value)}\n'
+              '${r.q4After == 0 ? 'مانده ${m.ccy}: تسویه' : 'مانده ${m.ccy}: ${xchAmount(m.ccy, r.balanceAfter)} ${r.q4After > 0 ? '(طلب ما)' : '(بدهی ما)'}'}'
+              '${r.realized == 0 ? '' : ' • ${r.realized > 0 ? 'سود' : 'زیان'} ${xchRial(r.realized.abs())}'}'),
+          isThreeLine: true,
+          onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SettlementTrailScreen(uid: m.stlUid))),
+        ),
+      );
+    }
     final String what = switch (m.kind) {
       'cust_paid' => '«${m.party}» ${xchAmount(m.ccy, m.amountCcy)} به صراف داد (فروش #${m.docId})',
       'paid_seller' => 'صراف ${xchAmount(m.ccy, m.amountCcy)} به «${m.party}» داد (خرید #${m.docId})',
@@ -280,6 +332,8 @@ class _XchMoveFormState extends State<XchMoveForm> {
   List<String> _names = <String>[];
   List<XchMove> _moves = <XchMove>[];
   bool _saving = false;
+  bool _stlOn = false; // v92: سرور شناسنامه دارد ⇒ «مشتری به صراف داد / صراف به فروشنده داد» از شناسنامه ثبت می‌شود
+  final List<String> _links = <String>[]; // v92: لات‌هایی که این تسویه اول می‌بندد (به ترتیب انتخاب)
 
   bool get _settle => _kind == 'cust_paid' || _kind == 'paid_seller';
 
@@ -287,7 +341,8 @@ class _XchMoveFormState extends State<XchMoveForm> {
   void initState() {
     super.initState();
     final XchMove? m = widget.existing;
-    _kind = m?.kind ?? 'cust_paid';
+    _kind = m?.kind ?? 'xch_paid_us';
+    if (m != null) _links.addAll(m.links.map((XchLink l) => l.lot));
     _ex = TextEditingController(text: m?.exchanger ?? widget.exchanger ?? '');
     if (m != null) {
       _date = DateTime.tryParse(m.date) ?? DateTime.now();
@@ -311,7 +366,8 @@ class _XchMoveFormState extends State<XchMoveForm> {
   Future<void> _init() async {
     final List<Map<String, dynamic>> cur = await FxLocal.loadCurrencies().catchError((Object _) => <Map<String, dynamic>>[]);
     final List<PartyAccount> parties = await loadParties();
-    final List<XchMove> moves = await loadXchMoves();
+    final List<XchMove> moves = (await loadStlState()).xmoves; // v92: + مراحل صرافی شناسنامه‌ها
+    final bool stlOn = await settlementsAvailable();
     final double mult = AppDb.I.moneyUnit == 'rial' ? 1 : 10;
     final List<_OpenDoc> docs = <_OpenDoc>[];
     for (final PartyAccount a in parties) {
@@ -334,6 +390,7 @@ class _XchMoveFormState extends State<XchMoveForm> {
       _docs = docs;
       _names = <String>[for (final PartyAccount a in parties) if (a.key.isNotEmpty) a.key];
       _moves = moves;
+      _stlOn = stlOn;
       final XchMove? m = widget.existing;
       if (m != null && m.isSettle) {
         for (final _OpenDoc d in docs) {
@@ -407,6 +464,41 @@ class _XchMoveFormState extends State<XchMoveForm> {
       cashBox: _acctKind == 'cash' ? _acct : null,
       bankAccount: _acctKind == 'bank' ? _acct : null,
       note: _note.text.trim().isEmpty ? null : _note.text.trim(),
+      links: <XchLink>[for (final String l in _links) XchLink(l)],
+    );
+  }
+
+  /// v92: لات‌های بازِ همین صراف و ارز که این تسویه می‌تواند ببندد
+  List<(XchLot, XchMove?)> _openLots() {
+    final String ex = xchPartyKey(_ex.text);
+    if (ex.isEmpty || _settle) return const <(XchLot, XchMove?)>[];
+    final List<XchMove> others = <XchMove>[for (final XchMove m in _moves) if (widget.existing == null || m.uid != widget.existing!.uid || m.isLeg) m];
+    final XchRun run = xchRun(others);
+    final XchPosition? p = run.positions['$ex\u001f$_ccy'];
+    if (p == null) return const <(XchLot, XchMove?)>[];
+    final bool wantPos = _kind == 'xch_paid_us'; // صراف به ما داد ⇒ طلب‌های ما (لات +) بسته می‌شود
+    final Map<String, XchMove> src = <String, XchMove>{for (final XchMove m in others) m.lotId: m};
+    return <(XchLot, XchMove?)>[for (final XchLot l in p.lots) if ((l.q > 0) == wantPos) (l, src[l.id])];
+  }
+
+  Widget _lotsPicker() {
+    final List<(XchLot, XchMove?)> lots = _openLots();
+    if (lots.isEmpty) return const SizedBox.shrink();
+    return ExpansionTile(
+      tilePadding: EdgeInsets.zero,
+      initiallyExpanded: _links.isNotEmpty,
+      title: Text(_links.isEmpty ? 'بابت کدام واریزها؟ (خودکار: قدیمی‌ترین اول)' : 'بابت ${faNum(_links.length, dec: 0)} واریز انتخاب‌شده', style: const TextStyle(fontSize: 13)),
+      children: <Widget>[
+        for (final (XchLot l, XchMove? m) in lots)
+          CheckboxListTile(
+            dense: true,
+            value: _links.contains(l.id),
+            onChanged: (bool? v) => setState(() => v == true ? _links.add(l.id) : _links.remove(l.id)),
+            title: Text(m != null && m.isLeg ? '«${m.party}» — شناسنامهٔ ${m.refNo ?? ''}' : 'حرکت ${jalaliDate(l.date)}'),
+            subtitle: Text('${jalaliDate(l.date)} • ${xchAmount(_ccy, l.amount)} • نرخ دفتری ${faNum((l.b / (l.amount == 0 ? 1 : l.amount)).abs(), dec: 0)}'),
+          ),
+        const Text('واریزهای انتخاب‌شده اول بسته می‌شوند (به ترتیب انتخاب)؛ باقی از قدیمی‌ترین.', style: TextStyle(fontSize: 11)),
+      ],
     );
   }
 
@@ -448,6 +540,7 @@ class _XchMoveFormState extends State<XchMoveForm> {
       'cash_box': m.cashBox,
       'bank_account': m.bankAccount,
       'note': m.note,
+      'links': m.isSettle || m.links.isEmpty ? null : <Map<String, dynamic>>[for (final XchLink l in m.links) l.toJson()], // v92
     };
     try {
       await EntityStore.I.save('xch_moves', data, uid: widget.existing?.uid);
@@ -523,8 +616,15 @@ class _XchMoveFormState extends State<XchMoveForm> {
             child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
               Text(widget.existing == null ? 'ثبت حرکت صراف' : 'ویرایش حرکت صراف', style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 8),
+              if (_stlOn && widget.existing == null)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 8),
+                  child: Text('واریز طرف‌حساب به صراف، یا پرداخت صراف به طرف‌حساب، از «پرداخت و وصول» (شناسنامه) ثبت می‌شود؛ اینجا فقط تسویهٔ خود صراف با ما.',
+                      style: TextStyle(fontSize: 12)),
+                ),
               Wrap(spacing: 6, runSpacing: 6, children: <Widget>[
                 for (final MapEntry<String, String> e in kXchKindsFa.entries)
+                  if (!(_stlOn && widget.existing == null && (e.key == 'cust_paid' || e.key == 'paid_seller')))
                   ChoiceChip(
                     label: Text(e.value),
                     selected: _kind == e.key,
@@ -601,6 +701,7 @@ class _XchMoveFormState extends State<XchMoveForm> {
                   }),
                 ),
               ],
+              _lotsPicker(), // v92
               textField(_note, 'توضیح'),
               _preview(),
               const SizedBox(height: 8),
