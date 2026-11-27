@@ -141,6 +141,9 @@ class _OutRow {
   _OutRow({this.lotId, this.usedKg = 0});
   final int? lotId; // خروجی موجود (فرایند بسته)
   final double usedKg; // فروخته/مصرف‌شده
+  int? cat; // v96: دستهٔ پستهٔ خروجی (مثل فرم خرید)
+  String? type; // v96: نوع پستهٔ خروجی (type_name لات)
+  String get label => (type ?? '').isNotEmpty ? type! : (lotName.text.trim().isNotEmpty ? lotName.text.trim() : 'خروجی');
   final TextEditingController name = TextEditingController();
   final TextEditingController lotName = TextEditingController();
   final TextEditingController kg = TextEditingController();
@@ -155,7 +158,9 @@ class _OutRow {
   /// پر کردن از ردیف سرور (خروجی بسته یا ذخیره‌شده)
   void fill(Map<String, dynamic> o) {
     String t(Object? v) => v == null ? '' : (v is num ? plain(v) : '$v');
-    name.text = t(o['type_name']);
+    type = '${o['type_name'] ?? ''}'.trim().isEmpty ? null : '${o['type_name']}';
+    final Object? c = o['category_id'];
+    cat = c is num && c > 0 ? c.toInt() : (int.tryParse('${c ?? ''}') ?? cat);
     lotName.text = t(o['lot_name'] ?? o['seller']);
     kg.text = t(o['kg'] ?? o['net_weight']);
     final Object? sm = o['small_sacks'] ?? o['small_sack_count'], lg = o['large_sacks'] ?? o['large_sack_count'];
@@ -174,7 +179,8 @@ class _OutRow {
 
   Map<String, dynamic> toJson() => <String, dynamic>{
         if (lotId != null) 'lot_id': lotId,
-        'type_name': name.text.trim(),
+        'type_name': (type ?? '').trim(),
+        if (cat != null) 'category_id': cat, // در _payload به شناسهٔ سرور تبدیل می‌شود
         'kg': parseNum(kg.text) ?? 0,
         'small_sacks': parseNum(small.text) ?? 0,
         'large_sacks': parseNum(large.text) ?? 0,
@@ -217,6 +223,37 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
   final List<_OutRow> _outs = <_OutRow>[];
   Map<int, Map<String, dynamic>> _lots = <int, Map<String, dynamic>>{};
   Map<int, double> _ownKg = <int, double>{}; // وزنی که همین فرایند از هر لات برداشته (برای موجودی قابل انتخاب)
+  List<Map<String, dynamic>> _cats = <Map<String, dynamic>>[]; // v96: دسته‌ها (مثل فرم خرید)
+  final Map<int, List<String>> _types = <int, List<String>>{}; // نوع‌های هر دسته
+
+  Future<void> _loadTypes(int? cat) async {
+    if (cat == null || _types.containsKey(cat)) return;
+    final List<Map<String, dynamic>> l = await AppDb.I.typesOf(cat);
+    if (mounted) setState(() => _types[cat] = <String>[for (final Map<String, dynamic> t in l) '${t['name']}']);
+  }
+
+  Future<void> _addType(_OutRow o) async {
+    final int? cid = o.cat;
+    if (cid == null) return snack(context, 'اول دسته را انتخاب کنید');
+    final TextEditingController c = TextEditingController();
+    final String? name = await showDialog<String>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: const Text('افزودن نوع پسته'),
+        content: TextField(controller: c, autofocus: true, decoration: const InputDecoration(labelText: 'نام نوع')),
+        actions: <Widget>[
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('انصراف')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, c.text.trim()), child: const Text('افزودن')),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    final bool ok = await saveConfirmed(context, () => AppDb.I.addType(cid, name), successMsg: 'نوع «$name» اضافه شد');
+    if (!ok || !mounted) return;
+    _types.remove(cid);
+    o.type = name;
+    await _loadTypes(cid);
+  }
 
   bool get _open => _info?['status'] == 'open';
   String get _kind => _info?['kind'] == 'sep' ? 'sep' : 'mix';
@@ -245,17 +282,21 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
     try {
       final Map<String, dynamic> r = await StockApi.call('mixes.info', <String, dynamic>{'id': widget.mixId});
       final List<Map<String, dynamic>> lots = await AppDb.I.lots();
+      _cats = await AppDb.I.categories();
+      final int defCat = ReturnsHelp.d(r['category_id']).toInt();
       final List<_OutRow> outs = <_OutRow>[];
       final bool open = r['status'] == 'open';
       final List<Map<String, dynamic>> src = ReturnsHelp.maps(open ? r['pending'] : r['outputs']);
       for (final Map<String, dynamic> o in src) {
-        final _OutRow x = _OutRow(lotId: open ? null : ReturnsHelp.d(o['id']).toInt(), usedKg: open ? 0 : ReturnsHelp.d(o['used_kg']));
+        final _OutRow x = _OutRow(lotId: open ? null : ReturnsHelp.d(o['id']).toInt(), usedKg: open ? 0 : ReturnsHelp.d(o['used_kg']))..cat = defCat > 0 ? defCat : null;
         await x.pct.init();
         x.fill(o);
         outs.add(x);
       }
       if (outs.isEmpty) {
-        final _OutRow x = _OutRow()..name.text = '${r['type_name'] ?? widget.title}';
+        final _OutRow x = _OutRow()
+          ..cat = defCat > 0 ? defCat : null
+          ..type = '${r['base_type'] ?? ''}'.isEmpty ? null : '${r['base_type']}';
         await x.pct.init();
         outs.add(x);
       }
@@ -284,6 +325,9 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
         _outs
           ..clear()
           ..addAll(outs);
+        for (final _OutRow o in outs) {
+          _loadTypes(o.cat);
+        }
         final double c = ReturnsHelp.d(r['cost_per_kg']), x = ReturnsHelp.d(r['extra_cost']);
         if (c > 0) {
           MoneyField.setStored(_cost, c);
@@ -340,17 +384,27 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
       if (e.value > _avail(e.key) + 1e-6) return 'وزن «${_lots[e.key]?['type_name'] ?? ''}» از موجودی (${faNum(_avail(e.key))} کیلو) بیشتر است';
     }
     for (final _OutRow o in _outs) {
-      if (o.name.text.trim().isEmpty) return 'نام هر خروجی را وارد کنید';
+      if (o.cat == null || (o.type ?? '').trim().isEmpty) return 'دسته و نوع پستهٔ هر خروجی را انتخاب کنید';
       if ((parseNum(o.kg.text) ?? 0) <= 0) return 'وزن هر خروجی باید بیشتر از صفر باشد';
-      if ((parseNum(o.kg.text) ?? 0) + 1e-6 < o.usedKg) return 'وزن «${o.name.text}» نمی‌تواند کمتر از مقدار فروخته/مصرف‌شده (${faNum(o.usedKg)} کیلو) باشد';
+      if ((parseNum(o.kg.text) ?? 0) + 1e-6 < o.usedKg) return 'وزن «${o.label}» نمی‌تواند کمتر از مقدار فروخته/مصرف‌شده (${faNum(o.usedKg)} کیلو) باشد';
       final String? pe = o.pct.validate();
-      if (pe != null) return '«${o.name.text}»: $pe';
+      if (pe != null) return '«${o.label}»: $pe';
     }
     if (_outKg - _inKg > 0.0015) return 'جمع وزن خروجی‌ها (${faNum(_outKg)}) از وزن ورودی (${faNum(_inKg)} کیلو) بیشتر است';
     return null;
   }
 
-  Map<String, dynamic> _payload({bool withOutputs = true}) => <String, dynamic>{
+  /// شناسهٔ سرور دستهٔ خروجی‌ها (دستهٔ تازهٔ همگام‌نشده ⇒ اول همگام‌سازی)
+  Future<Map<String, dynamic>> _payload() async {
+    final Map<String, dynamic> p = _payloadRaw();
+    for (final Map<String, dynamic> o in (p['outputs'] as List<Map<String, dynamic>>? ?? const <Map<String, dynamic>>[])) {
+      final Object? c = o['category_id'];
+      if (c is int) o['category_id'] = await ReturnsHelp.serverId('cat', c);
+    }
+    return p;
+  }
+
+  Map<String, dynamic> _payloadRaw({bool withOutputs = true}) => <String, dynamic>{
         'id': widget.mixId,
         if (!_open) 'end_date': _end.toIso8601String().substring(0, 10),
         'cost_per_kg': (MoneyField.stored(_cost) ?? 0).toDouble(),
@@ -384,7 +438,7 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
     final String? p = _open ? _problemOpen() : _problem();
     if (p != null) return snack(context, p);
     if (!_open && !await confirm(context, 'ویرایش ذخیره شود؟ بهای خروجی‌ها و اسناد بعدی (فروش، …) دوباره حساب می‌شود.')) return;
-    if (await _run(() => StockApi.call('mixes.edit', _payload()), _open ? 'ذخیره شد (فرایند هنوز باز است)' : 'ویرایش ذخیره شد')) await _load();
+    if (await _run(() async => StockApi.call('mixes.edit', await _payload()), _open ? 'ذخیره شد (فرایند هنوز باز است)' : 'ویرایش ذخیره شد')) await _load();
   }
 
   /// فرایندِ باز: خروجی‌ها می‌توانند هنوز کامل نباشند
@@ -399,7 +453,7 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
       if (kg > _avail(r.lot!) + 1e-6) return 'وزن «${_lots[r.lot]?['type_name'] ?? ''}» از موجودی (${faNum(_avail(r.lot!))} کیلو) بیشتر است';
     }
     for (final _OutRow o in _outs) {
-      if (o.name.text.trim().isEmpty && (parseNum(o.kg.text) ?? 0) > 0) return 'نام هر خروجی را وارد کنید';
+      if ((o.type ?? '').trim().isEmpty && (parseNum(o.kg.text) ?? 0) > 0) return 'دسته و نوع پستهٔ هر خروجی را انتخاب کنید';
       final String? pe = o.pct.validate();
       if (pe != null) return pe;
     }
@@ -415,7 +469,7 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
       return;
     }
     final bool ok = await _run(() async {
-      await StockApi.call('mixes.edit', _payload());
+      await StockApi.call('mixes.edit', await _payload());
       await StockApi.call('mixes.close', <String, dynamic>{'id': widget.mixId, 'end_date': _end.toIso8601String().substring(0, 10)});
     }, '${_noun(_kind)} بسته شد و لات‌های خروجی در انبار ثبت شدند');
     if (ok && mounted) await _load();
@@ -497,7 +551,48 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
             if (o.usedKg <= 0 && _outs.length > 1)
               IconButton(tooltip: 'حذف', icon: const Icon(Icons.delete_outline), onPressed: () => setState(() => _outs.removeAt(i).dispose())),
           ]),
-          _row(<Widget>[_txt(o.name, 'نام / نوع لات خروجی'), _txt(o.lotName, 'نام لات (اختیاری)')]),
+          // v96: دسته و نوع پسته مثل فرم خرید؛ نام دلخواه در «نام لات»
+          Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: DropdownButtonFormField<int>(
+                  key: ValueKey<String>('oc-${identityHashCode(o)}-${o.cat}-${_cats.length}'),
+                  initialValue: _cats.any((Map<String, dynamic> c) => c['id'] == o.cat) ? o.cat : null,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'دسته', border: OutlineInputBorder(), isDense: true),
+                  items: <DropdownMenuItem<int>>[
+                    for (final Map<String, dynamic> c in _cats) DropdownMenuItem<int>(value: c['id'] as int, child: Text('${c['name']}', overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (int? v) {
+                    setState(() {
+                      o.cat = v;
+                      o.type = null;
+                    });
+                    _loadTypes(v);
+                  },
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: DropdownButtonFormField<String>(
+                  key: ValueKey<String>('ot-${identityHashCode(o)}-${o.cat}-${o.type}-${_types[o.cat]?.length}'),
+                  initialValue: o.type,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'نوع پسته', border: OutlineInputBorder(), isDense: true),
+                  items: <DropdownMenuItem<String>>[
+                    for (final String t in <String>{...?_types[o.cat], if (o.type != null) o.type!}) DropdownMenuItem<String>(value: t, child: Text(t, overflow: TextOverflow.ellipsis)),
+                  ],
+                  onChanged: (String? v) => setState(() => o.type = v),
+                ),
+              ),
+            ),
+            IconButton(tooltip: 'افزودن نوع', icon: const Icon(Icons.add), onPressed: () => _addType(o)),
+          ]),
+          _txt(o.lotName, 'نام لات (اختیاری)'),
           _row(<Widget>[_num(o.kg, 'وزن خالص (کیلو)'), _num(o.small, 'عدل کوچک'), _num(o.large, 'عدل بزرگ')]),
           _row(<Widget>[_num(o.ounce, 'انس (اختیاری)'), _num(o.gram, 'گرم (اختیاری)')]),
           // درصدها و گرم مغز هر درصد — همان بخش فرم خرید (اختیاری؛ بدون قیمت‌گذاری)
@@ -562,7 +657,9 @@ class _MixProcessScreenState extends State<MixProcessScreen> with EditGuard<MixP
             alignment: AlignmentDirectional.centerStart,
             child: TextButton.icon(
               onPressed: () async {
-                final _OutRow x = _OutRow()..name.text = '${_info!['type_name'] ?? ''}';
+                final int defCat = ReturnsHelp.d(_info!['category_id']).toInt();
+                final _OutRow x = _OutRow()..cat = defCat > 0 ? defCat : null;
+                _loadTypes(x.cat);
                 await x.pct.init();
                 if (mounted) setState(() => _outs.add(x));
               },
