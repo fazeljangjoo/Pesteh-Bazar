@@ -15,6 +15,7 @@ import 'license_service.dart';
 import 'party_field.dart';
 import 'tax_choice.dart';
 import 'price_table_ui.dart' show PriceSuggestionHint;
+import 'sale_price_mode.dart'; // v94
 import 'fmt.dart' show Fmt, MoneyField;
 import 'utils.dart';
 import 'voucher_preview_ui.dart' show confirmVoucherPreview;
@@ -106,6 +107,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   final _small = TextEditingController();
   final _large = TextEditingController();
   final _price = TextEditingController();
+  final SalePriceModeCtl _pm = SalePriceModeCtl(); // v94: یک فی / پایه ۵۰ گرم / گرمی
   final FxDocController _fxc = FxDocController(); // S27c: ارز سند (نرخ دستی دلار حذف شد)
   final bool _fxEditBlocked = false; // v91 p3: دیگر true نمی‌شود (سند ارزی ویرایش می‌شود؛ ارز و نرخ ثابت)
   late bool _viewOnly = widget.locked && widget.editSaleId != null; // v91 p3
@@ -164,6 +166,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     _small.dispose();
     _large.dispose();
     _price.dispose();
+    _pm.dispose();
     _fxc.dispose();
     _buyer.dispose();
     _note.dispose();
@@ -538,6 +541,9 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       w.add(_summaryCard(context));
       if (_priceShown) w.add(sectionTitle(context, '۳) فی فروش'));
       if (_fx && _priceShown) w.add(FxDocFields(c: _fxc, priceLabel: 'فی فروش ارزی (هر کیلو)', onChanged: _changed));
+      if (_priceEditable && !_fxc.active && !_useGrades && _selLot != null) { // v94: نحوهٔ قیمت‌گذاری
+        w.add(SalePriceModeBox(ctl: _pm..prefillGram(_selLot!['id'] as int?, _selLot!['gram'] as num?), price: _price, onChanged: _changed));
+      }
       if (_priceShown && !_fxc.active && !_useGrades) {
         w.add(FieldGate(field: 'sale.price', child: MoneyField(controller: _price, label: 'فی فروش (به ازای هر کیلو)', required: true, onChanged: _changed)));
       }

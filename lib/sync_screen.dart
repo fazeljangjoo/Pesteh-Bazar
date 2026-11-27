@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 
+import 'dart:convert';
+
 import 'conflict_ui.dart';
 import 'db.dart';
+import 'entity_store.dart';
 import 'sync_service.dart';
 import 'sync_status_ui.dart';
 import 'utils.dart';
@@ -28,6 +31,20 @@ String _actionLabel(String a) => switch (a) {
       'loans.delete' => 'حذف قرض/بازپرداخت',
       _ => a,
     };
+
+/// v94: برای entity.save / entity.delete نام بخش (مثلاً «شناسنامهٔ پرداخت/وصول») هم نوشته می‌شود
+String _opLabel(Map<String, dynamic> f) {
+  final String a = f['action'] as String;
+  if (a != 'entity.save' && a != 'entity.delete') return _actionLabel(a);
+  String name = '';
+  try {
+    final Object? p = jsonDecode((f['payload'] as String?) ?? '');
+    if (p is Map) name = (p['entity'] ?? '').toString();
+  } catch (_) {}
+  final String label = kEntityRegistry[name]?.label ?? name;
+  final String verb = a == 'entity.save' ? 'ذخیرهٔ' : 'حذف';
+  return label.isEmpty ? a : '$verb $label';
+}
 
 /// وضعیت همگام‌سازی حساب با سرور (جایگزین صفحهٔ قدیمیِ پشتیبان‌گیری فایل)
 class SyncScreen extends StatefulWidget {
@@ -145,7 +162,7 @@ class _SyncScreenState extends State<SyncScreen> {
                 Card(
                   child: ListTile(
                     leading: const Icon(Icons.error_outline, color: Colors.red),
-                    title: Text(_actionLabel(f['action'] as String)),
+                    title: Text(_opLabel(f)),
                     subtitle: Text((f['err'] as String?) ?? ''),
                   ),
                 ),
