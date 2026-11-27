@@ -72,13 +72,15 @@ class BuyModeChips extends StatelessWidget {
 }
 
 /// خط توضیح زیر فیلد قیمت: «خرید گرمی» ⇒ فی پایه ۵۰ گرم = فی × ۵۰؛ هر دو حالت گرمی ⇒ فی مؤثر.
-Widget buyModeInfo(BuildContext context, BuyMode m, {double? input, double? gram, double ref = 50, double? effective}) {
+/// [fmt]: نمایش مبلغ؛ پیش‌فرض ریالی/تومانی گردشده. v91: سند ارزی ⇒ مبلغ ارزی با اعشار.
+Widget buyModeInfo(BuildContext context, BuyMode m, {double? input, double? gram, double ref = 50, double? effective, String Function(num v)? fmt}) {
+  final String Function(num v) money = fmt ?? (num v) => Fmt.money(v.round());
   final List<String> parts = <String>[];
-  if (m == BuyMode.perGram && input != null) parts.add('${buyModeBaseName(ref)}: ${Fmt.money((input * ref).round())}');
-  if (m == BuyMode.base50 && input != null) parts.add('فی هر گرم: ${Fmt.money((input / ref).round())}');
+  if (m == BuyMode.perGram && input != null) parts.add('${buyModeBaseName(ref)}: ${money(input * ref)}');
+  if (m == BuyMode.base50 && input != null) parts.add('فی هر گرم: ${money(input / ref)}');
   if (m != BuyMode.fixed && gram != null) parts.add('گرم: ${faNum(gram, dec: gram == gram.roundToDouble() ? 0 : 2)}');
   final double? eff = effective ?? buyModeEffective(m, input, gram, ref);
-  if (m != BuyMode.fixed) parts.add(eff == null ? 'فی مؤثر: — (گرم را وارد کنید)' : 'فی مؤثر: ${Fmt.money(eff.round())}');
+  if (m != BuyMode.fixed) parts.add(eff == null ? 'فی مؤثر: — (گرم را وارد کنید)' : 'فی مؤثر: ${money(eff)}');
   if (parts.isEmpty) return const SizedBox.shrink();
   return Padding(
     padding: const EdgeInsets.only(top: 4),

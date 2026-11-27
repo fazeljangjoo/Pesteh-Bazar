@@ -204,6 +204,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
         _large.text = large == 0 ? '' : plain(large);
         _buyer.text = (sale['buyer'] as String?) ?? '';
         _date = DateTime.tryParse('${sale['date'] ?? ''}') ?? _date; // v91
+        _fxc.dateIso = fxIsoDate(_date);
         _note.text = (sale['note'] as String?) ?? '';
     MoneyField.setStored(_laborCost, sale['labor_cost'] as num?);
     _taxStatus = sale['tax_status'] as String?;
@@ -519,7 +520,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     final w = <Widget>[];
     final lot = _selLot;
 
-    w.add(KeyedSubtree(key: const ValueKey('saleDate'), child: DocDateField(label: 'تاریخ فروش', value: _date, onChanged: (DateTime d) => setState(() => _date = d)))); // v91
+    w.add(KeyedSubtree(key: const ValueKey('saleDate'), child: DocDateField(label: 'تاریخ فروش', value: _date, onChanged: (DateTime d) { setState(() => _date = d); _fxc.setDate(d).then((_) => _changed()); }))); // v91
     w.add(sectionTitle(context, '۱) پستهٔ فروخته‌شده را از انبار انتخاب کنید (هر فروش فقط یک قلم)'));
     w.add(SaleLotPicker(lots: _lots, selectedId: _selId, onSelect: _select, whNames: _whNames, showUsd: _fx)); // v87: انتخاب لات مثل فرم شکست (به‌جای فهرست همهٔ لات‌ها)
 

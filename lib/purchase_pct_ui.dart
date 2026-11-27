@@ -6,6 +6,7 @@ import 'entity_store.dart' show EntityStore;
 import 'fmt.dart' show Fmt, MoneyField;
 import 'perms.dart';
 import 'pricing_engine.dart';
+import 'utils.dart' show faCcy, parseNum; // v91: روش خرید ارزی
 import 'warehouse_ui.dart' show StockApi;
 
 /// v84 — درصدهای فرم خرید دقیقاً مثل اتاق انس (فایل مشترک اندروید و ویندوز):
@@ -59,6 +60,28 @@ class PurchasePctRow {
   }
 }
 
+/// v91: نتیجهٔ قیمت‌گذاری فرم خرید به واحد سند (ریال/تومان، یا ارز با اعشار).
+class PctBlend {
+  const PctBlend._(this.ok, this.error, this.avgPerKg, this.total, this.lines);
+  factory PctBlend.from(PriceBlendResult r, double scale) => PctBlend._(
+        r.ok,
+        r.error,
+        r.avgPerKg / scale,
+        r.total / scale,
+        scale == 1
+            ? r.lines
+            : <PriceBlendLine>[
+                for (final PriceBlendLine l in r.lines)
+                  PriceBlendLine(pct: l.pct, q: l.q == null ? null : l.q! / scale, effQ: l.effQ == null ? null : l.effQ! / scale, gramMode: l.gramMode, g: l.g),
+              ],
+      );
+  final bool ok;
+  final String? error;
+  final double avgPerKg;
+  final double total;
+  final List<PriceBlendLine> lines;
+}
+
 class PurchasePctCtl {
   final List<PurchasePctRow> rows = <PurchasePctRow>[];
   List<Map<String, dynamic>> defs = _kFallbackDefs;
@@ -71,6 +94,37 @@ class PurchasePctCtl {
   static double? _cachedRef;
 
   static bool get canPrice => StaffPerms.I.canPriceIn('purchases'); // v87: قیمت بخش خرید
+
+  // ── v91: روش خرید ارزی — در سند ارزی همهٔ قیمت‌های روش خرید (پایه، قیمت جدای درصدها) به همان ارز و با اعشار ──
+  String? fxCcy;
+  int fxDecimals = 2;
+  bool get fx => fxCcy != null;
+
+  /// ارز سند عوض شد (ریال ⇄ ارز یا ارز دیگر) ⇒ قیمت‌های جدای درصدها پاک می‌شوند تا عدد ریالی به‌جای ارزی خوانده نشود.
+  /// true = قیمتی پاک شد.
+  bool syncFx(String? ccy, int decimals) {
+    fxDecimals = decimals;
+    if (ccy == fxCcy) return false;
+    fxCcy = ccy;
+    bool cleared = false;
+    for (final PurchasePctRow r in rows) {
+      if (r.q.text.trim().isNotEmpty) {
+        r.q.clear();
+        cleared = true;
+      }
+    }
+    return cleared;
+  }
+
+  /// قیمت جدای یک ردیف درصد: ارزی (عدد اعشاری) یا ریالی/تومانی (واحد ذخیره).
+  double? qOf(PurchasePctRow r) {
+    if (!fx) return MoneyField.stored(r.q)?.toDouble();
+    final double? v = parseNum(r.q.text);
+    return (v == null || v < 0) ? null : v;
+  }
+
+  /// نمایش مبلغ به ارز سند (یا واحد پول برنامه).
+  String money(num v) => fx ? faCcy(fxCcy!, v, dec: fxDecimals) : Fmt.money(v);
 
   /// تعریف درصدها (اتاق انس) + گرم مرجع R (سرور؛ آفلاین ⇒ آخرین مقدار یا ۵۰).
   Future<void> init() async {
@@ -140,7 +194,7 @@ class PurchasePctCtl {
       if (p < 0 || p > 100) return 'درصد «${labelOf(r.defKey)}» باید بین ۰ و ۱۰۰ باشد';
       final double? k = r.kernel.text.trim().isEmpty ? null : _num(r.kernel.text);
       if (k != null && (k <= 0 || k > 100)) return 'گرم مغز «${labelOf(r.defKey)}» باید بین ۰ و ۱۰۰ باشد';
-      if (canPrice && r.separate && (MoneyField.stored(r.q) ?? -1) < 0) return 'قیمت «${labelOf(r.defKey)}» را وارد کنید';
+      if (canPrice && r.separate && (qOf(r) ?? -1) < 0) return 'قیمت «${labelOf(r.defKey)}» را وارد کنید';
       if (canPrice && r.separate && r.gram) {
         final double? g = _num(r.g.text) ?? k;
         if (g == null || g <= 0 || g > 100) return '«گرم مغز در ۱۰۰ گرم» برای «${labelOf(r.defKey)}» را وارد کنید';
@@ -188,10 +242,18 @@ class PurchasePctCtl {
   }
 
   /// قیمت‌گذاری با موتور اتاق انس. null ⇒ قیمت پایه یا وزن نامعتبر.
-  PriceBlendResult? blend(num? basePrice, double netKg) {
+  /// v91: سند ارزی ⇒ موتور (که مثل سرور به عدد صحیح گرد می‌کند) روی مبالغ × ۱۰^اعشار اجرا و نتیجه برگردانده می‌شود
+  /// تا گرد کردن به اندازهٔ اعشار ارز (مثلاً سنت) باشد؛ خود موتور و هم‌خوانی‌اش با PHP دست نمی‌خورد.
+  PctBlend? blend(num? basePrice, double netKg) {
     if (basePrice == null || basePrice <= 0 || netKg <= 0) return null;
-    return priceBlend(<String, dynamic>{
-      'base_price': buyModeEngineValue(baseMode, basePrice.toDouble(), refGram), // v85
+    double scale = 1;
+    if (fx) {
+      for (int i = 0; i < fxDecimals; i++) {
+        scale *= 10;
+      }
+    }
+    final PriceBlendResult r = priceBlend(<String, dynamic>{
+      'base_price': buyModeEngineValue(baseMode, basePrice.toDouble(), refGram) * scale, // v85
       'weight_kg': netKg,
       'ref_gram': refGram,
       'items': <Map<String, dynamic>>[
@@ -199,7 +261,7 @@ class PurchasePctCtl {
           if (r.separate && canPrice)
             <String, dynamic>{
               'pct': _num(r.pct.text) ?? 0,
-              'q': MoneyField.stored(r.q) == null ? null : buyModeEngineValue(r.mode, MoneyField.stored(r.q)!.toDouble(), refGram), // v85
+              'q': qOf(r) == null ? null : buyModeEngineValue(r.mode, qOf(r)!, refGram) * scale, // v85 · v91: ارزی یا ریالی
               'gram_mode': r.gram,
               'g': _num(r.g.text) ?? _num(r.kernel.text),
             }
@@ -208,6 +270,7 @@ class PurchasePctCtl {
       ],
       if (baseGram) ...<String, dynamic>{'base_gram_mode': true, 'base_g': baseGram0},
     });
+    return PctBlend.from(r, scale);
   }
 
   void dispose() {
@@ -232,7 +295,7 @@ class PurchasePctSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bool price = PurchasePctCtl.canPrice;
-    final PriceBlendResult? res = ctl.pricing ? ctl.blend(basePrice, netKg) : null;
+    final PctBlend? res = ctl.pricing ? ctl.blend(basePrice, netKg) : null;
     final double sum = ctl.sum;
     InputDecoration dec(String l, {String? suffix, String? helper}) => InputDecoration(labelText: l, suffixText: suffix, helperText: helper, border: const OutlineInputBorder(), isDense: true);
     TextField num(TextEditingController c, String l, {String? suffix, double? width}) => TextField(
@@ -282,7 +345,7 @@ class PurchasePctSection extends StatelessWidget {
             if (ctl.baseGram) ...<Widget>[
               Text(ctl.gramSource?.call() == null ? '«گرم» را در همین فرم وارد کنید تا فی مؤثر حساب شود' : 'گرم پستهٔ اصلی (از فرم): ${_plain(ctl.gramSource!.call()!)}',
                   style: TextStyle(color: ctl.gramSource?.call() == null ? Colors.red : Colors.black54)),
-              buyModeInfo(context, ctl.baseMode, input: basePrice?.toDouble(), gram: ctl.baseGram0, ref: ctl.refGram),
+              buyModeInfo(context, ctl.baseMode, input: basePrice?.toDouble(), gram: ctl.baseGram0, ref: ctl.refGram, fmt: ctl.fx ? ctl.money : null),
             ],
             if (ctl.pricing)
               Container(
@@ -297,8 +360,8 @@ class PurchasePctSection extends StatelessWidget {
                   else if (!res.ok)
                     Text('محاسبه ممکن نیست (${res.error})', style: const TextStyle(color: Colors.red))
                   else ...<Widget>[
-                    Text('میانگین هر کیلو (فی خرید): ${Fmt.money(res.avgPerKg)}', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    Text('مبلغ کل: ${Fmt.money(res.total)}'),
+                    Text('میانگین هر کیلو (فی خرید): ${ctl.money(res.avgPerKg)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text('مبلغ کل: ${ctl.money(res.total)}'),
                   ],
                 ]),
               ),
@@ -308,7 +371,7 @@ class PurchasePctSection extends StatelessWidget {
     );
   }
 
-  Widget _row(BuildContext context, PurchasePctRow r, int i, PriceBlendResult? res, bool price,
+  Widget _row(BuildContext context, PurchasePctRow r, int i, PctBlend? res, bool price,
       TextField Function(TextEditingController, String, {String? suffix, double? width}) num, InputDecoration Function(String, {String? suffix, String? helper}) dec) {
     double? eff;
     if (res != null && res.ok && i < res.lines.length) eff = res.lines[i].effQ;
@@ -380,12 +443,18 @@ class PurchasePctSection extends StatelessWidget {
                 onChanged();
               },
             ),
-            MoneyField(controller: r.q, label: buyModeInputLabel(r.mode, of: ctl.labelOf(r.defKey), ref: ctl.refGram), onChanged: onChanged),
+            if (ctl.fx) // v91: قیمت جدای درصد به ارز سند (اعشاری)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: num(r.q, '${buyModeInputLabel(r.mode, of: ctl.labelOf(r.defKey), ref: ctl.refGram)} — ارزی', suffix: ctl.fxCcy),
+              )
+            else
+              MoneyField(controller: r.q, label: buyModeInputLabel(r.mode, of: ctl.labelOf(r.defKey), ref: ctl.refGram), onChanged: onChanged),
             if (r.gram) num(r.g, 'گرم مغز در ۱۰۰ گرم'),
             if (r.gram)
-              buyModeInfo(context, r.mode, input: MoneyField.stored(r.q)?.toDouble(), gram: _num(r.g.text) ?? _num(r.kernel.text), ref: ctl.refGram, effective: eff)
+              buyModeInfo(context, r.mode, input: ctl.qOf(r), gram: _num(r.g.text) ?? _num(r.kernel.text), ref: ctl.refGram, effective: eff, fmt: ctl.fx ? ctl.money : null)
             else if (eff != null)
-              Text('فی مؤثر کیلویی: ${Fmt.money(eff.round())}', style: const TextStyle(color: Colors.black54)),
+              Text('فی مؤثر کیلویی: ${ctl.fx ? ctl.money(eff) : Fmt.money(eff.round())}', style: const TextStyle(color: Colors.black54)),
           ],
         ],
       ]),

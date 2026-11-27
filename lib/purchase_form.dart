@@ -1,4 +1,5 @@
 import 'purchase_pct_ui.dart' show PurchasePctCtl, PurchasePctSection; // v84: درصدها و قیمت‌گذاری مثل اتاق انس
+import 'buy_mode_ui.dart' show BuyMode; // v91: روش خرید ارزی
 import 'catalog_manage_ui.dart' show CatalogManageScreen; // v83
 import 'dart:convert';
 import 'dart:io' show Platform;
@@ -160,6 +161,23 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     return (r != null && r.ok) ? r.avgPerKg.toDouble() : base;
   }
 
+  /// v91: روش خرید ارزی — همان موتور قیمت‌گذاری روی فی ارزی واردشده (فی پایه ۵۰ گرم، گرمی، قیمت جدای درصدها)؛
+  /// نتیجه = فی ارزی هر کیلو که ثبت و با نرخ تاریخ سند به ریال تبدیل می‌شود.
+  double? get _fxPerKg {
+    final double? base = _fxc.priceCcyNum;
+    if (base == null) return null;
+    if (!_pp.pricing) return base;
+    final r = _pp.blend(base, _net);
+    return (r != null && r.ok) ? r.avgPerKg.toDouble() : base;
+  }
+
+  /// ارز سند عوض شد ⇒ روش خرید به همان ارز (قیمت‌های جدای درصدها پاک می‌شوند تا ریالی و ارزی قاطی نشوند).
+  void _onFxChanged() {
+    final bool cleared = _pp.syncFx(_fxc.active ? _fxc.ccy : null, _fxc.decimals);
+    setState(() {});
+    if (cleared && mounted) snack(context, 'ارز سند عوض شد؛ قیمت‌های جدای درصدها را به ارز تازه دوباره وارد کنید');
+  }
+
   /// ارزهای فعال از کش دستگاه؛ سپس تازه‌سازی بی‌صدای کش (آنلاین) و دوباره‌خوانی نرخ.
   Future<void> _initFx() async {
     await _fxc.load();
@@ -198,6 +216,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
     _loadWeighSettings();
     final e = widget.existing ?? widget.draft; // v87: پیش‌نویس هم مثل ویرایش فیلدها را پر می‌کند
     _draftId = widget.draftId;
+    _fxc.effectivePriceCcy = () => _fxPerKg; // v91: روش خرید ارزی
     _pp.gramSource = () => parseNum(_gram.text); // v85: گرم پستهٔ اصلی در «فی پایه ۵۰ گرم» / «خرید گرمی»
     _pp.init().then((_) { // v84: تعریف درصدها و گرم مرجع ⇒ ردیف‌های ذخیره‌شده؛ مشخصه‌های درصدی از «مشخصات دلخواه» بیرون می‌روند
       if (!mounted) return;
@@ -233,6 +252,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
       _pctCrooked.text = e['pct_crooked'] == null ? '' : plain(e['pct_crooked'] as num);
       _seller.text = (e['seller'] as String?) ?? '';
       _date = DateTime.tryParse('${e['date'] ?? ''}') ?? _date; // v91
+      _fxc.dateIso = fxIsoDate(_date);
       _note.text = (e['note'] as String?) ?? '';
     MoneyField.setStored(_laborCost, e['labor_cost'] as num?);
     _taxStatus = e['tax_status'] as String?;
@@ -748,7 +768,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                 ),
               ),
             if (_locked) const SizedBox(height: 12),
-            DocDateField(label: 'تاریخ خرید', value: _date, onChanged: (DateTime d) => setState(() => _date = d)), // v91: پیش‌فرض امروز؛ ویرایش‌پذیر
+            DocDateField(label: 'تاریخ خرید', value: _date, onChanged: (DateTime d) { setState(() => _date = d); _fxc.setDate(d).then((_) { if (mounted) setState(() {}); }); }), // v91: پیش‌فرض امروز؛ ویرایش‌پذیر
             if (_shown('purchase.base')) FieldGate(field: 'purchase.base', child: IgnorePointer( // v89
               ignoring: _locked,
               child: Opacity(
@@ -840,7 +860,7 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                     Expanded(child: numField(_gram, 'گرم (اختیاری)', onChanged: () => setState(() {}))),
                   ])),
                   if (_fx && !_isEdit && _priceShown)
-                    FxDocFields(c: _fxc, priceLabel: 'فی خرید ارزی (هر کیلو)', onChanged: () => setState(() {})),
+                    FxDocFields(c: _fxc, priceLabel: _pp.pricing || _pp.baseMode != BuyMode.fixed ? '${_pp.priceLabel(pricedRows: _pp.pricing)} — ارزی' : 'فی خرید ارزی (هر کیلو)', onChanged: _onFxChanged), // v91: فی طبق روش خرید، به ارز
                   if (_priceShown && !_fxc.active && !_useGrades && !StaffPerms.I.fieldEditable('purchase.pct')) // v87: فی زیر «روش خرید» (درصدها قفل/پنهان ⇒ همین‌جا) · v89: بی‌دسترسی قیمت ⇒ اصلاً نمی‌آید؛ خالی ⇒ منتظر فی
                     FieldGate(field: 'purchase.price', child: MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, onChanged: () => setState(() {}))),
                   if (_priceEditable && _priceTableOn && !_fxc.active && !_useGrades)
@@ -891,15 +911,15 @@ class _PurchaseFormState extends State<PurchaseForm> with EditGuard<PurchaseForm
                         if (_weighOn && _deductKg > 0) infoRow('کسر کیفیت', '${faNum(_deductKg)} کیلو'),
                         infoRow('وزن پسته (خالص)', '${faNum(_net)} کیلو'),
                         if (_priceShown) infoRow('ارزش کل', Fmt.money(_net * _priceVal)),
-                        if (_fxc.active && _fxc.priceCcyNum != null) ...[
-                          infoRow('فی خرید ارزی (هر کیلو)', faCcy(_fxc.ccy!, _fxc.priceCcyNum!, dec: _fxc.decimals)),
-                          infoRow('ارزش کل ارزی', faCcy(_fxc.ccy!, _net * _fxc.priceCcyNum!, dec: _fxc.decimals)),
+                        if (_fxc.active && _fxc.priceCcyEffective != null) ...[ // v91: فی مؤثر روش خرید
+                          infoRow('فی خرید ارزی (هر کیلو)', faCcy(_fxc.ccy!, _fxc.priceCcyEffective!, dec: _fxc.decimals)),
+                          infoRow('ارزش کل ارزی', faCcy(_fxc.ccy!, _net * _fxc.priceCcyEffective!, dec: _fxc.decimals)),
                         ],
                       ]),
                     ),
                   ),
                   const SizedBox(height: 16),
-                  FieldGate(field: 'purchase.pct', lockedNote: false, child: PurchasePctSection(ctl: _pp, basePrice: MoneyField.stored(_price), netKg: _net, onChanged: () => setState(() {}),
+                  FieldGate(field: 'purchase.pct', lockedNote: false, child: PurchasePctSection(ctl: _pp, basePrice: _fxc.active ? _fxc.priceCcyNum : MoneyField.stored(_price), /* v91: ارزی */ netKg: _net, onChanged: () => setState(() {}),
                       priceField: (_priceShown && !_fxc.active && !_useGrades && StaffPerms.I.fieldEditable('purchase.pct')) ? FieldGate(field: 'purchase.price', child: MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing) /* v85 */, onChanged: () => setState(() {}))) : null)),
                   if (preset != 'dombest' && preset != 'khandan' && _shown('purchase.quality')) ...[
                     Row(children: [

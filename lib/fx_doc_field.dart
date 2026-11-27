@@ -51,9 +51,16 @@ class FxDocController {
     return ccy ?? '';
   }
 
+  /// v91: فی ارزی مؤثر هر کیلو وقتی فرم آن را از روی ورودی حساب می‌کند (روش خرید ارزی: فی پایه ۵۰ گرم، گرمی، درصدها).
+  /// null ⇒ همان عدد واردشده ([priceCcyNum]).
+  double? Function()? effectivePriceCcy;
+
+  /// فی ارزی هر کیلو که ثبت می‌شود.
+  double? get priceCcyEffective => effectivePriceCcy?.call() ?? priceCcyNum;
+
   /// Per-unit price in the local stored unit (toman until S29) = price_ccy * rate / 10, or null when incomplete.
   double? get priceStored {
-    final double? p = priceCcyNum;
+    final double? p = priceCcyEffective;
     final ({double rate, String date})? r = rate;
     if (!active || p == null || r == null) return null;
     return (p * r.rate / kFxRialPerStoredUnit * 100).roundToDouble() / 100;
@@ -66,9 +73,21 @@ class FxDocController {
     currencies = all.where((Map<String, dynamic> c) => c['active'] == true && c['is_base'] != true).toList();
   }
 
-  Future<void> resolveRate() async {
+  /// v91: نرخ همان تاریخ سند از کش دستگاه؛ اگر در کش نبود (نرخ تازه ثبت شده، کش کهنه) یک بار کش از سرور تازه و دوباره خوانده می‌شود.
+  Future<void> resolveRate({bool tryServer = true}) async {
     final String? c = ccy;
-    rate = c == null ? null : await FxLocal.rateAt(c, dateIso);
+    if (c == null) {
+      rate = null;
+      return;
+    }
+    rate = await FxLocal.rateAt(c, dateIso);
+    if (rate == null && tryServer && await FxLocal.refresh()) rate = await FxLocal.rateAt(c, dateIso);
+  }
+
+  /// v91: تاریخ سند عوض شد ⇒ نرخ همان تاریخ.
+  Future<void> setDate(DateTime d) async {
+    dateIso = fxIsoDate(d);
+    await resolveRate();
   }
 
   /// Restores state from a saved local row (edit view / read-only).
@@ -89,7 +108,7 @@ class FxDocController {
     if (!active) return null;
     if (priceCcyNum == null) return 'فی ارزی را وارد کنید';
     if (rate == null) {
-      return 'برای $ccy نرخی در دستگاه ثبت نیست؛ نرخ را در «نرخ ارز» ثبت کنید و همگام‌سازی را بزنید';
+      return 'برای $ccy در تاریخ ${jalaliDate(dateIso)} یا قبل از آن نرخی ثبت نیست؛ نرخ را در «نرخ ارز» ثبت کنید (یا «به‌روزرسانی نرخ» را بزنید)';
     }
     return null;
   }
@@ -99,7 +118,7 @@ class FxDocController {
     if (!active) return <String, dynamic>{};
     return <String, dynamic>{
       'ccy': ccy,
-      'price_ccy': priceCcyNum,
+      'price_ccy': priceCcyEffective,
       'offline_rate': rate?.rate,
       'offline_rate_at': DateTime.now().toIso8601String(),
     };
@@ -143,8 +162,25 @@ class FxDocFields extends StatelessWidget {
       if (r == null) {
         w.add(Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: Text('نرخ ${c.ccy} برای این تاریخ در دستگاه نیست؛ ابتدا نرخ را ثبت و همگام کنید.',
-              style: TextStyle(color: scheme.error)),
+          child: Row(children: <Widget>[
+            Expanded(
+              child: Text('نرخ ${c.ccy} برای ${jalaliDate(c.dateIso)} یا قبل از آن پیدا نشد؛ نرخ را در «نرخ ارز» ثبت کنید.',
+                  style: TextStyle(color: scheme.error)),
+            ),
+            // v91: نرخ تازه ثبت‌شده (یا ثبت از دستگاه دیگر) بدون بستن فرم
+            TextButton.icon(
+              onPressed: () async {
+                final bool ok = await FxLocal.refresh();
+                await c.resolveRate(tryServer: false);
+                onChanged();
+                if (!ok && context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('اتصال به سرور برقرار نشد؛ نرخ‌های دستگاه همان قبلی است')));
+                }
+              },
+              icon: const Icon(Icons.refresh, size: 18),
+              label: const Text('به‌روزرسانی نرخ'),
+            ),
+          ]),
         ));
       } else {
         w.add(infoRow('نرخ سند (فقط نمایش)', '${faNum(r.rate, dec: 0)} ریال'));
