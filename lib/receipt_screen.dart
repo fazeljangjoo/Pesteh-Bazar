@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'settle_ui.dart' show showDocTrails; // v93
 
 import 'db.dart';
 import 'fx_local.dart';
@@ -72,6 +73,7 @@ class _ReceiptScreenState extends State<ReceiptScreen> with EditGuard<ReceiptScr
   @override
   void dispose() {
     AppDb.I.version.removeListener(_onDbChanged);
+    FxTxController.docCcy = null; // v93
     super.dispose();
   }
 
@@ -84,6 +86,8 @@ class _ReceiptScreenState extends State<ReceiptScreen> with EditGuard<ReceiptScr
   Future<void> _load() async {
     _saleId = await AppDb.I.currentId('sale', _saleId);
     _sale = await AppDb.I.saleById(_saleId);
+    final String dc = '${_sale?['ccy'] ?? ''}'.toUpperCase(); // v93: ارز فاکتور برای «سهم به ارز فاکتور» ردیف‌های ارز دیگر
+    FxTxController.docCcy = dc.isEmpty || dc == 'IRT' || dc == 'IRR' || _sale?['fx_rate'] == null ? null : dc;
     final rec = await AppDb.I.receiptOf(_saleId);
     _receiptId = rec?['id'] as int?;
     _recvType = rec?['recv_type'] as String?;
@@ -296,6 +300,12 @@ class _ReceiptScreenState extends State<ReceiptScreen> with EditGuard<ReceiptScr
       appBar: AppBar(
         title: Text('وصول مطالبات — ${widget.saleLabel}'),
         actions: [
+          if (!_loading) // v93: دریافت چندمرحله‌ای / از طریق صراف (شناسنامه)
+            IconButton(
+              onPressed: () => showDocTrails(context, isPurchase: false, docId: _saleId),
+              icon: const Icon(Icons.currency_exchange),
+              tooltip: 'دریافت از طریق صراف یا چندمرحله‌ای',
+            ),
           if (!_loading)
             IconButton(
               onPressed: _exportPdf,

@@ -52,17 +52,17 @@ const List<(String, List<String>)> _kSnapshot = [
   ('payments', ['id', 'purchase_id', 'pay_type', 'staged_type']),
   (
     'lump_tx',
-    ['id', 'payment_id', 'from_account', 'payer_name', 'to_account', 'seller_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid'] // v91 p5: account_uid
+    ['id', 'payment_id', 'from_account', 'payer_name', 'to_account', 'seller_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid', 'doc_ccy_amount', 'doc_ccy_mode'] // v91 p5: account_uid
   ),
   (
     'credit_inst',
-    ['id', 'payment_id', 'due_date', 'amount', 'from_account', 'payer_name', 'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid'] // v91 p5: account_uid
+    ['id', 'payment_id', 'due_date', 'amount', 'from_account', 'payer_name', 'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid', 'doc_ccy_amount', 'doc_ccy_mode'] // v91 p5: account_uid
   ),
   (
     'cheque_inst',
     [
       'id', 'payment_id', 'due_date', 'amount', 'cheque_no', 'bank_name', 'from_account', 'payer_name',
-      'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used', 'account_uid' // S35.T35.7c + v71 + v91 p5
+      'to_account', 'seller_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used', 'account_uid', 'doc_ccy_amount', 'doc_ccy_mode' // S35.T35.7c + v71 + v91 p5
     ]
   ),
   (
@@ -80,20 +80,20 @@ const List<(String, List<String>)> _kSnapshot = [
   ('receipts', ['id', 'sale_id', 'recv_type', 'staged_type']),
   (
     'receipt_lump_tx',
-    ['id', 'receipt_id', 'from_account', 'payer_name', 'to_account', 'receiver_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid'] // v91 p5: account_uid
+    ['id', 'receipt_id', 'from_account', 'payer_name', 'to_account', 'receiver_name', 'amount', 'date', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid', 'doc_ccy_amount', 'doc_ccy_mode'] // v91 p5: account_uid
   ),
   (
     'receipt_credit_inst',
     [
       'id', 'receipt_id', 'due_date', 'amount', 'from_account', 'payer_name', 'to_account',
-      'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid' // v91 p5
+      'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'credit_used', 'account_uid', 'doc_ccy_amount', 'doc_ccy_mode' // v91 p5
     ]
   ),
   (
     'receipt_cheque_inst',
     [
       'id', 'receipt_id', 'due_date', 'amount', 'cheque_no', 'bank_name', 'from_account', 'payer_name',
-      'to_account', 'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used', 'account_uid' // S35.T35.7c + v71 + v91 p5
+      'to_account', 'receiver_name', 'paid', 'ccy', 'ccy_amount', 'fx_rate', 'sayad_id', 'credit_used', 'account_uid', 'doc_ccy_amount', 'doc_ccy_mode' // S35.T35.7c + v71 + v91 p5
     ]
   ),
   // طرف‌حساب‌های تعریف‌شده‌ی دستی و دفتر قرض/وام (در سود و زیان حساب نمی‌شوند)
@@ -233,6 +233,7 @@ class AppDb {
     try { await _createSpeedIndexes(d); } catch (_) {}
     try { await addV91P5Cols(d); } catch (_) {} // v91 p5
     try { await addV92LoanCols(d); } catch (_) {} // v92 فاز ج
+    try { await addV93Cols(d); } catch (_) {} // v93
     moneyUnit = await MoneyUnit.localUnit(d);
     try { await Fmt.loadFrom(d); } catch (_) {} // S35.T35.11: display unit / digits (meta table may be absent on first open)
     return d;
@@ -436,6 +437,20 @@ class AppDb {
       try {
         await d.execute('ALTER TABLE loan_entries ADD COLUMN $c $type');
       } catch (_) {/* همزمان ساخته شد */}
+    }
+  }
+
+  /// v93: سهم ارز فاکتور روی ردیف پرداخت/دریافت به ارز دیگر (بررسی در هر باز شدن؛ بدون افزایش schemaVersion)
+  static Future<void> addV93Cols(DatabaseExecutor d) async {
+    for (final String t in const <String>['lump_tx', 'credit_inst', 'cheque_inst', 'receipt_lump_tx', 'receipt_credit_inst', 'receipt_cheque_inst']) {
+      final List<Map<String, Object?>> info = await d.rawQuery('PRAGMA table_info($t)');
+      if (info.isEmpty) continue;
+      for (final (String c, String type) in const <(String, String)>[('doc_ccy_amount', 'REAL'), ('doc_ccy_mode', 'TEXT')]) {
+        if (info.any((Map<String, Object?> r) => r['name'] == c)) continue;
+        try {
+          await d.execute('ALTER TABLE $t ADD COLUMN $c $type');
+        } catch (_) {/* همزمان ساخته شد */}
+      }
     }
   }
 
@@ -853,6 +868,7 @@ class AppDb {
     await addStockHoldCol(d); // v89
     await addV91P5Cols(d); // v91 p5
     await addV92LoanCols(d); // v92 فاز ج
+    await addV93Cols(d); // v93
     await _createIndexes(d);
     // نکته: دسته‌ها و انواع پیش‌فرض را سرور می‌سازد (bootstrap) و هنگام ورود دریافت می‌شوند.
   }

@@ -29,6 +29,13 @@ String partyCcyLine(PartyAccount a, {bool withRial = false}) {
   return parts.join('  •  ');
 }
 
+/// v93: مبلغ به ارز خودش (IRR = واحد ذخیرهٔ برنامه)
+String partyCcyAmount(String ccy, double v) => ccy == 'IRR' ? Fmt.money(v.abs()) : faCcy(ccy, v.abs(), dec: 2);
+
+/// v93: مانده‌های باز هر ارز به ترتیب (ارزها اول، ریال آخر)
+List<MapEntry<String, double>> partyOpenSorted(PartyAccount a) => a.openByCcy.entries.toList()
+  ..sort((MapEntry<String, double> x, MapEntry<String, double> y) => x.key == 'IRR' ? 1 : (y.key == 'IRR' ? -1 : x.key.compareTo(y.key)));
+
 /// طرف‌حساب‌ها: برای هر فروشنده/خریدار، جمع خرید و فروش و بدهی/طلب باقی‌مانده
 class PartiesScreen extends StatefulWidget {
   const PartiesScreen({super.key});
@@ -229,10 +236,8 @@ class _PartiesScreenState extends State<PartiesScreen> {
                 ),
               );
             }
-            double weOwe = 0, theyOwe = 0, loanRecv = 0, loanPay = 0;
+            double loanRecv = 0, loanPay = 0; // v93: جمع طلب/بدهی حالا به تفکیک ارز (_ccyTotals)
             for (final a in all) {
-              if (a.weOwe > 0) weOwe += a.weOwe;
-              if (a.theyOwe > 0) theyOwe += a.theyOwe;
               if (a.loanReceivable > 0) loanRecv += a.loanReceivable;
               if (a.loanPayable > 0) loanPay += a.loanPayable;
             }
@@ -255,10 +260,14 @@ class _PartiesScreenState extends State<PartiesScreen> {
                   child: Padding(
                     padding: const EdgeInsets.all(12),
                     child: Column(children: [
-                      infoRow('جمع طلب‌ها (از خریدارها)', Fmt.money(theyOwe),
-                          valueColor: Colors.green.shade800),
-                      infoRow('جمع بدهی‌ها (به فروشنده‌ها)', Fmt.money(weOwe),
-                          valueColor: Colors.red.shade800),
+                      // v93: هر ارز جدا (بدون تبدیل به ریال)
+                      for (final MapEntry<String, (double, double)> e in _ccyTotals(all).entries) ...[
+                        if (e.value.$1 > 0.004)
+                          infoRow('جمع طلب‌ها (${e.key == 'IRR' ? 'ریالی' : e.key})', partyCcyAmount(e.key, e.value.$1), valueColor: Colors.green.shade800),
+                        if (e.value.$2 > 0.004)
+                          infoRow('جمع بدهی‌ها (${e.key == 'IRR' ? 'ریالی' : e.key})', partyCcyAmount(e.key, e.value.$2), valueColor: Colors.red.shade800),
+                      ],
+                      if (_ccyTotals(all).isEmpty) infoRow('مانده‌ها', 'همه تسویه'),
                       if (loanRecv > 0.5 || loanPay > 0.5) ...[
                         const Divider(),
                         infoRow('مانده طلب قرضی', Fmt.money(loanRecv),
@@ -334,7 +343,21 @@ class _PartiesScreenState extends State<PartiesScreen> {
     );
   }
 
+  /// v93: جمع طلب/بدهی هر ارز روی همهٔ طرف‌حساب‌ها
+  static Map<String, (double, double)> _ccyTotals(List<PartyAccount> all) {
+    final Map<String, (double, double)> m = <String, (double, double)>{};
+    for (final PartyAccount a in all) {
+      for (final MapEntry<String, double> e in a.openByCcy.entries) {
+        final (double r, double p) = m[e.key] ?? (0, 0);
+        m[e.key] = e.value > 0 ? (r + e.value, p) : (r, p - e.value);
+      }
+    }
+    final List<String> keys = m.keys.toList()..sort((String x, String y) => x == 'IRR' ? 1 : (y == 'IRR' ? -1 : x.compareTo(y)));
+    return <String, (double, double)>{for (final String k in keys) k: m[k]!};
+  }
+
   Widget _tile(BuildContext context, PartyAccount a) {
+    if (_f.ccy == null) return _tileByCcy(context, a); // v93: بدون فیلتر ارز ⇒ مانده هر ارز جدا
     final String? fc = _f.ccy; // v91 p5: با فیلتر ارز، مانده همان ارز نمایش داده می‌شود
     final total = fc == null ? a.totalNet : partyBalanceFor(a, fc);
     final settled = total.abs() < (fc == null || fc == 'IRR' ? 1 : 0.005);
@@ -368,6 +391,40 @@ class _PartiesScreenState extends State<PartiesScreen> {
         ),
         onTap: () => Navigator.push(context,
             MaterialPageRoute(builder: (_) => PartyDetailScreen(partyKeyValue: a.key))),
+      ),
+    );
+  }
+}
+
+extension _TileByCcy on _PartiesScreenState {
+  /// v93: ردیف طرف‌حساب با ماندهٔ هر ارز به‌عنوان رقم اصلی (ریال فقط برای مانده‌های ریالی)
+  Widget _tileByCcy(BuildContext context, PartyAccount a) {
+    final List<MapEntry<String, double>> open = partyOpenSorted(a);
+    final lines = <String>[
+      if (a.bought > 0) 'خرید ${Fmt.money(a.bought, label: false)}',
+      if (a.sold > 0) 'فروش ${Fmt.money(a.sold, label: false)}',
+    ].join('  •  ');
+    return Card(
+      key: ValueKey('party${a.key}'),
+      child: ListTile(
+        title: Row(children: <Widget>[
+          Flexible(child: Text(a.name)),
+          if (a.isExchanger) ...<Widget>[const SizedBox(width: 6), const Icon(Icons.currency_exchange, size: 16)],
+        ]),
+        subtitle: Text(lines.isEmpty ? (a.hasLoans ? 'قرض' : 'بدون تراکنش') : lines, style: const TextStyle(fontSize: 12)),
+        trailing: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: open.isEmpty
+              ? <Widget>[const Text('تسویه', style: TextStyle(color: Colors.black54, fontWeight: FontWeight.w700))]
+              : <Widget>[
+                  for (final MapEntry<String, double> e in open.take(3))
+                    Text('${partyCcyAmount(e.key, e.value)} ${e.value > 0 ? 'طلب' : 'بدهی'}',
+                        style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w700, color: e.value > 0 ? Colors.green.shade800 : Colors.red.shade800)),
+                  if (open.length > 3) Text('+${faNum(open.length - 3, dec: 0)} ارز دیگر', style: const TextStyle(fontSize: 11)),
+                ],
+        ),
+        onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => PartyDetailScreen(partyKeyValue: a.key))),
       ),
     );
   }
@@ -432,6 +489,22 @@ class PartyDetailScreen extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
       children: [
+        if (a.openByCcy.isNotEmpty) // v91 p5: مانده به ارز سند · v93: همیشه، به‌عنوان مانده اصلی
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+                Text('مانده (هر ارز جدا)', style: Theme.of(context).textTheme.titleMedium),
+                const SizedBox(height: 6),
+                for (final MapEntry<String, double> e in partyOpenSorted(a))
+                  infoRow(
+                    e.key == 'IRR' ? 'ریالی' : e.key,
+                    '${e.key == 'IRR' ? Fmt.money(e.value.abs()) : faCcy(e.key, e.value.abs(), dec: 2)} ${e.value > 0 ? '(او به ما بدهکار است)' : '(ما به او بدهکاریم)'}',
+                    valueColor: e.value > 0 ? Colors.green.shade800 : Colors.red.shade800,
+                  ),
+              ]),
+            ),
+          ),
         if (a.bought > 0 || a.sold > 0)
         Card(
           color: scheme.primaryContainer,
@@ -439,14 +512,14 @@ class PartyDetailScreen extends StatelessWidget {
             padding: const EdgeInsets.all(12),
             child: Column(children: [
               if (a.bought > 0) ...[
-                infoRow('جمع خرید از او', Fmt.money(a.bought)),
+                infoRow('جمع خرید از او (معادل ریالی)', Fmt.money(a.bought)),
                 infoRow('پرداخت‌شده به او', Fmt.money(a.paid)),
                 infoRow('بدهی ما به او', Fmt.money(a.weOwe),
                     valueColor: a.weOwe > 0.5 ? Colors.red.shade800 : null),
               ],
               if (a.bought > 0 && a.sold > 0) const Divider(),
               if (a.sold > 0) ...[
-                infoRow('جمع فروش به او', Fmt.money(a.sold)),
+                infoRow('جمع فروش به او (معادل ریالی)', Fmt.money(a.sold)),
                 infoRow('دریافت‌شده از او', Fmt.money(a.received)),
                 infoRow('طلب ما از او', Fmt.money(a.theyOwe),
                     valueColor: a.theyOwe > 0.5 ? Colors.green.shade800 : null),
@@ -461,22 +534,6 @@ class PartyDetailScreen extends StatelessWidget {
             ]),
           ),
         ),
-        if (a.openByCcy.keys.any((String k) => k != 'IRR')) // v91 p5: مانده به ارز سند
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(12),
-              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
-                Text('مانده به تفکیک ارز', style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 6),
-                for (final MapEntry<String, double> e in a.openByCcy.entries)
-                  infoRow(
-                    e.key == 'IRR' ? 'ریالی' : e.key,
-                    '${e.key == 'IRR' ? Fmt.money(e.value.abs()) : faCcy(e.key, e.value.abs(), dec: 2)} ${e.value > 0 ? '(او به ما بدهکار است)' : '(ما به او بدهکاریم)'}',
-                    valueColor: e.value > 0 ? Colors.green.shade800 : Colors.red.shade800,
-                  ),
-              ]),
-            ),
-          ),
         if (a.isExchanger) ...<Widget>[ // v91 p5: صراف
           XchCard(account: a),
           if (a.xchPositions.isEmpty)

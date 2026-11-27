@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'settle_ui.dart' show showDocTrails; // v93
 
 import 'db.dart';
 import 'fx_local.dart';
@@ -80,6 +81,7 @@ class _PaymentScreenState extends State<PaymentScreen> with EditGuard<PaymentScr
   @override
   void dispose() {
     AppDb.I.version.removeListener(_onDbChanged);
+    FxTxController.docCcy = null; // v93
     super.dispose();
   }
 
@@ -92,6 +94,8 @@ class _PaymentScreenState extends State<PaymentScreen> with EditGuard<PaymentScr
   Future<void> _load() async {
     _purchaseId = await AppDb.I.currentId('pur', _purchaseId);
     _purchase = await AppDb.I.purchaseById(_purchaseId);
+    final String dc = '${_purchase?['ccy'] ?? ''}'.toUpperCase(); // v93: ارز فاکتور برای «سهم به ارز فاکتور» ردیف‌های ارز دیگر
+    FxTxController.docCcy = dc.isEmpty || dc == 'IRT' || dc == 'IRR' || _purchase?['fx_rate'] == null ? null : dc;
     final pay = await AppDb.I.paymentOf(_purchaseId);
     _paymentId = pay?['id'] as int?;
     _payType = pay?['pay_type'] as String?;
@@ -306,6 +310,12 @@ class _PaymentScreenState extends State<PaymentScreen> with EditGuard<PaymentScr
       appBar: AppBar(
         title: Text('پرداخت — ${widget.purchaseLabel}'),
         actions: [
+          if (!_loading) // v93: پرداخت چندمرحله‌ای / از طریق صراف (شناسنامه)
+            IconButton(
+              onPressed: () => showDocTrails(context, isPurchase: true, docId: _purchaseId),
+              icon: const Icon(Icons.currency_exchange),
+              tooltip: 'پرداخت از طریق صراف یا چندمرحله‌ای',
+            ),
           if (!_loading)
             IconButton(
               onPressed: _exportPdf,

@@ -487,7 +487,12 @@ Future<Map<String, List<Map<String, Object?>>>> _paidLinesByDoc(DatabaseExecutor
   ];
   for (final (String t, String h, String fk, String doc, String pre) in src) {
     try {
-      final rows = await d.rawQuery('SELECT h.$doc AS did, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca FROM $t x JOIN $h h ON h.id = x.$fk WHERE x.paid = 1');
+      List<Map<String, Object?>> rows;
+      try { // v93: + سهم به ارز فاکتور (ستون ممکن است در پایگاه خیلی قدیمی نباشد)
+        rows = await d.rawQuery('SELECT h.$doc AS did, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca, x.doc_ccy_amount AS dca FROM $t x JOIN $h h ON h.id = x.$fk WHERE x.paid = 1');
+      } catch (_) {
+        rows = await d.rawQuery('SELECT h.$doc AS did, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca FROM $t x JOIN $h h ON h.id = x.$fk WHERE x.paid = 1');
+      }
       for (final Map<String, Object?> r in rows) {
         (out['$pre${r['did']}'] ??= <Map<String, Object?>>[]).add(<String, Object?>{...r, 't': t});
       }
@@ -513,6 +518,12 @@ void _applyLines(PartyAccount a, PartyEntry e, List<Map<String, Object?>>? lines
   for (final Map<String, Object?> l in lines) {
     if (!_lineCounts(l['t'] as String, type, staged)) continue;
     final String? lc = _fxCcy(l['ccy']);
+    final double dca = ((l['dca'] as num?) ?? 0).toDouble();
+    if (e.ccy != null && lc != e.ccy && dca > 0) { // v93: به ارز دیگر پرداخت شده ⇒ به ارز فاکتور کم می‌شود (همان سرور)
+      a.addCcy(e.ccy, sign * dca);
+      e.settledCcy += dca;
+      continue;
+    }
     if (lc == null) {
       a.addCcy('IRR', sign * ((l['amount'] as num?) ?? 0).toDouble());
     } else {

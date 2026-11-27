@@ -288,6 +288,7 @@ class _LegCtl {
   final TextEditingController chqBank = TextEditingController();
   final TextEditingController chqSayad = TextEditingController();
   DateTime? chqDue;
+  String shareMode = 'rate'; // v93: مرحلهٔ ارز دیگر ⇒ سهم از بدهی «طبق نرخ روز» یا «مبلغ توافقی»
   _LegCtl({required this.lid, this.k = 'direct', required this.ccy, this.account, String exchanger = '', String settle = '', String amount = '', String rate = '', String ref = '', String note = '', this.date})
       : exchanger = TextEditingController(text: exchanger),
         settle = TextEditingController(text: settle),
@@ -358,6 +359,7 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
           note: l.note ?? '',
           date: l.date == null ? null : DateTime.tryParse(l.date!),
         ));
+        if (l.ccy != (e.ccy)) _legs.last.shareMode = 'agreed'; // v93: سهم ذخیره‌شده دست نمی‌خورد
         if (l.cheque != null) { // v92 فاز د
           _legs.last.chqNo.text = l.cheque!['no'] ?? '';
           _legs.last.chqBank.text = l.cheque!['bank'] ?? '';
@@ -396,6 +398,36 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
     });
     for (final _LegCtl l in _legs) {
       await _prefillRate(l);
+    }
+  }
+
+  // v93: نرخ روزِ ارز بدهی برای تبدیل خودکار مرحله‌های ارز دیگر
+  final Map<String, double> _debtRates = <String, double>{};
+  final Set<String> _debtRateAsked = <String>{};
+
+  double? _debtRate(String date) {
+    if (_ccy == 'IRR') return 1;
+    final String k = '$_ccy|$date';
+    if (!_debtRates.containsKey(k) && _debtRateAsked.add(k)) {
+      FxLocal.rateAt(_ccy, date).then((({double rate, String date})? r) {
+        if (!mounted) return;
+        setState(() => _debtRates[k] = r?.rate ?? 0);
+      });
+    }
+    final double? v = _debtRates[k];
+    return v == null || v <= 0 ? null : v;
+  }
+
+  /// سهم از بدهی = مبلغ × نرخ ارز مرحله ÷ نرخ روز ارز بدهی (فقط در حالت «نرخ روز»)
+  void _autoShares() {
+    for (final _LegCtl l in _legs) {
+      if (l.ccy == _ccy || l.shareMode != 'rate') continue;
+      final double amt = parseNum(l.amount.text) ?? 0;
+      final double lr = l.ccy == 'IRR' ? 1 : (parseNum(l.rate.text) ?? 0);
+      final double? dr = _debtRate(fxIsoDate(l.date ?? _date));
+      if (amt <= 0 || lr <= 0 || dr == null) continue;
+      final String v = stlFmt4(stlQ4(amt * lr / dr));
+      if (l.settle.text != v) l.settle.text = v;
     }
   }
 
@@ -553,8 +585,9 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
             : null,
       );
 
-  Widget _numBox(TextEditingController c, String label, {String? helper, String? suffix}) => TextField(
+  Widget _numBox(TextEditingController c, String label, {String? helper, String? suffix, bool readOnly = false}) => TextField(
         controller: c,
+        readOnly: readOnly,
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         decoration: InputDecoration(labelText: label, helperText: helper, suffixText: suffix, border: const OutlineInputBorder(), isDense: true),
         onChanged: (_) => setState(() {}),
@@ -673,8 +706,14 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
             const SizedBox(height: 8),
           ],
           Row(children: <Widget>[
-            Expanded(child: _numBox(l.settle, 'سهم از بدهی', suffix: _ccy == 'IRR' ? 'ریال' : _ccy)),
-            if (remaining > 0)
+            Expanded(
+                child: _numBox(l.settle, 'سهم از بدهی', suffix: _ccy == 'IRR' ? 'ریال' : _ccy, readOnly: cross && l.shareMode == 'rate',
+                    helper: !cross
+                        ? null
+                        : l.shareMode == 'rate'
+                            ? (_debtRate(fxIsoDate(l.date ?? _date)) == null ? 'نرخ روز $_ccy ثبت نشده؛ «مبلغ توافقی» را بزنید' : 'طبق نرخ روز: مبلغ × نرخ ${l.ccy} ÷ نرخ $_ccy')
+                            : 'مبلغ توافقی با طرف‌حساب')),
+            if (remaining > 0 && !(cross && l.shareMode == 'rate'))
               TextButton(
                 onPressed: () => setState(() {
                   final int cur = stlQ4(parseNum(l.settle.text) ?? 0);
@@ -700,6 +739,17 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
           if (l.ccy != 'IRR') ...<Widget>[
             const SizedBox(height: 8),
             _numBox(l.rate, 'نرخ ریالی ${l.ccy} در روز این مرحله', helper: 'ریال برای هر واحد؛ پیش‌فرض نرخ روز'),
+          ],
+          if (cross) ...<Widget>[ // v93: تبدیل به ارز بدهی
+            const SizedBox(height: 8),
+            SegmentedButton<String>(
+              segments: <ButtonSegment<String>>[
+                ButtonSegment<String>(value: 'rate', label: Text('تبدیل به $_ccy طبق نرخ روز')),
+                const ButtonSegment<String>(value: 'agreed', label: Text('مبلغ توافقی')),
+              ],
+              selected: <String>{l.shareMode},
+              onSelectionChanged: (Set<String> s) => setState(() => l.shareMode = s.first),
+            ),
           ],
           if (l.k == 'cheque') ...<Widget>[ // v92 فاز د: چک دریافتی/پرداختی؛ وصول، پاس و برگشت از «مدیریت چک»
             const SizedBox(height: 8),
@@ -755,6 +805,7 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
   @override
   Widget build(BuildContext context) {
     final bool ready = _base != null;
+    _autoShares(); // v93
     StlState? preview;
     Trail? trail;
     if (ready && _partyKey.isNotEmpty && _amt4 > 0) {

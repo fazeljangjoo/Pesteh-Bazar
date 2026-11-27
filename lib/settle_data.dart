@@ -73,9 +73,13 @@ Future<Map<String, StlDoc>> loadStlDocs({DatabaseExecutor? db, List<XchMove>? xc
   for (final (String tx, String h, String fk, String docCol, String typeCol, String t) in src) {
     List<Map<String, Object?>> rows;
     try {
-      rows = await d.rawQuery('SELECT h.$docCol AS doc, h.$typeCol AS tp, h.staged_type AS st, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca FROM $tx x JOIN $h h ON h.id = x.$fk');
+      rows = await d.rawQuery('SELECT h.$docCol AS doc, h.$typeCol AS tp, h.staged_type AS st, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca, x.doc_ccy_amount AS dca FROM $tx x JOIN $h h ON h.id = x.$fk');
     } catch (_) {
-      continue;
+      try { // پایگاه بدون ستون v93
+        rows = await d.rawQuery('SELECT h.$docCol AS doc, h.$typeCol AS tp, h.staged_type AS st, x.amount AS amount, x.ccy AS ccy, x.ccy_amount AS ca FROM $tx x JOIN $h h ON h.id = x.$fk');
+      } catch (_) {
+        continue;
+      }
     }
     for (final Map<String, Object?> r in rows) {
       if (!_counts(tx, r['tp'] as String?, r['st'] as String?)) continue;
@@ -84,6 +88,8 @@ Future<Map<String, StlDoc>> loadStlDocs({DatabaseExecutor? db, List<XchMove>? xc
       final String lc = xchNormCcy(r['ccy']);
       if (doc.ccy != 'IRR' && lc == doc.ccy && r['ca'] != null) {
         doc.pre4 += stlQ4(_n(r['ca']));
+      } else if (doc.ccy != 'IRR' && _n(r['dca']) > 0) { // v93: سهم به ارز فاکتور
+        doc.pre4 += stlQ4(_n(r['dca']));
       } else if (doc.ccy != 'IRR') {
         doc.pre4 += stlQ4(_n(r['amount']) * mult / doc.rate);
       } else {
