@@ -140,7 +140,9 @@ class MixProcessStore {
 class MixForm extends StatefulWidget {
   final Map<String, dynamic>? existing;
   final Map<String, dynamic>? process; // کوت در جریان برای ادامه
-  const MixForm({super.key, this.existing, this.process});
+  /// v96: 'sep' ⇒ شروع «جداکردن / غربال» با همین فرم (حداقل یک لات)
+  final String kind;
+  const MixForm({super.key, this.existing, this.process, this.kind = 'mix'});
   @override
   State<MixForm> createState() => _MixFormState();
 }
@@ -161,6 +163,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
   int _procCount = 0;
 
   bool get _isEdit => widget.existing != null;
+  bool get _sep => widget.kind == 'sep'; // v96
 
   List<Map<String, dynamic>> _categories = [];
   int? _categoryId;
@@ -381,14 +384,14 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
   /// («کوت در جریان») منتقل می‌شود تا در انبار کار دیگری رویشان انجام نشود. خروجی‌ها بعداً در «بستن کوت» ثبت می‌شوند.
   Future<void> _startStaged() async {
     final List<_SourceRow> sel = _chosen.where((r) => (parseNum(r.weight.text) ?? 0) > 0).toList();
-    if (sel.map((r) => r.lot).toSet().length < 2) return snack(context, 'برای کوت‌ریزی حداقل دو جنس (لات) ورودی با وزن انتخاب کنید');
+    if (sel.map((r) => r.lot).toSet().length < (_sep ? 1 : 2)) return snack(context, _sep ? 'حداقل یک لات ورودی با وزن انتخاب کنید' : 'برای کوت‌ریزی حداقل دو جنس (لات) ورودی با وزن انتخاب کنید');
     for (final r in sel) {
       final err = _rowError(r);
       if (err != null) return snack(context, err);
     }
     if (_categoryId == null) return snack(context, 'دستهٔ لات جدید را انتخاب کنید');
-    if (_typeName.text.trim().isEmpty) return snack(context, 'نام لات جدید را وارد کنید');
-    if (!await confirm(context, 'کوت‌ریزی شروع شود؟\n${faNum(_takenSum)} کیلو از ${faNum(sel.length, dec: 0)} لات همین حالا از انبار برداشته و به «${_typeName.text.trim()}» منتقل می‌شود.')) return;
+    if (_typeName.text.trim().isEmpty) return snack(context, _sep ? 'نام این جداسازی را وارد کنید' : 'نام لات جدید را وارد کنید');
+    if (!await confirm(context, '${_sep ? 'جداسازی' : 'کوت‌ریزی'} شروع شود؟\n${faNum(_takenSum)} کیلو از ${faNum(sel.length, dec: 0)} لات همین حالا از انبار برداشته و به «${_typeName.text.trim()}» منتقل می‌شود.')) return;
     if (!mounted) return;
     setState(() => _saving = true);
     try {
@@ -405,6 +408,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
           },
       ];
       final Map<String, dynamic> res = await StockApi.call('mixes.open', <String, dynamic>{
+        'kind': widget.kind, // v96
         'date': _start.toIso8601String().substring(0, 10),
         'category_id': cat,
         'type_name': _typeName.text.trim(),
@@ -416,7 +420,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
       await MixProcessStore.remove(_procKey);
       SyncService.I.pollNow();
       if (!mounted) return;
-      snack(context, 'کوت «${res['code'] ?? ''}» شروع شد؛ بعداً از «مخلوط / جداسازی ⇐ کوت‌ریزی» خروجی‌ها را ثبت و کوت را ببندید');
+      snack(context, '${_sep ? 'جداسازی' : 'کوت'} «${res['code'] ?? ''}» شروع شد؛ ورودی و خروجی‌ها را در صفحهٔ همین فرایند (کارت «در جریان» انبار) ثبت و در پایان آن را ببندید');
       Navigator.pop(context);
     } on StockApiException catch (e) {
       if (mounted) snack(context, e.message);
@@ -776,7 +780,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
-    final String title = _isEdit ? 'ویرایش کوت‌ریزی' : 'کوت‌ریزی';
+    final String title = _isEdit ? 'ویرایش کوت‌ریزی' : (_sep ? 'جداکردن / غربال' : 'کوت‌ریزی'); // v96
     if (_lots.isEmpty) return Scaffold(appBar: AppBar(title: Text(title)), body: const Center(child: Text('انبار خالی است')));
     return Scaffold(
       appBar: AppBar(title: Text(title), actions: [
@@ -864,7 +868,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
               IconButton.filledTonal(onPressed: _addBaseType, icon: const Icon(Icons.add), tooltip: 'افزودن نوع'),
             ]),
             const SizedBox(height: 12),
-            textField(_typeName, 'نام لات جدید (مثلاً «کوت‌ریز»)', required: true),
+            textField(_typeName, _sep ? 'نام این جداسازی / غربال (مثلاً «غربال اکبری»)' : 'نام لات جدید (مثلاً «کوت‌ریز»)', required: true),
             if (!_isEdit) ...<Widget>[ // v95: وزن نهایی، ضایعات، عدل، انس و گرم ⇒ در «بستن کوت» برای هر خروجی
               WarehousePicker(label: 'انبار پیش‌فرض خروجی‌ها', value: _warehouseUid, useLast: true, onChanged: (v) => _warehouseUid = v),
               FieldGate(field: 'mix.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2)),
@@ -878,7 +882,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
                 FilledButton.icon(
                   onPressed: _saving ? null : _startStaged,
                   icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
-                  label: const Text('شروع کوت‌ریزی (برداشت از انبار)'),
+                  label: Text(_sep ? 'شروع جداسازی (برداشت از انبار)' : 'شروع کوت‌ریزی (برداشت از انبار)'),
                 ),
               ]),
             ],

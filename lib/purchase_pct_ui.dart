@@ -84,8 +84,10 @@ class PctBlend {
 
 class PurchasePctCtl {
   /// v95: [sale] ⇒ همین درصدها و قیمت‌گذاری در فرم فروش (دسترسی قیمت فروش، برچسب‌های «فروش»).
-  PurchasePctCtl({this.sale = false});
+  PurchasePctCtl({this.sale = false, this.allowPricing = true});
   final bool sale;
+  /// v96: false ⇒ فقط درصدها و گرم مغز هر درصد (خروجی کوت/جداسازی؛ بدون قیمت‌گذاری)
+  final bool allowPricing;
   final List<PurchasePctRow> rows = <PurchasePctRow>[];
   List<Map<String, dynamic>> defs = _kFallbackDefs;
   BuyMode baseMode = BuyMode.fixed; // v85: روش خرید پستهٔ اصلی
@@ -97,7 +99,7 @@ class PurchasePctCtl {
   static double? _cachedRef;
 
   static bool get canPrice => StaffPerms.I.canPriceIn('purchases'); // v87: قیمت بخش خرید
-  bool get canPriceHere => sale ? StaffPerms.I.canPriceIn('sales') : canPrice; // v95
+  bool get canPriceHere => allowPricing && (sale ? StaffPerms.I.canPriceIn('sales') : canPrice); // v95 · v96
   String get _verb => sale ? 'فروش' : 'خرید';
 
   // ── v91: روش خرید ارزی — در سند ارزی همهٔ قیمت‌های روش خرید (پایه، قیمت جدای درصدها) به همان ارز و با اعشار ──

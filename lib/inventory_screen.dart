@@ -14,7 +14,7 @@ import 'live_query.dart';
 import 'lot_cartex_ui.dart' show LotCartexView;
 import 'lot_chain_ui.dart';
 import 'mix_form.dart';
-import 'mix_staged_ui.dart' show showMixHub, showMixOrSeparation; // v95
+import 'mix_staged_ui.dart' show showMixOrSeparation; // v95
 import 'orchard_ui.dart';
 import 'pdf_output.dart';
 import 'pdf_service.dart';
@@ -350,10 +350,10 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
                   color: Theme.of(context).colorScheme.tertiaryContainer,
                   child: ListTile(
                     leading: const Icon(Icons.pending_actions),
-                    title: Text('کوت در جریان: ${openMix.map((p) => '${p['type_name'] ?? ''} (${faNum((p['net_weight'] as num?) ?? 0)} کیلو)').join('، ')}'),
+                    title: Text('در جریان (کوت / جداسازی): ${openMix.map((p) => '${p['type_name'] ?? ''} (${faNum((p['net_weight'] as num?) ?? 0)} کیلو)').join('، ')}'),
                     subtitle: const Text('قابل فروش یا استفاده نیست تا خروجی‌ها ثبت و کوت بسته شود'),
                     trailing: const Icon(Icons.chevron_left),
-                    onTap: () => showMixHub(context),
+                    onTap: () => showMixOrSeparation(context), // v96: کوت یا جداسازی
                   ),
                 ),
               Align(

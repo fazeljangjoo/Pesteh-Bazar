@@ -19,6 +19,13 @@ void main() {
     expect(c.wasteShare, 0);
   });
 
+  test('v96: extra total cost X ⇒ (V + c×I + X) ÷ O, same as the server', () {
+    final MixStagedCost c = mixStagedCost(1000, 2000000000, 950, 30000, 15000000);
+    expect(c.unit, closeTo((2000000000 + 30000000 + 15000000) / 950, 0.01));
+    expect(c.costShare, closeTo(45000000 / 950, 0.01));
+    expect(mixStagedCost(590, 1180000000, 580, 10000, 3000000).unit, closeTo((1180000000 + 5900000 + 3000000) / 580, 0.01));
+  });
+
   test('recalc example: input value 2,060,000,000 ⇒ 2,221,052.63', () {
     expect(mixStagedCost(1000, 2060000000, 950, 50000).unit, closeTo(2110000000 / 950, 0.01));
   });

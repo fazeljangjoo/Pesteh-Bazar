@@ -45,7 +45,7 @@ const List<(String, List<String>)> _kSnapshot = [
       'gross_kg', 'tare_kg', 'quality_deduct_kg', 'weigh_ticket_no', 'vehicle_plate', 'driver_name', // S35.T35.2
       'discount_amount', 'weighbridge_cost', 'side_cost_payer', 'taxable', // S35.T35.6b
       'stock_hold', // v89: خرید بی‌فی (بیرون از موجودی تا ثبت فی)
-      'mix_status', 'mix_cost_per_kg', 'mix_parent_id', // v95: کوت‌ریزی مرحله‌ای
+      'mix_status', 'mix_cost_per_kg', 'mix_parent_id', 'mix_kind', 'mix_extra_cost', // v95: کوت‌ریزی مرحله‌ای · v96: جداسازی مرحله‌ای
       'edit_version' // فاز ۳: نسخهٔ سرور برای base_version (همزمانی)
     ]
   ),
@@ -157,7 +157,7 @@ const Set<String> _kRealCols = {
   'large_sacks', 'item_price', 'amount', 'usd_rate', 'price_usd', 'fx_rate', 'ccy_amount', 'price_ccy', 'total_ccy', 'waste',
   'kg', 'unit_price', 'refund_amount', 'discount', 'tax_amount', 'gross_kg', 'tare_kg', 'quality_deduct_kg',
   'credit_used', 'commission_value', 'agreed_price', // S36
-  'mix_cost_per_kg', // v95
+  'mix_cost_per_kg', 'mix_extra_cost', // v95 · v96
 };
 const Set<String> _kIntCols = {
   'id', 'category_id', 'mix_purchase_id', 'source_purchase_id', 'purchase_id', 'payment_id', 'sale_id',
@@ -448,7 +448,7 @@ class AppDb {
   static Future<void> addV95Cols(DatabaseExecutor d) async {
     final List<Map<String, Object?>> info = await d.rawQuery('PRAGMA table_info(purchases)');
     if (info.isEmpty) return;
-    for (final (String c, String type) in const <(String, String)>[('mix_status', 'TEXT'), ('mix_cost_per_kg', 'REAL'), ('mix_parent_id', 'INTEGER')]) {
+    for (final (String c, String type) in const <(String, String)>[('mix_status', 'TEXT'), ('mix_cost_per_kg', 'REAL'), ('mix_parent_id', 'INTEGER'), ('mix_kind', 'TEXT'), ('mix_extra_cost', 'REAL')]) {
       if (info.any((Map<String, Object?> r) => r['name'] == c)) continue;
       try {
         await d.execute('ALTER TABLE purchases ADD COLUMN $c $type');

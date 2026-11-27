@@ -1102,6 +1102,16 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
                         color: Theme.of(context).colorScheme.errorContainer,
                         child: Padding(padding: const EdgeInsets.all(10), child: Text(_error!)),
                       ),
+                    // v95: دکمهٔ روشن «ویرایش کامل» — همان فرم ثبت با همهٔ اقلام (برون‌سپاری / امانی / کارگاه داخلی)
+                    if (_d.isNotEmpty && (_int ? _can('workshop.manage') : _can('processing.manage')))
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: FilledButton.tonalIcon(
+                          onPressed: _int ? _editWorkshop : _editDoc,
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('ویرایش کامل (فرم اولیه: لات‌ها، وزن‌ها، تاریخ و بقیه)'),
+                        ),
+                      ),
                     if (_d.isNotEmpty) ...<Widget>[
                       Card(
                         child: Padding(

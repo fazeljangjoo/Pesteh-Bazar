@@ -1764,6 +1764,15 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
   }
 
   /// v83: ویرایش سربرگ عملیات باز: تاریخ شروع، خط شکست / نوع تولید، یادداشت.
+  /// v95: همان فرم «شروع عملیات» پرشده (workshop.edit)؛ بستن یا باز بودن عملیات را سرور مدیریت می‌کند.
+  Future<void> _editFull() async {
+    final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => WorkshopOpenFormScreen(edit: _d)));
+    if (ok == true) {
+      _changed = true;
+      await _load();
+    }
+  }
+
   Future<void> _editHeader() async {
     DateTime date = DateTime.tryParse('${_d['started_at'] ?? _d['date'] ?? ''}') ?? DateTime.now();
     final TextEditingController note = TextEditingController(text: '${_d['note'] ?? ''}');
@@ -1860,7 +1869,10 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
           title: Text('${_d.isEmpty ? 'عملیات کارگاه' : wsOpTitle(_d)}${_open ? ' — در کارگاه' : (_d['status'] == 'done' ? ' — بسته' : '')}'),
           leading: BackButton(onPressed: () => Navigator.pop(context, _changed)),
           actions: <Widget>[
-            if (_open && (_can('workshop.operate') || _can('workshop.manage')) && _d.isNotEmpty)
+            // v95: مدیر کارگاه ⇒ «ویرایش» = همان فرم شروع عملیات با همهٔ ورودی‌ها و وزن‌ها؛ اپراتور ⇒ فقط سربرگ (مثل قبل)
+            if (canManage && _d.isNotEmpty && ReturnsHelp.d(_d['id']) > 0)
+              IconButton(tooltip: 'ویرایش (فرم اولیه)', icon: const Icon(Icons.edit_outlined), onPressed: _busy ? null : _editFull)
+            else if (_open && _can('workshop.operate') && _d.isNotEmpty)
               IconButton(tooltip: 'ویرایش سربرگ (تاریخ، خط/نوع، یادداشت)', icon: const Icon(Icons.edit_note), onPressed: _busy ? null : _editHeader),
             if (_can('workshop.manage') && _d.isNotEmpty)
               IconButton(tooltip: 'حذف عملیات', icon: const Icon(Icons.delete_outline), onPressed: _busy ? null : _delete),
@@ -1882,6 +1894,15 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
                     if (_error != null)
                       Card(color: Theme.of(context).colorScheme.errorContainer, child: Padding(padding: const EdgeInsets.all(10), child: Text(_error!))),
                     if (_d.isEmpty) const Padding(padding: EdgeInsets.all(24), child: Center(child: Text('عملیات یافت نشد'))),
+                    if (canManage && _d.isNotEmpty && ReturnsHelp.d(_d['id']) > 0) // v95: ویرایش کامل با همان فرم شروع عملیات
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: FilledButton.tonalIcon(
+                          onPressed: _busy ? null : _editFull,
+                          icon: const Icon(Icons.edit_outlined),
+                          label: const Text('ویرایش کامل (فرم اولیه: لات‌ها، وزن‌ها، تاریخ، خط/نوع)'),
+                        ),
+                      ),
                     if (_pending > 0)
                       Card(child: ListTile(leading: const Icon(Icons.cloud_upload_outlined), title: Text('${faNum(_pending, dec: 0)} تغییر در صف ارسال'))),
                     Card(
