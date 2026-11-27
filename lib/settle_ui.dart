@@ -14,6 +14,7 @@ import 'treasury_link.dart';
 import 'utils.dart';
 import 'widgets.dart';
 import 'xch_calc.dart';
+import 'xch_ui.dart' show showXchMoveSheet; // v94
 
 /// مبلغ به ارز خودش (IRR = ریال)
 String stlAmount(String ccy, num v) => ccy == 'IRR' ? Fmt.money(v.abs(), from: 'rial') : faCcy(ccy, v.abs(), dec: 2);
@@ -565,10 +566,30 @@ class _SettlementFormScreenState extends State<SettlementFormScreen> with EditGu
       'note': c.note,
     };
     setState(() => _saving = true);
-    final bool ok = await saveConfirmed(context, () => saveSettlement(data, uid: widget.existing?.uid),
+    String savedUid = widget.existing?.uid ?? '';
+    final bool ok = await saveConfirmed(context, () async => savedUid = await saveSettlement(data, uid: widget.existing?.uid),
         successMsg: _dir == 'recv' ? 'وصول ثبت شد' : 'پرداخت ثبت شد');
     if (mounted) setState(() => _saving = false);
+    if (ok && mounted && widget.existing == null && savedUid.isNotEmpty) await _askXchSettled(c, savedUid); // v94
     if (ok && mounted) Navigator.pop(context);
+  }
+
+  /// v94: مرحلهٔ «از طریق صراف» ⇒ بپرس پول صراف همین حالا رد و بدل شده؟ بله ⇒ فرم تسویه با صراف پیش‌پر (پیوند به همین مرحله).
+  /// بدون این، پرداخت از طریق صراف یعنی «صراف از طرف ما داد و ما به او بدهکاریم» تا تسویه ثبت شود.
+  Future<void> _askXchSettled(Settlement c, String uid) async {
+    for (final StlLeg l in c.legs) {
+      if (l.k != 'xch' || (l.exchanger ?? '').isEmpty || !mounted) continue;
+      final bool pay = c.dir == 'pay';
+      final String amt = stlAmount(l.ccy, l.amount);
+      final bool yes = await confirm(
+          context,
+          pay
+              ? 'صراف «${l.exchanger}» مبلغ $amt را به «${c.party}» داد.\nپول این مبلغ را همین حالا به صراف داده‌اید؟\n(اگر نه، این مبلغ بدهی شما به صراف می‌ماند تا بعداً «پرداخت به صراف» را ثبت کنید.)'
+              : '«${c.party}» مبلغ $amt را به صراف «${l.exchanger}» داد.\nصراف همین حالا این پول را به شما داده است؟\n(اگر نه، این مبلغ طلب شما از صراف می‌ماند تا بعداً «دریافت از صراف» را ثبت کنید.)');
+      if (!yes || !mounted) continue;
+      await showXchMoveSheet(context,
+          exchanger: l.exchanger, prefill: (kind: pay ? 'we_paid_xch' : 'xch_paid_us', ccy: l.ccy, amount: l.amount, link: 's:$uid:${l.lid}'));
+    }
   }
 
   // ---------------- UI ----------------

@@ -1081,6 +1081,7 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
             if (_d.isNotEmpty) IconButton(tooltip: 'برگه کار', icon: const Icon(Icons.print_outlined), onPressed: () => _print(fee: false)),
             if (_d.isNotEmpty && !_int) IconButton(tooltip: 'پیش‌فاکتور کرایه', icon: const Icon(Icons.receipt_outlined), onPressed: () => _print(fee: true)),
             if (_d.isNotEmpty && !_int && _can('processing.manage')) IconButton(tooltip: 'ویرایش', icon: const Icon(Icons.edit_outlined), onPressed: _editDoc), // فاز ۳
+            if (_d.isNotEmpty && _int && _can('workshop.manage')) IconButton(tooltip: 'ویرایش', icon: const Icon(Icons.edit_outlined), onPressed: _editWorkshop), // v94: همان فرم شروع عملیات
             if (_d['deletable'] == true && canManage) IconButton(tooltip: 'حذف', icon: const Icon(Icons.delete_outline), onPressed: _delete),
           ],
         ),
@@ -1231,6 +1232,15 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
 
   /// ویرایش فراوری برون‌سپاری/امانی (processing.update). v91: در هر وضعیت همان فرم ثبت با همهٔ اقلام باز می‌شود
   /// (سفارش دریافت‌شده ⇒ خروجی‌ها و تاریخ پایان هم در همان فرم). فرم کوتاه (تاریخ/توضیح/کرایه) فقط برای جهت ناشناخته می‌ماند.
+  /// v94: کارگاه داخلی ⇒ همان فرم «شروع عملیات» با همهٔ ورودی‌ها (workshop.edit).
+  Future<void> _editWorkshop() async {
+    final bool? ok = await Navigator.push<bool>(context, MaterialPageRoute<bool>(builder: (_) => WorkshopOpenFormScreen(edit: _d)));
+    if (ok == true) {
+      _changed = true;
+      await _load();
+    }
+  }
+
   Future<void> _editDoc() async {
     final String dir = '${_d['direction']}';
     if (dir == kProcPaid || dir == kProcReceived) {

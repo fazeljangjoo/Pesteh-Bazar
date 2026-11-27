@@ -817,6 +817,26 @@ Future<List<CashFlow>> loadCashFlows({
     if (!inRange(dt) || !matches(name == '-' ? '' : name)) continue;
     out.add(CashFlow(dt, (r['amount'] as num).toDouble(), false, name, false));
   }
+  // v94: شناسنامه‌های پرداخت/وصول (مرحلهٔ مستقیم = پول واقعی ما) و تسویه با صراف‌ها (ما به صراف دادیم / صراف به ما داد)
+  final double mult = AppDb.I.moneyUnit == 'rial' ? 1 : 10; // ریال ⇒ واحد ذخیره
+  try {
+    for (final Settlement s in await loadSettlements()) {
+      for (final StlLeg l in s.legs) {
+        if (l.k != 'direct') continue; // صراف: پول ما وقتی جابه‌جا می‌شود که با صراف تسویه کنیم؛ چک: هنگام وصول/پاس
+        final DateTime? dt = DateTime.tryParse((l.date ?? '').isNotEmpty ? l.date! : s.date);
+        if (dt == null || !inRange(dt) || !matches(s.party)) continue;
+        final double rial = l.amount * (l.ccy == 'IRR' ? 1 : l.rate);
+        if (rial > 0) out.add(CashFlow(dt, rial / mult, s.dir == 'recv', s.party, false));
+      }
+    }
+    for (final XchMove m in await loadXchMoves()) {
+      if (m.kind != 'we_paid_xch' && m.kind != 'xch_paid_us') continue;
+      final DateTime? dt = DateTime.tryParse(m.date);
+      if (dt == null || !inRange(dt) || !matches(m.exchanger)) continue;
+      final double rial = m.payAmount * (m.payCcy == 'IRR' ? 1 : m.payRate);
+      if (rial > 0) out.add(CashFlow(dt, rial / mult, m.kind == 'xch_paid_us', m.exchanger, false));
+    }
+  } catch (_) {/* بخش شناسنامه/صراف هنوز روی سرور فعال نیست */}
   if (includeLoans) {
     for (final r in await db.loanEntries()) {
       final dt = DateTime.parse(r['date'] as String);

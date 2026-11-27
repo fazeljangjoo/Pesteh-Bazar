@@ -204,7 +204,14 @@ class ExchangerDetailScreen extends StatelessWidget {
                             ? '${bySrc[l.id]!.kind == 'leg_in' ? 'واریز' : 'پرداخت به'} «${bySrc[l.id]!.party}» — شناسنامهٔ ${bySrc[l.id]!.refNo ?? ''}'
                             : (l.q > 0 ? 'پیش‌پرداخت ما به صراف' : 'پیش‌دریافت از صراف')),
                         subtitle: Text('${jalaliDate(l.date)} • ارزش دفتری ${xchRial(l.b.abs())}'),
-                        trailing: Text(xchAmount(p.ccy, l.amount), style: TextStyle(fontWeight: FontWeight.w700, color: _sideColor(l.q))),
+                        trailing: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
+                          Text(xchAmount(p.ccy, l.amount), style: TextStyle(fontWeight: FontWeight.w700, color: _sideColor(l.q))),
+                          const SizedBox(width: 8),
+                          TextButton( // v94: همین مورد را با صراف تسویه کن (پیش‌پر)
+                            onPressed: () => showXchMoveSheet(context, exchanger: exchanger, prefill: xchPrefillFor(p.ccy, l)),
+                            child: Text(l.q < 0 ? 'پرداخت به صراف' : 'دریافت از صراف'),
+                          ),
+                        ]),
                         onTap: (bySrc[l.id]?.isLeg ?? false)
                             ? () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SettlementTrailScreen(uid: bySrc[l.id]!.stlUid)))
                             : null,
@@ -281,8 +288,14 @@ class ExchangerDetailScreen extends StatelessWidget {
   }
 }
 
+/// v94: پیش‌پر کردن فرم تسویه با صراف برای یک لات باز (مثلاً «صراف به فروشنده داد» ⇒ «ما به صراف دادیم» همان مبلغ).
+typedef XchPrefill = ({String kind, String ccy, double amount, String link});
+
+/// v94: لات باز ⇒ نوع تسویه: بدهی ما به صراف (q<0) ⇒ «ما به صراف دادیم»؛ طلب ما (q>0) ⇒ «صراف به ما داد».
+XchPrefill xchPrefillFor(String ccy, XchLot l) => (kind: l.q < 0 ? 'we_paid_xch' : 'xch_paid_us', ccy: ccy, amount: l.amount.abs(), link: l.id);
+
 /// فرم ثبت/ویرایش حرکت صراف
-Future<void> showXchMoveSheet(BuildContext context, {String? exchanger, XchMove? existing}) async {
+Future<void> showXchMoveSheet(BuildContext context, {String? exchanger, XchMove? existing, XchPrefill? prefill}) async {
   if (!await EntityStore.I.isVisible('xch_moves')) {
     if (context.mounted) snack(context, 'بخش صراف هنوز روی سرور فعال نشده است؛ پس از به‌روزرسانی سرور و همگام‌سازی در دسترس است.');
     return;
@@ -291,7 +304,7 @@ Future<void> showXchMoveSheet(BuildContext context, {String? exchanger, XchMove?
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
-    builder: (BuildContext _) => XchMoveForm(exchanger: exchanger, existing: existing),
+    builder: (BuildContext _) => XchMoveForm(exchanger: exchanger, existing: existing, prefill: prefill),
   );
 }
 
@@ -308,7 +321,8 @@ class _OpenDoc {
 class XchMoveForm extends StatefulWidget {
   final String? exchanger;
   final XchMove? existing;
-  const XchMoveForm({super.key, this.exchanger, this.existing});
+  final XchPrefill? prefill; // v94
+  const XchMoveForm({super.key, this.exchanger, this.existing, this.prefill});
   @override
   State<XchMoveForm> createState() => _XchMoveFormState();
 }
@@ -357,6 +371,15 @@ class _XchMoveFormState extends State<XchMoveForm> {
       _acctKind = m.cashBox != null ? 'cash' : (m.bankAccount != null ? 'bank' : null);
       _note.text = m.note ?? '';
       _docRate = m.docRate;
+    }
+    final XchPrefill? pf = widget.prefill;
+    if (m == null && pf != null) { // v94: تسویهٔ همان مبلغ با صراف، پیوند به همان لات
+      _kind = pf.kind;
+      _ccy = pf.ccy;
+      _payCcy = pf.ccy;
+      _amount.text = _num(double.parse(pf.amount.toStringAsFixed(pf.ccy == 'IRR' ? 0 : 4)));
+      _pay.text = _amount.text;
+      _links.add(pf.link);
     }
     _init();
   }

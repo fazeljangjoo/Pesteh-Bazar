@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'db.dart';
 import 'doc_drafts.dart' show DocDraftsLocal, DraftRestoreBanner; // v87: پیش‌نویس
+import 'edit_guard_ui.dart' show submitDocEdit; // v94: ویرایش کامل
 import 'entity_store.dart' show EntityStore;
 import 'fmt.dart' show Fmt;
 import 'form_settings.dart' show FormSettingsLocal;
@@ -290,6 +291,7 @@ class _LotRow {
   final TextEditingController small = TextEditingController();
   String? lot;
   bool all = false;
+  String? uid; // v94: ردیف ثبت‌شده (ویرایش) ⇒ بی‌تغییر دست نمی‌خورد
   void dispose() {
     kg.dispose();
     large.dispose();
@@ -303,7 +305,9 @@ String _numText(double v) {
 }
 
 class WorkshopOpenFormScreen extends StatefulWidget {
-  const WorkshopOpenFormScreen({super.key});
+  /// [edit]: v94 — عملیات ثبت‌شده (پاسخ processing.get) ⇒ همین فرم با همهٔ اقلام برای ویرایش کامل (workshop.edit).
+  const WorkshopOpenFormScreen({super.key, this.edit});
+  final Map<String, dynamic>? edit;
 
   @override
   State<WorkshopOpenFormScreen> createState() => _WorkshopOpenFormScreenState();
@@ -327,11 +331,75 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
   String? _kind;
   int _kindRev = 0; // کلید دراپ‌داون: انصراف از «نوع تازه» انتخاب قبلی را برمی‌گرداند
 
+  bool get _isEdit => widget.edit != null;
+
   @override
   void initState() {
     super.initState();
+    final Map<String, dynamic>? e = widget.edit;
+    if (e != null) { // v94: پر کردن فرم از عملیات ثبت‌شده
+      _done = true; // پیش‌نویس خودکار در ویرایش ساخته نمی‌شود
+      _op = kWsOpenTypes.contains(e['op_type']) ? '${e['op_type']}' : null;
+      _date = DateTime.tryParse('${e['date'] ?? ''}') ?? _date;
+      _note.text = '${e['note'] ?? ''}';
+      _line = e['crack_line_uid'] as String?;
+      _kind = e['prod_kind'] as String?;
+      if (_kind != null && !_kinds.contains(_kind)) _kinds = <String>[..._kinds, _kind!];
+      final List<Map<String, dynamic>> ins = ReturnsHelp.maps(e['inputs']);
+      if (ins.isNotEmpty) {
+        for (final _LotRow r in _rows) {
+          r.dispose();
+        }
+        _rows.clear();
+        for (final Map<String, dynamic> i in ins) {
+          _rows.add(_LotRow()
+            ..lot = '${i['lot_id']}'
+            ..uid = i['uid'] as String?
+            ..kg.text = _numText(ReturnsHelp.d(i['kg']))
+            ..large.text = _numText(ReturnsHelp.d(i['large_sacks']))
+            ..small.text = _numText(ReturnsHelp.d(i['small_sacks'])));
+        }
+      }
+    }
     _load();
     _loadKinds();
+  }
+
+  /// v94: موجودی لات‌های همین عملیات = موجودی فعلی + آنچه همین عملیات برداشته (لاتِ تمام‌شده هم در فهرست می‌آید).
+  Map<String, WsLotInfo> _withOwnInputs(Map<String, WsLotInfo> info) {
+    final Map<String, dynamic>? e = widget.edit;
+    if (e == null) return info;
+    final Map<String, WsLotInfo> out = Map<String, WsLotInfo>.of(info);
+    final Map<String, List<Map<String, dynamic>>> byLot = <String, List<Map<String, dynamic>>>{};
+    for (final Map<String, dynamic> i in ReturnsHelp.maps(e['inputs'])) {
+      (byLot['${i['lot_id']}'] ??= <Map<String, dynamic>>[]).add(i);
+    }
+    byLot.forEach((String k, List<Map<String, dynamic>> rows) {
+      double kg = 0, sm = 0, lg = 0;
+      for (final Map<String, dynamic> r in rows) {
+        kg += ReturnsHelp.d(r['kg']);
+        sm += ReturnsHelp.d(r['small_sacks']);
+        lg += ReturnsHelp.d(r['large_sacks']);
+      }
+      final WsLotInfo? o = out[k];
+      final Map<String, dynamic> f = rows.first;
+      out[k] = WsLotInfo(
+        key: k,
+        code: o?.code ?? '${f['code'] ?? ''}',
+        category: o?.category ?? '',
+        type: o?.type ?? '${f['type_name'] ?? ''}',
+        seller: o?.seller ?? '',
+        isMix: o?.isMix ?? 0,
+        remaining: (o?.remaining ?? 0) + kg,
+        netWeight: o?.netWeight ?? kg,
+        smallLeft: (o?.smallLeft ?? 0) + sm,
+        largeLeft: (o?.largeLeft ?? 0) + lg,
+        gram: o?.gram ?? (f['gram'] as num?)?.toDouble(),
+        ounce: o?.ounce ?? (f['ounce'] as num?)?.toDouble(),
+        preset: o?.preset,
+      );
+    });
+    return out;
   }
 
   Future<void> _load() async {
@@ -339,7 +407,7 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
       final WsCrackData d = await WsLotPicker.loadCrack();
       if (!mounted) return;
       setState(() {
-        _info = <String, WsLotInfo>{for (final WsLotInfo i in d.lots) i.key: i};
+        _info = _withOwnInputs(<String, WsLotInfo>{for (final WsLotInfo i in d.lots) i.key: i}); // v94
         _lines = d.lines;
         if (_line != null && !_lines.any((WsCrackLine l) => l.uid == _line)) _line = null;
         if (_line == null && _lines.length == 1) _line = _lines.first.uid;
@@ -518,6 +586,7 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
       final String? err = _rowError(i);
       if (err != null) return _snack(context, err);
     }
+    if (_isEdit) return _submitEdit(op, line); // v94
     setState(() => _saving = true);
     try {
       final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
@@ -569,6 +638,44 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
     }
   }
 
+  /// v94: ذخیرهٔ ویرایش کامل (workshop.edit؛ آنلاین). عملیات بسته ⇒ اول تأیید، چون دوباره باز می‌شود.
+  Future<void> _submitEdit(String op, WsCrackLine? line) async {
+    final Map<String, dynamic> e = widget.edit!;
+    if ('${e['status']}' == 'done' &&
+        !await confirm(context,
+            'این عملیات بسته شده است. با ذخیره، عملیات دوباره باز می‌شود (لات‌های خروجی تا بستن دوباره از انبار برداشته می‌شوند)؛ بعد از اصلاح خروجی‌ها آن را دوباره ببندید.')) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _saving = true);
+    try {
+      final List<Map<String, dynamic>> items = <Map<String, dynamic>>[
+        for (final _LotRow r in _rows)
+          <String, dynamic>{
+            if (r.uid != null) 'uid': r.uid,
+            'purchase_id': await WsLotPicker.serverId(r.lot!),
+            'kg': wsParseNum(r.kg.text),
+            'small_sacks': wsParseNum(r.small.text),
+            'large_sacks': wsParseNum(r.large.text),
+          },
+      ];
+      if (!mounted) return;
+      final Map<String, dynamic>? res = await submitDocEdit(context, 'workshop.edit', <String, dynamic>{
+        'id': e['id'],
+        'start_date': ReturnsHelp.iso(_date),
+        'note': _note.text.trim(),
+        if (op == 'crack' && line != null) 'crack_line_uid': line.uid,
+        if (op == 'production') 'prod_kind': _kind,
+        'items': items,
+      }, baseVersion: e['edit_version']);
+      if (res != null && mounted) Navigator.pop(context, true);
+    } on StockApiException catch (x) {
+      if (mounted) _snack(context, x.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
   Widget _opField() => DropdownButtonFormField<String>(
         key: ValueKey<String>('op-$_op'),
         initialValue: _op,
@@ -578,7 +685,7 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
         items: <DropdownMenuItem<String>>[
           for (final String k in kWsOpenTypes) DropdownMenuItem<String>(value: k, child: Text(kWsOpLabels[k] ?? k)),
         ],
-        onChanged: _setOp,
+        onChanged: _isEdit ? null : _setOp, // v94: نوع عملیات در ویرایش عوض نمی‌شود
       );
 
   Widget _lineField() => _lines.isEmpty
@@ -815,7 +922,7 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
     const SizedBox gap = SizedBox(height: 10);
     final String? op = _op;
     return Scaffold(
-      appBar: AppBar(title: Text(op == null ? 'شروع عملیات کارگاه' : 'شروع عملیات کارگاه — ${kWsOpLabels[op]}')),
+      appBar: AppBar(title: Text('${_isEdit ? 'ویرایش عملیات کارگاه' : 'شروع عملیات کارگاه'}${op == null ? '' : ' — ${kWsOpLabels[op]}'}')), // v94
       body: LayoutBuilder(builder: (BuildContext context, BoxConstraints c) {
         final bool wide = c.maxWidth >= 900;
         final bool rowHead = c.maxWidth >= 560;
@@ -874,11 +981,12 @@ class _WorkshopOpenFormScreenState extends State<WorkshopOpenFormScreen> {
             const SizedBox(height: 16),
             FilledButton.icon(
               onPressed: (_saving || _overStock || (op == 'crack' && _lineObj == null)) ? null : _submit,
-              icon: const Icon(Icons.play_arrow),
-              label: Text(_saving ? 'در حال ثبت…' : 'شروع عملیات'),
+              icon: Icon(_isEdit ? Icons.save_outlined : Icons.play_arrow),
+              label: Text(_saving ? 'در حال ثبت…' : (_isEdit ? 'ذخیرهٔ ویرایش' : 'شروع عملیات')),
             ),
             const SizedBox(height: 8),
-            OutlinedButton.icon(onPressed: _saving ? null : _saveDraft, icon: const Icon(Icons.edit_note), label: const Text('ذخیره به‌عنوان پیش‌نویس')),
+            if (!_isEdit) OutlinedButton.icon(onPressed: _saving ? null : _saveDraft, icon: const Icon(Icons.edit_note), label: const Text('ذخیره به‌عنوان پیش‌نویس')),
+            if (_isEdit) const Text('خروجی‌ها و بستن عملیات بعد از ذخیره، در صفحهٔ خود عملیات.', style: TextStyle(color: Colors.black54, fontSize: 12)),
           ]);
         }
         if (!wide || op != 'crack') return ListView(padding: const EdgeInsets.all(14), children: form);
