@@ -14,6 +14,7 @@ import 'live_query.dart';
 import 'lot_cartex_ui.dart' show LotCartexView;
 import 'lot_chain_ui.dart';
 import 'mix_form.dart';
+import 'mix_staged_ui.dart' show showMixHub, showMixOrSeparation; // v95
 import 'orchard_ui.dart';
 import 'pdf_output.dart';
 import 'pdf_service.dart';
@@ -288,8 +289,7 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
         bottom: _canCartex ? TabBar(controller: _subTabs, tabs: const [Tab(text: 'موجودی انبار'), Tab(text: 'کارتکس')]) : null,
       ),
       floatingActionButton: (_canCartex && _subTabs.index != 0) ? null : FloatingActionButton.extended(
-        onPressed: () =>
-            Navigator.push(context, MaterialPageRoute(builder: (_) => const MixForm())),
+        onPressed: () => showMixOrSeparation(context), // v95: «کوت‌ریزی» یا «جداکردن / غربال»
         icon: const Icon(Icons.merge_type),
         label: const Text('مخلوط / جداسازی'),
       ),
@@ -299,8 +299,10 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
         load: _loadInv,
         builder: (context, s) {
             if (!s.hasData) return const Center(child: CircularProgressIndicator());
-            final all = s.data!;
-            if (all.isEmpty) return const Center(child: Text('انبار خالی است'));
+            // v95: لات کوتِ در جریان (و کوتِ بسته‌شده که فقط ظرف خروجی‌هاست) جزو موجودی قابل استفاده نیست؛ کوت باز در کارت بالا نشان داده می‌شود
+            final List<Map<String, dynamic>> openMix = s.data!.where((p) => p['mix_status'] == 'open').toList();
+            final all = s.data!.where((p) => p['mix_status'] == null).toList();
+            if (all.isEmpty && openMix.isEmpty) return const Center(child: Text('انبار خالی است'));
 
             // انبار دو دسته است: پسته‌های خریداری‌شده | مخلوط/جداسازی‌شده (ساخته‌شده از انبار خودمان)
             // v82: لات امانی (is_mix=3، فراوری امانی/امانی دریافتی) در موجودی ما نیست؛ فقط با فیلتر «موجودی انبار امانی».
@@ -343,6 +345,17 @@ class _InventoryScreenState extends State<InventoryScreen> with SingleTickerProv
 
             final totalWaste = mixedAll.fold<double>(0, (a, p) => a + ((p['waste'] as num?) ?? 0).toDouble());
             final children = <Widget>[
+              if (openMix.isNotEmpty) // v95: «کوت در جریان» (دیده می‌شود، قابل فروش و استفاده نیست)
+                Card(
+                  color: Theme.of(context).colorScheme.tertiaryContainer,
+                  child: ListTile(
+                    leading: const Icon(Icons.pending_actions),
+                    title: Text('کوت در جریان: ${openMix.map((p) => '${p['type_name'] ?? ''} (${faNum((p['net_weight'] as num?) ?? 0)} کیلو)').join('، ')}'),
+                    subtitle: const Text('قابل فروش یا استفاده نیست تا خروجی‌ها ثبت و کوت بسته شود'),
+                    trailing: const Icon(Icons.chevron_left),
+                    onTap: () => showMixHub(context),
+                  ),
+                ),
               Align(
                 alignment: AlignmentDirectional.centerStart,
                 child: FilterChip(

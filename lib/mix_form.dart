@@ -6,11 +6,14 @@ import 'access_catalog.dart' show FieldGate; // v87: قسمت‌های قفل/پ
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'db.dart';
+import 'entity_store.dart' show EntityStore; // v94: کوت در جریان همگام
 import 'license_service.dart';
 import 'pdf_output.dart' show PdfOutput;
 import 'perms.dart' show StaffPerms;
 import 'pdf_service.dart' show PdfService;
 import 'processing_flow_ui.dart' show askEndReport;
+import 'returns_ui.dart' show ReturnsHelp; // v95: شناسهٔ سرور لات‌ها
+import 'sync_service.dart'; // v95
 import 'utils.dart';
 import 'warehouse_ui.dart';
 import 'widgets.dart';
@@ -42,11 +45,22 @@ class _SourceRow {
 }
 
 /// کوت‌ریزی‌های «در جریان» روی همین دستگاه (پسته قاطی شده، مشخصات لات جدید هنوز ثبت نشده).
+/// «کوت در جریان». v94: روی سرور (موجودیت `mix_processes`) و همگام بین دستگاه‌ها؛
+/// تا وقتی سرور این بخش را ندارد، مثل قبل فقط روی همین دستگاه (SharedPreferences). موارد محلی قبلی یک بار به سرور منتقل می‌شوند.
 class MixProcessStore {
   MixProcessStore._();
   static const String _k = 'mix_process_v86';
+  static const String _e = 'mix_processes';
 
-  static Future<List<Map<String, dynamic>>> list() async {
+  static Future<bool> _synced() async {
+    try {
+      return await EntityStore.I.isVisible(_e);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<List<Map<String, dynamic>>> _local() async {
     try {
       final SharedPreferences sp = await SharedPreferences.getInstance();
       final Object? j = jsonDecode(sp.getString(_k) ?? '[]');
@@ -56,16 +70,70 @@ class MixProcessStore {
     }
   }
 
-  static Future<void> _save(List<Map<String, dynamic>> l) async => (await SharedPreferences.getInstance()).setString(_k, jsonEncode(l));
+  static Future<void> _saveLocal(List<Map<String, dynamic>> l) async => (await SharedPreferences.getInstance()).setString(_k, jsonEncode(l));
+
+  static Map<String, dynamic>? _dataOf(Map<String, dynamic> row) {
+    Object? d = row['data'];
+    if (d is String) {
+      try {
+        d = jsonDecode(d);
+      } catch (_) {
+        return null;
+      }
+    }
+    return d is Map ? Map<String, dynamic>.from(d) : null;
+  }
+
+  static String _title(Map<String, dynamic> d) {
+    final String n = '${(d['spec'] as Map?)?['name'] ?? ''}';
+    return n.isEmpty ? 'کوت بی‌نام' : n;
+  }
+
+  /// موارد محلیِ قبل از v94 ⇒ سرور (یک بار)
+  static Future<void> _migrate() async {
+    final List<Map<String, dynamic>> old = await _local();
+    if (old.isEmpty) return;
+    for (final Map<String, dynamic> d in old.reversed) {
+      await _putSynced(d);
+    }
+    await _saveLocal(<Map<String, dynamic>>[]);
+  }
+
+  static Future<String?> _uidOf(String key) async {
+    for (final Map<String, dynamic> r in await EntityStore.I.list(_e)) {
+      if ('${r['pkey']}' == key) return '${r['uid']}';
+    }
+    return null;
+  }
+
+  static Future<void> _putSynced(Map<String, dynamic> d) async {
+    final String key = '${d['key']}';
+    await EntityStore.I.save(_e, <String, dynamic>{'pkey': key, 'title': _title(d), 'data': d}, uid: await _uidOf(key));
+  }
+
+  static Future<List<Map<String, dynamic>>> list() async {
+    if (!await _synced()) return _local();
+    await _migrate();
+    return <Map<String, dynamic>>[
+      for (final Map<String, dynamic> r in await EntityStore.I.list(_e))
+        if (_dataOf(r) != null) _dataOf(r)!,
+    ];
+  }
 
   static Future<void> put(Map<String, dynamic> d) async {
-    final List<Map<String, dynamic>> l = (await list()).where((Map<String, dynamic> x) => x['key'] != d['key']).toList()..insert(0, d);
-    await _save(l);
+    if (await _synced()) return _putSynced(d);
+    final List<Map<String, dynamic>> l = (await _local()).where((Map<String, dynamic> x) => x['key'] != d['key']).toList()..insert(0, d);
+    await _saveLocal(l);
   }
 
   static Future<void> remove(String? key) async {
     if (key == null) return;
-    await _save((await list()).where((Map<String, dynamic> x) => x['key'] != key).toList());
+    if (await _synced()) {
+      final String? uid = await _uidOf(key);
+      if (uid != null) await EntityStore.I.delete(_e, uid);
+      return;
+    }
+    await _saveLocal((await _local()).where((Map<String, dynamic> x) => x['key'] != key).toList());
   }
 }
 
@@ -307,6 +375,54 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
     _note.text = '${sp['note'] ?? ''}';
     _loadBaseTypes();
     if (mounted) setState(() {});
+  }
+
+  /// v95: «شروع کوت‌ریزی» (mixes.open، آنلاین): حداقل دو لات + نام لات جدید؛ وزن و عدل‌ها همین حالا از لات‌ها برداشته و به لات کوت
+  /// («کوت در جریان») منتقل می‌شود تا در انبار کار دیگری رویشان انجام نشود. خروجی‌ها بعداً در «بستن کوت» ثبت می‌شوند.
+  Future<void> _startStaged() async {
+    final List<_SourceRow> sel = _chosen.where((r) => (parseNum(r.weight.text) ?? 0) > 0).toList();
+    if (sel.map((r) => r.lot).toSet().length < 2) return snack(context, 'برای کوت‌ریزی حداقل دو جنس (لات) ورودی با وزن انتخاب کنید');
+    for (final r in sel) {
+      final err = _rowError(r);
+      if (err != null) return snack(context, err);
+    }
+    if (_categoryId == null) return snack(context, 'دستهٔ لات جدید را انتخاب کنید');
+    if (_typeName.text.trim().isEmpty) return snack(context, 'نام لات جدید را وارد کنید');
+    if (!await confirm(context, 'کوت‌ریزی شروع شود؟\n${faNum(_takenSum)} کیلو از ${faNum(sel.length, dec: 0)} لات همین حالا از انبار برداشته و به «${_typeName.text.trim()}» منتقل می‌شود.')) return;
+    if (!mounted) return;
+    setState(() => _saving = true);
+    try {
+      await SyncService.I.syncNow(pull: false); // تغییرات ارسال‌نشدهٔ همین لات‌ها اول برسند
+      final int? cat = _categoryId == null ? null : await ReturnsHelp.serverId('cat', _categoryId!);
+      final List<Map<String, dynamic>> sources = <Map<String, dynamic>>[
+        for (final r in sel)
+          <String, dynamic>{
+            'purchase_id': await ReturnsHelp.serverId('purchase', r.lot!),
+            'weight': parseNum(r.weight.text) ?? 0,
+            'small_sacks': parseNum(r.small.text),
+            'large_sacks': parseNum(r.large.text),
+            if (r.wh != null) 'warehouse_uid': r.wh,
+          },
+      ];
+      final Map<String, dynamic> res = await StockApi.call('mixes.open', <String, dynamic>{
+        'date': _start.toIso8601String().substring(0, 10),
+        'category_id': cat,
+        'type_name': _typeName.text.trim(),
+        if (_baseType != null) 'base_type': _baseType,
+        if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
+        if (_warehouseUid != null) 'warehouse_uid': _warehouseUid,
+        'sources': sources,
+      });
+      await MixProcessStore.remove(_procKey);
+      SyncService.I.pollNow();
+      if (!mounted) return;
+      snack(context, 'کوت «${res['code'] ?? ''}» شروع شد؛ بعداً از «مخلوط / جداسازی ⇐ کوت‌ریزی» خروجی‌ها را ثبت و کوت را ببندید');
+      Navigator.pop(context);
+    } on StockApiException catch (e) {
+      if (mounted) snack(context, e.message);
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   Future<void> _saveProcess() async {
@@ -678,17 +794,21 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
           return ListView(padding: const EdgeInsets.all(14), children: [
             Card(
               color: Theme.of(context).colorScheme.primaryContainer,
-              child: const Padding(
+              child: Padding(
                 padding: EdgeInsets.all(12),
-                child: Text('کوت‌ریزی یک فرایند است: لات‌ها را انتخاب کنید (پسته‌ها قاطی می‌شوند)؛ اگر مشخصات لات جدید هنوز معلوم نیست «ذخیره (کوت در جریان)» '
-                    'را بزنید و بعداً از آیکن بالا ادامه دهید. هزینهٔ ضایعات به‌صورت میانگین روی فی لات جدید می‌نشیند.'),
+                child: Text(_isEdit
+                    ? 'کوت‌ریزی یک فرایند است: لات‌ها را انتخاب کنید (پسته‌ها قاطی می‌شوند)؛ هزینهٔ ضایعات به‌صورت میانگین روی فی لات جدید می‌نشیند.'
+                    : 'کوت‌ریزی دو مرحله دارد: ۱) حداقل دو لات و نام لات جدید ⇒ «شروع کوت‌ریزی» (وزن و عدل‌ها همین حالا از لات‌ها برداشته و به لات کوت منتقل می‌شود). '
+                        '۲) بعد از کوت‌ریزی از «مخلوط / جداسازی ⇐ کوت‌ریزی» یک یا چند خروجی با همهٔ مشخصات ثبت و کوت را ببندید.'),
               ),
             ),
             const SizedBox(height: 10),
             Row(children: [
               Expanded(child: JalaliDateField(label: 'تاریخ شروع', value: _start, onChanged: (d) => setState(() => _start = d))),
-              const SizedBox(width: 8),
-              Expanded(child: JalaliDateField(label: 'تاریخ پایان', value: _end, onChanged: (d) => setState(() => _end = d))),
+              if (_isEdit) ...<Widget>[ // v95: تاریخ پایان در «بستن کوت»
+                const SizedBox(width: 8),
+                Expanded(child: JalaliDateField(label: 'تاریخ پایان', value: _end, onChanged: (d) => setState(() => _end = d))),
+              ],
             ]),
             const SizedBox(height: 6),
             sectionTitle(context, '۱) انتخاب لات‌ها (همین حالا وزن و عدل برداشتی را بنویسید)'),
@@ -745,6 +865,24 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
             ]),
             const SizedBox(height: 12),
             textField(_typeName, 'نام لات جدید (مثلاً «کوت‌ریز»)', required: true),
+            if (!_isEdit) ...<Widget>[ // v95: وزن نهایی، ضایعات، عدل، انس و گرم ⇒ در «بستن کوت» برای هر خروجی
+              WarehousePicker(label: 'انبار پیش‌فرض خروجی‌ها', value: _warehouseUid, useLast: true, onChanged: (v) => _warehouseUid = v),
+              FieldGate(field: 'mix.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2)),
+              const SizedBox(height: 8),
+              Wrap(spacing: 8, runSpacing: 8, children: [
+                OutlinedButton.icon(
+                  onPressed: _saving ? null : _saveProcess,
+                  icon: const Icon(Icons.save_outlined),
+                  label: const Text('ذخیرهٔ پیش‌نویس (بدون برداشت از انبار)'),
+                ),
+                FilledButton.icon(
+                  onPressed: _saving ? null : _startStaged,
+                  icon: _saving ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.play_arrow),
+                  label: const Text('شروع کوت‌ریزی (برداشت از انبار)'),
+                ),
+              ]),
+            ],
+            if (_isEdit) ...<Widget>[
             Row(children: [
               Expanded(child: numField(_netWeight, 'وزن نهایی (خالص) — طبق ترازو', required: true, onChanged: () => setState(() {}))),
               const SizedBox(width: 8),
@@ -790,6 +928,7 @@ class _MixFormState extends State<MixForm> with EditGuard<MixForm> {
                 label: Text(_isEdit ? 'ذخیره تغییرات' : 'ثبت در انبار (پایان کوت‌ریزی)'),
               ),
             ]),
+            ], // v95: if (_isEdit)
             const SizedBox(height: 24),
           ]);
         }),

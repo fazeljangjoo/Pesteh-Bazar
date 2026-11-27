@@ -45,6 +45,7 @@ const List<(String, List<String>)> _kSnapshot = [
       'gross_kg', 'tare_kg', 'quality_deduct_kg', 'weigh_ticket_no', 'vehicle_plate', 'driver_name', // S35.T35.2
       'discount_amount', 'weighbridge_cost', 'side_cost_payer', 'taxable', // S35.T35.6b
       'stock_hold', // v89: خرید بی‌فی (بیرون از موجودی تا ثبت فی)
+      'mix_status', 'mix_cost_per_kg', 'mix_parent_id', // v95: کوت‌ریزی مرحله‌ای
       'edit_version' // فاز ۳: نسخهٔ سرور برای base_version (همزمانی)
     ]
   ),
@@ -156,10 +157,12 @@ const Set<String> _kRealCols = {
   'large_sacks', 'item_price', 'amount', 'usd_rate', 'price_usd', 'fx_rate', 'ccy_amount', 'price_ccy', 'total_ccy', 'waste',
   'kg', 'unit_price', 'refund_amount', 'discount', 'tax_amount', 'gross_kg', 'tare_kg', 'quality_deduct_kg',
   'credit_used', 'commission_value', 'agreed_price', // S36
+  'mix_cost_per_kg', // v95
 };
 const Set<String> _kIntCols = {
   'id', 'category_id', 'mix_purchase_id', 'source_purchase_id', 'purchase_id', 'payment_id', 'sale_id',
   'receipt_id', 'is_mix', 'paid', 'return_id', 'lot_id', 'reserve', 'proforma_id', 'doc_id', 'edit_version', 'stock_hold',
+  'mix_parent_id', // v95
 };
 
 /// ستون‌های خرید برای لیست‌ها: عکس (base64 سنگین) عمداً انتخاب نمی‌شود؛ فقط has_photo.
@@ -167,7 +170,7 @@ const String _pSel = 'p.id, p.code, p.category_id, p.type_name, p.date, p.ounce,
     'p.small_sack_count, p.large_sack_count, p.small_sacks_remaining, p.large_sacks_remaining, '
     'p.net_weight, p.remaining, p.gram, p.pct_dombest, '
     'p.pct_tuchin, p.pct_crooked, p.pct_khandan, p.custom_specs, p.seller, p.note, p.is_mix, '
-    'p.usd_rate, p.price_usd, p.ccy, p.fx_rate, p.price_ccy, p.fx_rate_source, p.waste, p.base_type, p.labor_cost, p.transport_cost, p.warehouse_uid, p.ounce_uid, p.created_at, p.ord, p.stock_hold, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
+    'p.usd_rate, p.price_usd, p.ccy, p.fx_rate, p.price_ccy, p.fx_rate_source, p.waste, p.base_type, p.labor_cost, p.transport_cost, p.warehouse_uid, p.ounce_uid, p.created_at, p.ord, p.stock_hold, p.mix_status, p.mix_parent_id, (p.photo IS NOT NULL OR p.photo_pending = 1) AS has_photo';
 
 class _SaleV {
   final Map<String, dynamic> row;
@@ -234,6 +237,7 @@ class AppDb {
     try { await addV91P5Cols(d); } catch (_) {} // v91 p5
     try { await addV92LoanCols(d); } catch (_) {} // v92 فاز ج
     try { await addV93Cols(d); } catch (_) {} // v93
+    try { await addV95Cols(d); } catch (_) {} // v95
     moneyUnit = await MoneyUnit.localUnit(d);
     try { await Fmt.loadFrom(d); } catch (_) {} // S35.T35.11: display unit / digits (meta table may be absent on first open)
     return d;
@@ -436,6 +440,18 @@ class AppDb {
       if (info.any((Map<String, Object?> r) => r['name'] == c)) continue;
       try {
         await d.execute('ALTER TABLE loan_entries ADD COLUMN $c $type');
+      } catch (_) {/* همزمان ساخته شد */}
+    }
+  }
+
+  /// v95: کوت‌ریزی مرحله‌ای (وضعیت کوت، هزینهٔ هر کیلو، کوتِ والدِ لات خروجی) — بررسی در هر باز شدن
+  static Future<void> addV95Cols(DatabaseExecutor d) async {
+    final List<Map<String, Object?>> info = await d.rawQuery('PRAGMA table_info(purchases)');
+    if (info.isEmpty) return;
+    for (final (String c, String type) in const <(String, String)>[('mix_status', 'TEXT'), ('mix_cost_per_kg', 'REAL'), ('mix_parent_id', 'INTEGER')]) {
+      if (info.any((Map<String, Object?> r) => r['name'] == c)) continue;
+      try {
+        await d.execute('ALTER TABLE purchases ADD COLUMN $c $type');
       } catch (_) {/* همزمان ساخته شد */}
     }
   }
@@ -869,6 +885,7 @@ class AppDb {
     await addV91P5Cols(d); // v91 p5
     await addV92LoanCols(d); // v92 فاز ج
     await addV93Cols(d); // v93
+    await addV95Cols(d); // v95
     await _createIndexes(d);
     // نکته: دسته‌ها و انواع پیش‌فرض را سرور می‌سازد (bootstrap) و هنگام ورود دریافت می‌شوند.
   }

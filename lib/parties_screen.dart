@@ -700,21 +700,13 @@ class PartyDetailScreen extends StatelessWidget {
         ),
         isThreeLine: true,
         trailing: const Icon(Icons.chevron_left),
-        onTap: () {
-          if (e.isPurchase) {
-            Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => PaymentScreen(
-                        purchaseId: e.id, purchaseLabel: '${e.label} - ${jalaliDateFromDt(e.date)}')));
-          } else {
-            Navigator.push(
-                context,
-                MaterialPageRoute(
-                    builder: (_) => ReceiptScreen(
-                        saleId: e.id, saleLabel: '${a.name} - ${jalaliDateFromDt(e.date)}')));
-          }
-        },
+        // v94: شناسنامه‌های این فاکتور + پرداخت/وصول تازه (روش قدیمی انتخاب نوع پرداخت حذف شد)
+        onTap: () => openDocPayment(context,
+            isPurchase: e.isPurchase,
+            docId: e.id,
+            legacy: () => e.isPurchase
+                ? PaymentScreen(purchaseId: e.id, purchaseLabel: '${e.label} - ${jalaliDateFromDt(e.date)}')
+                : ReceiptScreen(saleId: e.id, saleLabel: '${a.name} - ${jalaliDateFromDt(e.date)}')),
       ),
     );
   }

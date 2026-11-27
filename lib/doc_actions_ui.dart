@@ -12,15 +12,13 @@ import 'db.dart';
 import 'fmt.dart' show Fmt;
 import 'invoice_service.dart';
 import 'license_service.dart';
-import 'ledger.dart' show partyKey; // v94
 import 'notify_service.dart';
-import 'parties_screen.dart' show PartyDetailScreen; // v94
 import 'payment_screen.dart';
 import 'pdf_output.dart';
 import 'pdf_service.dart';
 import 'perms.dart';
 import 'receipt_screen.dart';
-import 'settle_ui.dart' show showDocTrails; // v92
+import 'settle_ui.dart' show openDocPayment; // v92 · v94
 import 'returns_ui.dart';
 import 'sale_export_ui.dart';
 import 'utils.dart';
@@ -94,13 +92,6 @@ class LockedFields extends StatelessWidget {
   Widget build(BuildContext context) => AbsorbPointer(absorbing: locked, child: child);
 }
 
-/// v94: «مدیریت پرداخت / وصول مطالبات» ⇒ صفحهٔ طرف‌حساب (همهٔ فاکتورهای باز و پرداخت/وصول‌هایش یک‌جا).
-/// بدون نام طرف‌حساب یا بدون دسترسی دیدن طرف‌حساب‌ها، همان صفحهٔ تک‌فاکتوری قبلی باز می‌شود.
-void _openPartyOr(BuildContext context, String? party, Widget fallback) {
-  final String k = partyKey(party);
-  final bool canParty = StaffPerms.I.canAny(const <String>['parties.view', 'parties.create']);
-  Navigator.push(context, MaterialPageRoute<void>(builder: (_) => k.isNotEmpty && canParty ? PartyDetailScreen(partyKeyValue: k) : fallback));
-}
 
 Widget _btn(String key, IconData icon, String label, VoidCallback onTap, {bool filled = false}) => filled
     ? FilledButton.icon(key: ValueKey<String>('act_$key'), onPressed: onTap, icon: Icon(icon), label: Text(label))
@@ -120,9 +111,9 @@ class PurchaseDocActions extends StatelessWidget {
     for (final String k in keys) {
       switch (k) {
         case 'payment':
-          out.add(_btn(k, Icons.payments_outlined, 'مدیریت پرداخت', filled: true, () => _openPartyOr(context, p['seller'] as String?, // v94: صفحهٔ طرف‌حساب
-              PaymentScreen(purchaseId: p['id'] as int, purchaseLabel: '${p['category_name'] ?? ''} - ${p['type_name'] ?? ''}'))));
-          out.add(_btn('${k}_trail', Icons.fact_check_outlined, 'شناسنامهٔ پرداخت', () => showDocTrails(context, isPurchase: true, docId: p['id'] as int))); // v92
+          // v94: یک دکمه ⇒ شناسنامه‌های این خرید + «پرداخت» تازه (روش قدیمی انتخاب نوع پرداخت حذف شد)
+          out.add(_btn(k, Icons.payments_outlined, 'پرداخت', filled: true, () => openDocPayment(context, isPurchase: true, docId: p['id'] as int,
+              legacy: () => PaymentScreen(purchaseId: p['id'] as int, purchaseLabel: '${p['category_name'] ?? ''} - ${p['type_name'] ?? ''}'))));
         case 'cartex':
           out.add(_btn(k, Icons.picture_as_pdf_outlined, 'دریافت کارتکس A6', () async {
             final file = await PdfService.buildStockCard(
@@ -193,9 +184,9 @@ class SaleDocActions extends StatelessWidget {
     for (final String k in keys) {
       switch (k) {
         case 'receipt':
-          out.add(_btn(k, Icons.request_quote_outlined, 'وصول مطالبات', filled: true, () => _openPartyOr(context, sale['buyer'] as String?, // v94: صفحهٔ طرف‌حساب
-              ReceiptScreen(saleId: id, saleLabel: sale['buyer'] != null ? '${sale['buyer']}' : jalaliDate(sale['date'] as String)))));
-          out.add(_btn('${k}_trail', Icons.fact_check_outlined, 'شناسنامهٔ وصول', () => showDocTrails(context, isPurchase: false, docId: id))); // v92
+          // v94: یک دکمه ⇒ شناسنامه‌های این فروش + «وصول» تازه (روش قدیمی انتخاب نوع دریافت حذف شد)
+          out.add(_btn(k, Icons.request_quote_outlined, 'وصول', filled: true, () => openDocPayment(context, isPurchase: false, docId: id,
+              legacy: () => ReceiptScreen(saleId: id, saleLabel: sale['buyer'] != null ? '${sale['buyer']}' : jalaliDate(sale['date'] as String)))));
         case 'invoice':
           out.add(_btn(k, Icons.receipt_long_outlined, 'فاکتور فروش', () => InvoiceService.forSale(context, sale)));
         case 'weigh_slip':

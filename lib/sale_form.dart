@@ -7,7 +7,7 @@ import 'package:flutter/services.dart';
 
 import 'db.dart';
 import 'fx_doc_field.dart';
-import 'doc_drafts.dart' show DocDraftsLocal;
+import 'doc_drafts.dart' show DocDraftsLocal, DraftRestoreBanner; // v94: + کادر ادامهٔ پیش‌نویس
 import 'form_settings.dart' show FormSettingsLocal;
 import 'grade_lines_ui.dart';
 import 'fx_local.dart';
@@ -15,7 +15,8 @@ import 'license_service.dart';
 import 'party_field.dart';
 import 'tax_choice.dart';
 import 'price_table_ui.dart' show PriceSuggestionHint;
-import 'sale_price_mode.dart'; // v94
+import 'buy_mode_ui.dart' show BuyMode; // v95
+import 'purchase_pct_ui.dart' show PurchasePctCtl, PurchasePctSection; // v95: درصدها و قیمت جدای هر درصد مثل فرم خرید
 import 'fmt.dart' show Fmt, MoneyField;
 import 'utils.dart';
 import 'voucher_preview_ui.dart' show confirmVoucherPreview;
@@ -62,7 +63,10 @@ class SaleForm extends StatefulWidget {
   /// v91 p3: نمایش جزئیات فروش در همین فرم به حالت قفل؛ «ویرایش» همهٔ فیلدها را باز می‌کند. [doc] = ردیف فهرست فروش (برای کارهای سند).
   final bool locked;
   final Map<String, dynamic>? doc;
-  const SaleForm({super.key, this.editSaleId, this.locked = false, this.doc});
+  /// v94: [draft] / [draftId] = ادامهٔ پیش‌نویس فروش (مثل فرم خرید).
+  final Map<String, dynamic>? draft;
+  final int? draftId;
+  const SaleForm({super.key, this.editSaleId, this.locked = false, this.doc, this.draft, this.draftId});
   @override
   State<SaleForm> createState() => _SaleFormState();
 }
@@ -107,7 +111,50 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   final _small = TextEditingController();
   final _large = TextEditingController();
   final _price = TextEditingController();
-  final SalePriceModeCtl _pm = SalePriceModeCtl(); // v94: یک فی / پایه ۵۰ گرم / گرمی
+  // v95: روش فروش (یک فی / پایه ۵۰ گرم / گرمی) و فروش جدای هر درصد — همان کنترلر فرم خرید، برای ریالی و ارزی.
+  // درصدها و گرم از لات انتخاب‌شدهٔ انبار پر می‌شوند و قابل ویرایش‌اند (فقط برای قیمت‌گذاری؛ روی فروش ذخیره نمی‌شوند).
+  final PurchasePctCtl _pp = PurchasePctCtl(sale: true);
+  final TextEditingController _gramCtl = TextEditingController();
+  int? _ppLot;
+
+  void _ppSync(Map<String, dynamic>? lot) {
+    final int? id = lot == null ? null : (lot['id'] as num?)?.toInt();
+    if (id == _ppLot) return;
+    _ppLot = id;
+    for (final r in _pp.rows) {
+      r.dispose();
+    }
+    _pp.rows.clear();
+    if (lot == null) return;
+    _pp.loadFrom(lot);
+    final num? g = lot['gram'] as num?;
+    _gramCtl.text = g == null || g <= 0 ? '' : plain(g);
+  }
+
+  /// فی فروش = میانگین هر کیلوی قیمت‌گذاری درصدها (روش فروش / قیمت جدای درصدها)؛ وگرنه همان فی پایه.
+  double get _pctPrice {
+    final double base = (MoneyField.stored(_price) ?? 0).toDouble();
+    if (!_pp.pricing) return base;
+    final r = _pp.blend(base, _net);
+    return (r != null && r.ok) ? r.avgPerKg.toDouble() : base;
+  }
+
+  /// فروش ارزی: همان موتور روی فی ارزی واردشده.
+  double? get _fxPerKg {
+    final double? base = _fxc.priceCcyNum;
+    if (base == null) return null;
+    if (!_pp.pricing) return base;
+    final r = _pp.blend(base, _net);
+    return (r != null && r.ok) ? r.avgPerKg.toDouble() : base;
+  }
+
+  void _onFxChanged() {
+    final bool cleared = _pp.syncFx(_fxc.active ? _fxc.ccy : null, _fxc.decimals);
+    _changed();
+    if (cleared && mounted) snack(context, 'ارز فروش عوض شد؛ قیمت‌های جدای درصدها را به ارز تازه دوباره وارد کنید');
+  }
+
+  String get _fxPriceLabel => _pp.pricing || _pp.baseMode != BuyMode.fixed ? '${_pp.priceLabel(pricedRows: _pp.pricing)} — ارزی' : 'فی فروش ارزی (هر کیلو)';
   final FxDocController _fxc = FxDocController(); // S27c: ارز سند (نرخ دستی دلار حذف شد)
   final bool _fxEditBlocked = false; // v91 p3: دیگر true نمی‌شود (سند ارزی ویرایش می‌شود؛ ارز و نرخ ثابت)
   late bool _viewOnly = widget.locked && widget.editSaleId != null; // v91 p3
@@ -133,12 +180,93 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
 
   bool get _isEdit => widget.editSaleId != null;
 
+  // ---- v94: پیش‌نویس فروش مثل خرید: دستی (بدون اعتبارسنجی) + ذخیرهٔ خودکار هنگام ترک فرم؛ ادامه از کادر بالای فرم یا فهرست پیش‌نویس‌ها ----
+  late int? _draftId = widget.draftId;
+  bool _done = false; // ثبت یا پیش‌نویس انجام شد ⇒ ذخیرهٔ خودکار لازم نیست
+
+  bool get _hasInput =>
+      _selId != null || _gross.text.trim().isNotEmpty || (MoneyField.stored(_price) ?? 0) > 0 || _buyer.text.trim().isNotEmpty || _note.text.trim().isNotEmpty;
+
+  String get _draftTitle {
+    final Map<String, dynamic>? lot = _selLot;
+    final String b = _buyer.text.trim();
+    final double net = lot == null ? 0 : _net;
+    return '${b.isEmpty ? '' : '$b — '}${lot == null ? 'فروش' : '${lot['type_name'] ?? 'فروش'}'}${net > 0 ? ' — ${faNum(net)} کیلو' : ''}';
+  }
+
+  /// دادهٔ خام فرم (هر قدر پر شده). 'form' = قالب v94؛ قالب قدیمی {'sale','items'} هم خوانده می‌شود.
+  Map<String, dynamic> _draftData() => <String, dynamic>{
+        'form': <String, dynamic>{
+          'date': _dateIso,
+          'lot': _selId,
+          'gross': _gross.text.trim(),
+          'small': _small.text.trim(),
+          'large': _large.text.trim(),
+          'price': MoneyField.stored(_price),
+          'buyer': _buyer.text.trim(),
+          'note': _note.text.trim(),
+          'labor': MoneyField.stored(_laborCost),
+          'transport': MoneyField.stored(_transportCost),
+        },
+      };
+
+  /// پیش‌نویس ⇒ فیلدها؛ شناسهٔ لات انتخاب‌شده را برمی‌گرداند.
+  int? _applyDraft(Map<String, dynamic> d) {
+    String t(Object? v) => v == null ? '' : (v is num ? plain(v) : '$v');
+    Map<String, dynamic> f;
+    if (d['form'] is Map) {
+      f = Map<String, dynamic>.from(d['form'] as Map<dynamic, dynamic>);
+    } else if (d['sale'] is Map) { // پیش‌نویس کامل قدیمی
+      final Map<dynamic, dynamic> s = d['sale'] as Map<dynamic, dynamic>;
+      final List<dynamic> it = (d['items'] as List<dynamic>?) ?? const <dynamic>[];
+      final Map<dynamic, dynamic> i0 = it.isNotEmpty && it.first is Map ? it.first as Map<dynamic, dynamic> : const <dynamic, dynamic>{};
+      f = <String, dynamic>{
+        'date': s['date'], 'lot': i0['purchase_id'], 'gross': s['total_weight'], 'small': i0['small_sacks'], 'large': i0['large_sacks'],
+        'price': s['price'], 'buyer': s['buyer'], 'note': s['note'], 'labor': s['labor_cost'], 'transport': s['transport_cost'],
+      };
+    } else {
+      return null;
+    }
+    _date = DateTime.tryParse(t(f['date'])) ?? _date;
+    _fxc.dateIso = fxIsoDate(_date);
+    _gross.text = t(f['gross']);
+    _small.text = (f['small'] is num && f['small'] == 0) ? '' : t(f['small']);
+    _large.text = (f['large'] is num && f['large'] == 0) ? '' : t(f['large']);
+    if (f['price'] is num) MoneyField.setStored(_price, f['price'] as num);
+    _buyer.text = t(f['buyer']);
+    _note.text = t(f['note']);
+    if (f['labor'] is num) MoneyField.setStored(_laborCost, f['labor'] as num);
+    if (f['transport'] is num) MoneyField.setStored(_transportCost, f['transport'] as num);
+    final Object? lot = f['lot'];
+    return lot is num ? lot.toInt() : int.tryParse('${lot ?? ''}');
+  }
+
+  Future<void> _saveDraft() async {
+    if (!_hasInput) {
+      snack(context, 'فرم خالی است');
+      return;
+    }
+    _draftId = await DocDraftsLocal.saveOrReplace('sale', _draftTitle, _draftData(), replaceId: _draftId);
+    _done = true;
+    if (!mounted) return;
+    snack(context, 'پیش‌نویس ذخیره شد (بدون اثر روی انبار و حساب‌ها)');
+    Navigator.pop(context);
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
     _loadWeighSettings(); // S35.T35.2b
     if (LicenseService.I.isFx.value) _initFx();
+    _fxc.effectivePriceCcy = () => _fxPerKg; // v95: روش فروش ارزی
+    _pp.gramSource = () => parseNum(_gramCtl.text);
+    _pp.init().then((_) {
+      if (!mounted) return;
+      _ppLot = null;
+      _ppSync(_selLot);
+      setState(() {});
+    });
   }
 
   /// ارزهای فعال از کش دستگاه؛ سپس تازه‌سازی بی‌صدای کش (آنلاین) و دوباره‌خوانی نرخ.
@@ -154,6 +282,8 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
 
   @override
   void dispose() {
+    // v94: ترک فرم وسط کار (بدون ثبت) ⇒ ذخیرهٔ خودکار پیش‌نویس تا اطلاعات وارد‌شده نپرد
+    if (!_isEdit && !_done && _hasInput) DocDraftsLocal.autosave('sale', _draftTitle, _draftData());
     _gross.dispose();
     _gc.dispose();
     _tareManual.dispose();
@@ -166,7 +296,8 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     _small.dispose();
     _large.dispose();
     _price.dispose();
-    _pm.dispose();
+    _pp.dispose();
+    _gramCtl.dispose();
     _fxc.dispose();
     _buyer.dispose();
     _note.dispose();
@@ -221,12 +352,13 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       }
     } else {
       l = await AppDb.I.lots();
+      if (widget.draft != null) preSel = _applyDraft(widget.draft!); // v94
     }
     if (!mounted) return;
     setState(() {
       _lots = l;
       _legacyMulti = legacy;
-      if (preSel != null && l.any((e) => e['id'] == preSel)) _selId = preSel;
+      if (preSel != null && l.any((e) => e['id'] == preSel)) _selId = preSel; _ppSync(_selLot); // v95
       _loading = false;
     });
   }
@@ -280,7 +412,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       _sackSmallKg = k[0];
       _sackLargeKg = k[1];
       _finOn = fin;
-      _draftOn = draftOn;
+      _draftOn = draftOn || true; // v94: پیش‌نویس همیشه در دسترس است (مثل خرید)
     });
   }
   /// فی فروش (واحد ذخیره، تومان تا S29): در سند ارزی = فی ارزی × نرخ ÷ ۱۰
@@ -289,7 +421,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
   bool get _priceShown => StaffPerms.I.canPriceIn('sales') && StaffPerms.I.fieldShown('sale.price');
   bool get _priceEditable => _priceShown && StaffPerms.I.fieldEditable('sale.price');
 
-  double get _priceVal => _fxc.active ? (_fxc.priceStored ?? 0) : (_useGrades ? _gc.weightedPrice : (MoneyField.stored(_price) ?? 0).toDouble());
+  double get _priceVal => _fxc.active ? (_fxc.priceStored ?? 0) : (_useGrades ? _gc.weightedPrice : _pctPrice); // v95: روش فروش / درصدها
   double get _revenue => _net * _priceVal;
 
   bool get _fx => LicenseService.I.isFx.value;
@@ -305,6 +437,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     setState(() {
       if (_selId != id) {
         _selId = id;
+        _ppSync(_selLot); // v95: درصدها و گرم از لات
         // سقف گونی هر خرید فرق دارد؛ مقدارهای قبلی پاک می‌شوند
         _small.clear();
         _large.clear();
@@ -336,6 +469,13 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     if (fxErr != null) {
       snack(context, fxErr);
       return;
+    }
+    if (_priceShown) {
+      final String? pe = _pp.validate(); // v95
+      if (pe != null) {
+        snack(context, pe);
+        return;
+      }
     }
     final price = _priceVal;
     final bool keepPrice = _isEdit && !_priceEditable; // v89: ویرایش بدون دسترسی فی ⇒ سرور فی ذخیره‌شده را نگه می‌دارد
@@ -462,7 +602,11 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     );
     if (!mounted) return;
     setState(() => _saving = false);
-    if (ok) Navigator.pop(context);
+    if (ok) {
+      _done = true; // v94
+      if (_draftId != null) await DocDraftsLocal.delete(_draftId!);
+      if (mounted) Navigator.pop(context);
+    }
   }
 
   // ------------------------- رابط کاربری -------------------------
@@ -511,7 +655,10 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
                         ),
                         child: ListView(
                           padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
-                          children: _vo(_children(context)),
+                          children: _vo(<Widget>[
+                            if (!_isEdit && widget.draft == null && !_viewOnly) DraftRestoreBanner(docType: 'sale', onRestore: (int id, Map<String, dynamic> data) => Navigator.pushReplacement(context, MaterialPageRoute<void>(builder: (_) => SaleForm(draft: data, draftId: id)))), // v94
+                            ..._children(context),
+                          ]),
                         ),
                       ),
                     ),
@@ -524,7 +671,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     final lot = _selLot;
 
     w.add(KeyedSubtree(key: const ValueKey('saleDate'), child: DocDateField(label: 'تاریخ فروش', value: _date, onChanged: (DateTime d) { setState(() => _date = d); _fxc.setDate(d).then((_) => _changed()); }))); // v91
-    w.add(sectionTitle(context, '۱) پستهٔ فروخته‌شده را از انبار انتخاب کنید (هر فروش فقط یک قلم)'));
+    w.add(sectionTitle(context, 'پسته (از انبار؛ هر فروش یک قلم)'));
     w.add(SaleLotPicker(lots: _lots, selectedId: _selId, onSelect: _select, whNames: _whNames, showUsd: _fx)); // v87: انتخاب لات مثل فرم شکست (به‌جای فهرست همهٔ لات‌ها)
 
     if (lot == null) {
@@ -533,19 +680,24 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
         child: Text('بعد از انتخاب پسته، وزن فروش را وارد کنید.', style: TextStyle(color: Colors.black54)),
       ));
     } else {
-      w.add(sectionTitle(context, '۲) وزن واقعی فروش (طبق ترازو)'));
+      w.add(sectionTitle(context, 'وزن (طبق ترازو)'));
       w.add(KeyedSubtree(key: ValueKey('weigh${lot['id']}'), child: _weighFields(lot)));
       w.add(KeyedSubtree(
           key: ValueKey('swh${lot['id']}'),
           child: SaleWarehouseField(lotId: lot['id'] as int, onChanged: (String? v) => _saleWh = v)));
       w.add(_summaryCard(context));
-      if (_priceShown) w.add(sectionTitle(context, '۳) فی فروش'));
-      if (_fx && _priceShown) w.add(FxDocFields(c: _fxc, priceLabel: 'فی فروش ارزی (هر کیلو)', onChanged: _changed));
-      if (_priceEditable && !_fxc.active && !_useGrades && _selLot != null) { // v94: نحوهٔ قیمت‌گذاری
-        w.add(SalePriceModeBox(ctl: _pm..prefillGram(_selLot!['id'] as int?, _selLot!['gram'] as num?), price: _price, onChanged: _changed));
-      }
-      if (_priceShown && !_fxc.active && !_useGrades) {
-        w.add(FieldGate(field: 'sale.price', child: MoneyField(controller: _price, label: 'فی فروش (به ازای هر کیلو)', required: true, onChanged: _changed)));
+      if (_priceShown) w.add(sectionTitle(context, 'قیمت'));
+      if (_fx && _priceShown) w.add(FxDocFields(c: _fxc, priceLabel: _fxPriceLabel, onChanged: _onFxChanged)); // v95: روش فروش ارزی
+      if (_priceShown && !_useGrades && _selLot != null) { // v95: روش فروش + درصدها (از انبار، قابل ویرایش) + قیمت جدای هر درصد
+        w.add(FieldGate(field: 'sale.price', child: PurchasePctSection(
+            key: ValueKey('salePct${_selLot!['id']}'),
+            ctl: _pp,
+            basePrice: _fxc.active ? _fxc.priceCcyNum : MoneyField.stored(_price),
+            netKg: _net,
+            onChanged: _changed,
+            readOnly: !_priceEditable,
+            priceField: _fxc.active ? null : MoneyField(controller: _price, label: _pp.priceLabel(pricedRows: _pp.pricing), required: true, onChanged: _changed))));
+        if (_pp.baseGram || _pp.rows.isNotEmpty) w.add(numField(_gramCtl, 'گرم پسته (از انبار؛ قابل ویرایش)', onChanged: _changed));
       }
       if (_priceEditable && _priceTableOn && !_fxc.active && !_useGrades && _selLot != null) {
         w.add(PriceSuggestionHint(
@@ -556,21 +708,27 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       if (!_fx && _priceShown) w.add(fxLockedField('فروش به ارز'));
     }
 
-    w.add(const SizedBox(height: 12));
+    w.add(sectionTitle(context, 'سایر')); // v94: فشرده مثل فرم خرید
     w.add(KeyedSubtree(
         key: const ValueKey('buyer'), child: FieldGate(field: 'sale.buyer', child: PartyField(controller: _buyer, label: 'خریدار (اختیاری)'))));
-    w.add(KeyedSubtree(key: const ValueKey('note'), child: FieldGate(field: 'sale.note', child: textField(_note, 'توضیحات (اختیاری)', lines: 2))));
-    w.add(KeyedSubtree(
-        key: const ValueKey('laborCost'),
-        child: FieldGate(field: 'sale.costs', child: MoneyField(controller: _laborCost, label: 'هزینه کارگر — اختیاری', hint: 'اگر وارد شود از سود این فروش کم می‌شود'))));
-    w.add(KeyedSubtree(
-        key: const ValueKey('transportCost'),
-        child: FieldGate(field: 'sale.costs', child: MoneyField(controller: _transportCost, label: 'هزینه حمل‌ونقل / باسکول — اختیاری', hint: 'اگر وارد شود از سود این فروش کم می‌شود'))));
+    w.add(KeyedSubtree(key: const ValueKey('note'), child: FieldGate(field: 'sale.note', child: textField(_note, 'توضیحات (اختیاری)'))));
+    w.add(FieldGate(
+        field: 'sale.costs',
+        child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+          Expanded(child: KeyedSubtree(key: const ValueKey('laborCost'), child: MoneyField(controller: _laborCost, label: 'هزینه کارگر'))),
+          const SizedBox(width: 8),
+          Expanded(child: KeyedSubtree(key: const ValueKey('transportCost'), child: MoneyField(controller: _transportCost, label: 'حمل / باسکول'))),
+        ])));
     if (_finOn)
       w.addAll(<Widget>[
         sectionTitle(context, 'بلوک مالی'),
-        FieldGate(field: 'sale.fin', child: MoneyField(controller: _finDisc, label: 'تخفیف — اختیاری')),
-        FieldGate(field: 'sale.fin', child: MoneyField(controller: _finWb, label: 'هزینهٔ باسکول — اختیاری')),
+        FieldGate(
+            field: 'sale.fin',
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+              Expanded(child: MoneyField(controller: _finDisc, label: 'تخفیف')),
+              const SizedBox(width: 8),
+              Expanded(child: MoneyField(controller: _finWb, label: 'هزینهٔ باسکول')),
+            ])),
         FieldGate(field: 'sale.fin', child: DropdownButtonFormField<String>(
           value: _finPayer,
           decoration: const InputDecoration(labelText: 'هزینه‌های جانبی بر عهدهٔ'),
@@ -597,7 +755,7 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     if (_draftOn && !_isEdit) {
       w.add(const SizedBox(height: 8));
       w.add(OutlinedButton.icon(
-        onPressed: _saving ? null : () => _save(draft: true),
+        onPressed: _saving ? null : _saveDraft, // v94: بدون اعتبارسنجی، قابل ادامه
         icon: const Icon(Icons.edit_note),
         label: const Text('ذخیره به‌عنوان پیش‌نویس'),
       ));

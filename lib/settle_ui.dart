@@ -233,7 +233,17 @@ class PartySettlementsCard extends StatelessWidget {
 }
 
 /// شناسنامه‌هایی که روی یک فاکتور نشسته‌اند
-Future<void> showDocTrails(BuildContext context, {required bool isPurchase, required int docId}) async {
+/// v94: «پرداخت / وصول» یک فاکتور = شناسنامه‌های آن + ثبت پرداخت/وصول تازه (چندمرحله‌ای، از طریق صراف، چک).
+/// روش قدیمیِ «انتخاب نوع پرداخت روی هر فاکتور» برداشته شد؛ فقط وقتی سرور هنوز شناسنامه ندارد صفحهٔ قدیمی [legacy] باز می‌شود.
+Future<void> openDocPayment(BuildContext context, {required bool isPurchase, required int docId, required Widget Function() legacy}) async {
+  if (!await settlementsAvailable()) {
+    if (context.mounted) await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => legacy()));
+    return;
+  }
+  if (context.mounted) await showDocTrails(context, isPurchase: isPurchase, docId: docId, legacy: legacy);
+}
+
+Future<void> showDocTrails(BuildContext context, {required bool isPurchase, required int docId, Widget Function()? legacy}) async {
   final StlState st = await loadStlState();
   final String k = stlDocKey(isPurchase ? 'purchase' : 'sale', docId);
   final Set<String> uids = <String>{
@@ -250,7 +260,18 @@ Future<void> showDocTrails(BuildContext context, {required bool isPurchase, requ
         Text('شناسنامه‌های ${isPurchase ? 'خرید' : 'فروش'} #$docId', style: Theme.of(ctx).textTheme.titleMedium),
         if (st.docs[k] != null)
           infoRow('ماندهٔ باز این فاکتور', stlAmount(st.docs[k]!.ccy, (st.match.docs[k]?.open4 ?? 0) / kQ)),
-        const Text('پرداخت/دریافت‌های تک‌فاکتوری قبلی در «مدیریت پرداخت/دریافت» همین فاکتور هستند.', style: TextStyle(fontSize: 12)),
+        if (legacy != null && (st.docs[k]?.pre4 ?? 0) > 0) // v94: ردیف‌های روش قدیم فقط برای دیدن/اصلاح
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: TextButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                Navigator.push(context, MaterialPageRoute<void>(builder: (_) => legacy()));
+              },
+              icon: const Icon(Icons.history, size: 18),
+              label: const Text('پرداخت/دریافت‌های ثبت‌شده به روش قدیم این فاکتور'),
+            ),
+          ),
         if (uids.isEmpty) const Padding(padding: EdgeInsets.all(16), child: Text('هنوز شناسنامه‌ای روی این فاکتور ننشسته است.')),
         for (final String u in uids)
           if (stlTrail(st, u) != null) TrailTile(trail: stlTrail(st, u)!),

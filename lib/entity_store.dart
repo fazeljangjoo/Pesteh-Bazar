@@ -7,7 +7,7 @@ import 'db.dart';
 
 /// Bump when [kEntityRegistry] changes in a way the server must know about (informational; the server
 /// stays the authority: only entities it exports/lists are shown, see [EntityStore.visibleNames]).
-const int kEntityRegistryVersion = 6; // v92: settlements (شناسنامهٔ پرداخت/وصول) + xch_moves.links // v91 p5: xch_moves (صراف) // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
+const int kEntityRegistryVersion = 7; // v94: mix_processes (کوت در جریان، همگام بین دستگاه‌ها) // v92: settlements (شناسنامهٔ پرداخت/وصول) + xch_moves.links // v91 p5: xch_moves (صراف) // v90: mk_* (بازاریابی بین‌المللی) // S5.T1: lot_intakes / lot_intake_pcts / pct_defs (اتاق انس)؛ v79: crack_lines
 
 /// One field of an entity (mirrors a column spec of `server/backend/api/entities.php`).
 /// type: string | text | int | bigint | decimal | bool | date | datetime | enum | ref | json
@@ -340,6 +340,21 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
     permCreate: 'receipts.save',
     permEdit: 'receipts.save',
     permDelete: 'receipts.save',
+  ),
+  // v94 — «کوت در جریان» (آینهٔ موجودیت سرور `mix_processes`؛ صفحه‌اش همان فرم کوت‌ریزی). data = دادهٔ فرم.
+  'mix_processes': EntitySpec(
+    'mix_processes',
+    'کوت در جریان',
+    <EntityField>[
+      EntityField('pkey', 'کلید', 'string', required: true, max: 60),
+      EntityField('title', 'عنوان', 'string', max: 200),
+      EntityField('data', 'داده', 'json', required: true, max: 500000),
+    ],
+    search: <String>['title'],
+    listFields: <String>['title'],
+    permCreate: 'mixes.create',
+    permEdit: 'mixes.create',
+    permDelete: 'mixes.create',
   ),
   // v92 — شناسنامهٔ پرداخت/وصول (آینهٔ موجودیت سرور `settlements`؛ صفحهٔ خودش در settle_ui.dart). مبالغ به ارز خودشان (IRR = ریال)؛ هیچ‌کدام ×۱۰ نمی‌شود.
   'settlements': EntitySpec(

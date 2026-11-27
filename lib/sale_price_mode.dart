@@ -6,11 +6,7 @@ import 'buy_mode_ui.dart';
 import 'fmt.dart' show MoneyField;
 import 'utils.dart' show faNum, parseNum;
 
-const Map<BuyMode, String> kSaleModeLabels = <BuyMode, String>{
-  BuyMode.fixed: 'فروش با یک فی',
-  BuyMode.base50: 'فی پایه ۵۰ گرم',
-  BuyMode.perGram: 'فروش گرمی',
-};
+const Map<BuyMode, String> kSaleModeLabels = kSellModeLabels; // v95: یکی با buy_mode_ui
 
 /// فی کیلوییِ فروش از روش انتخاب‌شده (null = دادهٔ کافی نیست). همان فرمول خرید ([buyModeEffective])، گرد به عدد صحیح.
 int? salePriceFromMode(BuyMode m, double? input, double? gram, {double ref = 50}) {
@@ -81,31 +77,38 @@ class SalePriceModeBox extends StatelessWidget {
       ),
       if (m != BuyMode.fixed) ...<Widget>[
         const SizedBox(height: 6),
-        Padding(padding: EdgeInsets.only(bottom: gap > 12 ? gap - 12 : 0), child: MoneyField( // اندروید: MoneyField پارامتر gap ندارد
-            key: const ValueKey<String>('saleModeInput'),
-            controller: ctl.input,
-            label: m == BuyMode.perGram ? 'فی فروش هر گرم' : 'فی پایه ${faNum(ctl.ref, dec: 0)} گرم',
-            required: true,
-            onChanged: _apply)),
-        Padding(
-          padding: EdgeInsets.only(bottom: gap),
-          child: TextFormField(
-            key: const ValueKey<String>('saleModeGram'),
-            controller: ctl.gram,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            decoration: const InputDecoration(labelText: 'گرم (مغز در ۱۰۰ گرم)', border: OutlineInputBorder(), helperText: 'پیش‌فرض: گرم ثبت‌شدهٔ همین پسته'),
-            validator: (String? v) {
-              final double? g = parseNum(v ?? '');
-              return g == null || g <= 0 || g > 100 ? 'گرم را درست وارد کنید (۰ تا ۱۰۰)' : null;
-            },
-            onChanged: (_) => _apply(),
+        // v94: فی و گرم کنار هم (فشرده، مثل فرم خرید)
+        Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+          Expanded(
+            flex: 3,
+            child: Padding(padding: EdgeInsets.only(bottom: gap > 12 ? gap - 12 : 0), child: MoneyField( // اندروید: MoneyField پارامتر gap ندارد
+                key: const ValueKey<String>('saleModeInput'),
+                controller: ctl.input,
+                label: m == BuyMode.perGram ? 'فی هر گرم' : 'فی پایه ${faNum(ctl.ref, dec: 0)} گرم',
+                required: true,
+                onChanged: _apply)),
           ),
-        ),
+          const SizedBox(width: 8),
+          Expanded(
+            flex: 2,
+            child: Padding(
+              padding: EdgeInsets.only(bottom: gap),
+              child: TextFormField(
+                key: const ValueKey<String>('saleModeGram'),
+                controller: ctl.gram,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: const InputDecoration(labelText: 'گرم', border: OutlineInputBorder()),
+                validator: (String? v) {
+                  final double? g = parseNum(v ?? '');
+                  return g == null || g <= 0 || g > 100 ? '۰ تا ۱۰۰' : null;
+                },
+                onChanged: (_) => _apply(),
+              ),
+            ),
+          ),
+        ]),
         buyModeInfo(context, m, input: ctl.inputVal, gram: ctl.gramVal, ref: ctl.ref),
-        const Padding(
-          padding: EdgeInsets.only(top: 4, bottom: 8),
-          child: Text('«فی فروش (هر کیلو)» پایین خودکار از همین محاسبه پر می‌شود.', style: TextStyle(color: Colors.black54, fontSize: 12)),
-        ),
+        const SizedBox(height: 8),
       ],
     ]);
   }

@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart' show Database;
 
 import 'db.dart';
 import 'purchase_form.dart' show PurchaseForm; // v87
+import 'sale_form.dart' show SaleForm; // v94
 import 'utils.dart';
 import 'widgets.dart';
 
@@ -228,16 +229,20 @@ class _DraftsScreenState extends State<DraftsScreen> {
                     for (final Map<String, Object?> r in _rows)
                       Card(
                         child: ListTile(
-                          onTap: widget.docType == 'purchase' // v87: ادامهٔ پیش‌نویس در فرم خرید
-                              ? () async {
-                                  await Navigator.push(context, MaterialPageRoute<void>(builder: (_) => PurchaseForm(draft: DocDraftsLocal.decode(r), draftId: r['id'] as int)));
-                                  await _load();
-                                }
-                              : null,
+                          onTap: () async { // v87: ادامهٔ پیش‌نویس در فرم خرید · v94: و فرم فروش
+                            await Navigator.push(
+                                context,
+                                MaterialPageRoute<void>(
+                                    builder: (_) => widget.docType == 'sale'
+                                        ? SaleForm(draft: DocDraftsLocal.decode(r), draftId: r['id'] as int)
+                                        : PurchaseForm(draft: DocDraftsLocal.decode(r), draftId: r['id'] as int)));
+                            await _load();
+                          },
                           title: Text('${r['title']}'),
                           subtitle: Text('ذخیره: ${jalaliDate('${r['created_at']}')}'),
                           trailing: Row(mainAxisSize: MainAxisSize.min, children: <Widget>[
-                            IconButton(tooltip: 'ثبت نهایی', icon: const Icon(Icons.check_circle_outline), onPressed: () => _finalize(r)),
+                            if (widget.docType != 'sale' || DocDraftsLocal.decode(r)['sale'] is Map) // v94: پیش‌نویس ناقص فروش ⇒ فقط ادامه در فرم
+                              IconButton(tooltip: 'ثبت نهایی', icon: const Icon(Icons.check_circle_outline), onPressed: () => _finalize(r)),
                             IconButton(tooltip: 'حذف', icon: const Icon(Icons.delete_outline), onPressed: () => _remove(r)),
                           ]),
                         ),

@@ -15,6 +15,11 @@ import 'money_unit.dart'; // S29.T29.3
 import 'perms.dart'; // S10: کارکن ⇒ sync.export
 import 'local_backup.dart';
 import 'sync_plan.dart'; // S7
+import 'processing_ui.dart' show ProcessingStore; // v94: صف‌های جداگانه در همگام‌سازی خودکار
+import 'consignment_ui.dart' show ConsignmentStore;
+import 'separation_form.dart' show SeparationStore;
+import 'cheque_ui.dart' show ChequeStore;
+import 'stock_count_local.dart' show StockCountLocal;
 
 /// وضعیت همگام‌سازی برای نمایش در صفحه‌ها
 class SyncInfo {
@@ -201,11 +206,35 @@ class SyncService {
     }
   }
 
+  /// v94: صف‌های جداگانهٔ چند بخش (کارگاه/فراوری، امانی، جداسازی، وضعیت چک، انبارگردانی) قبلاً فقط با باز کردن همان صفحه روی
+  /// همان دستگاه ارسال می‌شد ⇒ دستگاه‌های دیگر آن‌ها را نمی‌دیدند. حالا در هر دور همگام‌سازی خودکار هم ارسال می‌شوند.
+  bool _sideBusy = false;
+  Future<void> _flushSideQueues() async {
+    if (_sideBusy) return;
+    _sideBusy = true;
+    try {
+      for (final Future<Object?> Function() f in <Future<Object?> Function()>[
+        ProcessingStore.flush,
+        ConsignmentStore.flush,
+        SeparationStore.flush,
+        ChequeStore.flush,
+        StockCountLocal.pushAll,
+      ]) {
+        try {
+          await f();
+        } catch (_) {/* شبکه/سرور: دور بعد دوباره */}
+      }
+    } finally {
+      _sideBusy = false;
+    }
+  }
+
   Future<void> _cycle(bool? pull) async {
     final cred = await LicenseService.I.credentials();
     if (cred == null) return;
     final ok = await _push(cred.$1, cred.$2);
     if (!ok) return;
+    await _flushSideQueues(); // v94
     final (p, f) = await AppDb.I.queueCounts();
     _emit(pending: p, failed: f);
     if (!_unitProbed && p == 0 && f == 0 && !AppDb.I.isEditing) {

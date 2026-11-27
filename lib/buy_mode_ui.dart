@@ -17,6 +17,13 @@ const Map<BuyMode, String> kBuyModeLabels = <BuyMode, String>{
   BuyMode.perGram: 'خرید گرمی',
 };
 
+/// v95: همان سه روش برای فروش
+const Map<BuyMode, String> kSellModeLabels = <BuyMode, String>{
+  BuyMode.fixed: 'فروش با یک فی',
+  BuyMode.base50: 'فی پایه ۵۰ گرم',
+  BuyMode.perGram: 'فروش گرمی',
+};
+
 bool buyModeIsGram(BuyMode m) => m != BuyMode.fixed;
 
 /// مقدار ورودی موتور (فی کیلویی یا فی پایهٔ R گرمی) از عدد واردشدهٔ کاربر.
@@ -48,7 +55,8 @@ double? buyModeEffective(BuyMode m, double? input, double? gram, double ref) {
 
 /// انتخاب روش خرید (سه تراشه).
 class BuyModeChips extends StatelessWidget {
-  const BuyModeChips({super.key, required this.value, required this.onChanged, this.enabled = true, this.label});
+  const BuyModeChips({super.key, required this.value, required this.onChanged, this.enabled = true, this.label, this.labels = kBuyModeLabels});
+  final Map<BuyMode, String> labels; // v95: فروش ⇒ kSellModeLabels
   final BuyMode value;
   final ValueChanged<BuyMode> onChanged;
   final bool enabled;
@@ -62,7 +70,7 @@ class BuyModeChips extends StatelessWidget {
         if (label != null) Text(label!, style: const TextStyle(fontWeight: FontWeight.w600)),
         for (final BuyMode m in BuyMode.values)
           ChoiceChip(
-            label: Text(kBuyModeLabels[m]!),
+            label: Text(labels[m]!),
             selected: value == m,
             onSelected: enabled ? (bool on) => on ? onChanged(m) : null : null,
           ),

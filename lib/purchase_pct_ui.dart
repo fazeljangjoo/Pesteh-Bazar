@@ -83,6 +83,9 @@ class PctBlend {
 }
 
 class PurchasePctCtl {
+  /// v95: [sale] ⇒ همین درصدها و قیمت‌گذاری در فرم فروش (دسترسی قیمت فروش، برچسب‌های «فروش»).
+  PurchasePctCtl({this.sale = false});
+  final bool sale;
   final List<PurchasePctRow> rows = <PurchasePctRow>[];
   List<Map<String, dynamic>> defs = _kFallbackDefs;
   BuyMode baseMode = BuyMode.fixed; // v85: روش خرید پستهٔ اصلی
@@ -94,6 +97,8 @@ class PurchasePctCtl {
   static double? _cachedRef;
 
   static bool get canPrice => StaffPerms.I.canPriceIn('purchases'); // v87: قیمت بخش خرید
+  bool get canPriceHere => sale ? StaffPerms.I.canPriceIn('sales') : canPrice; // v95
+  String get _verb => sale ? 'فروش' : 'خرید';
 
   // ── v91: روش خرید ارزی — در سند ارزی همهٔ قیمت‌های روش خرید (پایه، قیمت جدای درصدها) به همان ارز و با اعشار ──
   String? fxCcy;
@@ -134,7 +139,7 @@ class PurchasePctCtl {
       if (d.isNotEmpty) defs = d;
     } catch (_) {}
     refGram = _cachedRef ?? 50;
-    if (canPrice) {
+    if (canPriceHere) {
       try {
         final Map<String, dynamic> r = await StockApi.call('intake.price_settings');
         final double? v = (r['ref_gram'] as num?)?.toDouble();
@@ -194,14 +199,14 @@ class PurchasePctCtl {
       if (p < 0 || p > 100) return 'درصد «${labelOf(r.defKey)}» باید بین ۰ و ۱۰۰ باشد';
       final double? k = r.kernel.text.trim().isEmpty ? null : _num(r.kernel.text);
       if (k != null && (k <= 0 || k > 100)) return 'گرم مغز «${labelOf(r.defKey)}» باید بین ۰ و ۱۰۰ باشد';
-      if (canPrice && r.separate && (qOf(r) ?? -1) < 0) return 'قیمت «${labelOf(r.defKey)}» را وارد کنید';
-      if (canPrice && r.separate && r.gram) {
+      if (canPriceHere && r.separate && (qOf(r) ?? -1) < 0) return 'قیمت «${labelOf(r.defKey)}» را وارد کنید';
+      if (canPriceHere && r.separate && r.gram) {
         final double? g = _num(r.g.text) ?? k;
         if (g == null || g <= 0 || g > 100) return '«گرم مغز در ۱۰۰ گرم» برای «${labelOf(r.defKey)}» را وارد کنید';
       }
     }
     if (sum > 100.0001) return 'جمع درصدها از ۱۰۰ بیشتر است';
-    if (canPrice && baseGram && ((baseGram0 ?? 0) <= 0 || (baseGram0 ?? 0) > 100)) return '«گرم» پستهٔ اصلی را (بیشتر از ۰ تا ۱۰۰) در فرم خرید وارد کنید';
+    if (canPriceHere && baseGram && ((baseGram0 ?? 0) <= 0 || (baseGram0 ?? 0) > 100)) return '«گرم» پستهٔ اصلی را (بیشتر از ۰ تا ۱۰۰) در فرم $_verb وارد کنید';
     return null;
   }
 
@@ -224,7 +229,7 @@ class PurchasePctCtl {
           if (r.defKey != null && _num(r.kernel.text) != null) <String, String>{'label': '$_kKernelPrefix${labelOf(r.defKey)}', 'value': _plain(_num(r.kernel.text)!)},
       ];
 
-  bool get pricing => canPrice && (baseGram || rows.any((PurchasePctRow r) => r.separate));
+  bool get pricing => canPriceHere && (baseGram || rows.any((PurchasePctRow r) => r.separate));
 
   /// v85: گرم پستهٔ اصلی برای حالت‌های گرمی: مقدار جدا یا گرم فرم خرید.
   double? get baseGram0 => gramSource?.call() ?? _num(baseG.text); // v87: گرم فرم خرید
@@ -233,11 +238,11 @@ class PurchasePctCtl {
   String priceLabel({required bool pricedRows}) {
     switch (baseMode) {
       case BuyMode.base50:
-        return '${buyModeBaseName(refGram)} (پستهٔ اصلی) — فی خرید = فی ÷ ${_plain(refGram)} × گرم';
+        return '${buyModeBaseName(refGram)} (پستهٔ اصلی) — فی $_verb = فی ÷ ${_plain(refGram)} × گرم';
       case BuyMode.perGram:
-        return 'فی هر گرم (پستهٔ اصلی) — فی خرید = فی × گرم';
+        return 'فی هر گرم (پستهٔ اصلی) — فی $_verb = فی × گرم';
       case BuyMode.fixed:
-        return pricedRows ? 'قیمت پایه (هر کیلو) — فی خرید از قیمت‌گذاری درصدها' : 'فی خرید (به ازای هر کیلو)';
+        return pricedRows ? 'قیمت پایه (هر کیلو) — فی $_verb از قیمت‌گذاری درصدها' : 'فی $_verb (به ازای هر کیلو)';
     }
   }
 
@@ -258,7 +263,7 @@ class PurchasePctCtl {
       'ref_gram': refGram,
       'items': <Map<String, dynamic>>[
         for (final PurchasePctRow r in rows)
-          if (r.separate && canPrice)
+          if (r.separate && canPriceHere)
             <String, dynamic>{
               'pct': _num(r.pct.text) ?? 0,
               'q': qOf(r) == null ? null : buyModeEngineValue(r.mode, qOf(r)!, refGram) * scale, // v85 · v91: ارزی یا ریالی
@@ -294,7 +299,7 @@ class PurchasePctSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final bool price = PurchasePctCtl.canPrice;
+    final bool price = ctl.canPriceHere; // v95: فروش ⇒ دسترسی قیمت فروش
     final PctBlend? res = ctl.pricing ? ctl.blend(basePrice, netKg) : null;
     final double sum = ctl.sum;
     InputDecoration dec(String l, {String? suffix, String? helper}) => InputDecoration(labelText: l, suffixText: suffix, helperText: helper, border: const OutlineInputBorder(), isDense: true);
@@ -332,7 +337,8 @@ class PurchasePctSection extends StatelessWidget {
             const Divider(),
             // v85: روش خرید پستهٔ اصلی (فیلد «فی» فرم خرید طبق همین روش خوانده می‌شود)
             BuyModeChips(
-              label: 'روش خرید پستهٔ اصلی:',
+              label: ctl.sale ? 'روش فروش پستهٔ اصلی:' : 'روش خرید پستهٔ اصلی:',
+              labels: ctl.sale ? kSellModeLabels : kBuyModeLabels, // v95
               value: ctl.baseMode,
               enabled: !readOnly,
               onChanged: (BuyMode m) {
@@ -341,7 +347,7 @@ class PurchasePctSection extends StatelessWidget {
               },
             ),
             if (priceField != null) Padding(padding: const EdgeInsets.only(top: 6), child: priceField!),
-            // v87: گرم پستهٔ اصلی همان «گرم» فرم خرید است (دوباره پرسیده نمی‌شود)
+            // v87: گرم پستهٔ اصلی همان «گرم» فرم خرید/فروش است (دوباره پرسیده نمی‌شود)
             if (ctl.baseGram) ...<Widget>[
               Text(ctl.gramSource?.call() == null ? '«گرم» را در همین فرم وارد کنید تا فی مؤثر حساب شود' : 'گرم پستهٔ اصلی (از فرم): ${_plain(ctl.gramSource!.call()!)}',
                   style: TextStyle(color: ctl.gramSource?.call() == null ? Colors.red : Colors.black54)),
@@ -354,13 +360,13 @@ class PurchasePctSection extends StatelessWidget {
                 decoration: BoxDecoration(color: Theme.of(context).colorScheme.primaryContainer.withValues(alpha: 0.35), borderRadius: BorderRadius.circular(8)),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
                   const Text('نتیجهٔ قیمت‌گذاری', style: TextStyle(fontWeight: FontWeight.bold)),
-                  Text('وزن خالص: ${Fmt.kg(netKg)}  •  روش خرید پستهٔ اصلی: ${kBuyModeLabels[ctl.baseMode]}'),
+                  Text('وزن خالص: ${Fmt.kg(netKg)}  •  روش ${ctl._verb} پستهٔ اصلی: ${(ctl.sale ? kSellModeLabels : kBuyModeLabels)[ctl.baseMode]}'),
                   if (res == null)
                     const Text('قیمت پایه و وزن را وارد کنید', style: TextStyle(color: Colors.black54))
                   else if (!res.ok)
                     Text('محاسبه ممکن نیست (${res.error})', style: const TextStyle(color: Colors.red))
                   else ...<Widget>[
-                    Text('میانگین هر کیلو (فی خرید): ${ctl.money(res.avgPerKg)}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                    Text('میانگین هر کیلو (فی ${ctl._verb}): ${ctl.money(res.avgPerKg)}', style: const TextStyle(fontWeight: FontWeight.bold)),
                     Text('مبلغ کل: ${ctl.money(res.total)}'),
                   ],
                 ]),
@@ -435,6 +441,7 @@ class PurchasePctSection extends StatelessWidget {
             // v85: سه روش خرید برای هر درصد
             BuyModeChips(
               value: r.mode,
+              labels: ctl.sale ? kSellModeLabels : kBuyModeLabels, // v95
               enabled: !readOnly,
               onChanged: (BuyMode m) {
                 r.mode = m;
