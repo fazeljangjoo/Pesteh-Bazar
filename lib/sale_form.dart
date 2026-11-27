@@ -670,7 +670,12 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
     final w = <Widget>[];
     final lot = _selLot;
 
-    w.add(KeyedSubtree(key: const ValueKey('saleDate'), child: DocDateField(label: 'تاریخ فروش', value: _date, onChanged: (DateTime d) { setState(() => _date = d); _fxc.setDate(d).then((_) => _changed()); }))); // v91
+    // v96: تاریخ و خریدار در یک ردیف (فشرده مثل فرم خرید)
+    w.add(Row(crossAxisAlignment: CrossAxisAlignment.start, children: <Widget>[
+      Expanded(child: KeyedSubtree(key: const ValueKey('saleDate'), child: DocDateField(label: 'تاریخ فروش', value: _date, onChanged: (DateTime d) { setState(() => _date = d); _fxc.setDate(d).then((_) => _changed()); }))), // v91
+      const SizedBox(width: 8),
+      Expanded(child: KeyedSubtree(key: const ValueKey('buyer'), child: FieldGate(field: 'sale.buyer', child: PartyField(controller: _buyer, label: 'خریدار (اختیاری)')))),
+    ]));
     w.add(sectionTitle(context, 'پسته (از انبار؛ هر فروش یک قلم)'));
     w.add(SaleLotPicker(lots: _lots, selectedId: _selId, onSelect: _select, whNames: _whNames, showUsd: _fx)); // v87: انتخاب لات مثل فرم شکست (به‌جای فهرست همهٔ لات‌ها)
 
@@ -705,12 +710,10 @@ class _SaleFormState extends State<SaleForm> with EditGuard<SaleForm> {
       }
       if (_priceShown && _hintOn && _selLot != null) w.add(_profitHint(_selLot!)); // S35.T35.8
       if (_priceShown && _gradesOn && !_fxc.active) w.add(FieldGate(field: 'sale.price', child: GradeLinesEditor(c: _gc, netKg: _net, onChanged: _changed))); // S35.T35.3b
-      if (!_fx && _priceShown) w.add(fxLockedField('فروش به ارز'));
+
     }
 
-    w.add(sectionTitle(context, 'سایر')); // v94: فشرده مثل فرم خرید
-    w.add(KeyedSubtree(
-        key: const ValueKey('buyer'), child: FieldGate(field: 'sale.buyer', child: PartyField(controller: _buyer, label: 'خریدار (اختیاری)'))));
+    w.add(sectionTitle(context, 'سایر')); // v94: فشرده مثل فرم خرید · v96: خریدار بالای فرم
     w.add(KeyedSubtree(key: const ValueKey('note'), child: FieldGate(field: 'sale.note', child: textField(_note, 'توضیحات (اختیاری)'))));
     w.add(FieldGate(
         field: 'sale.costs',
