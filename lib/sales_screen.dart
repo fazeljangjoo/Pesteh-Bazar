@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'fmt.dart' show Fmt;
 
-import 'barcode_utils.dart';
 import 'db.dart';
 import 'doc_drafts.dart' show DraftsScreen;
 import 'form_settings.dart' show FormSettingsLocal;
@@ -10,7 +9,6 @@ import 'live_query.dart';
 import 'license_service.dart';
 import 'sale_form.dart';
 import 'utils.dart';
-import 'widgets.dart';
 
 /// یکسان‌سازی «ي/ك» عربی و «ی/ک» فارسی برای جستجو
 String _norm(String s) => toEnDigits(s.replaceAll('ي', 'ی').replaceAll('ك', 'ک')).trim().toLowerCase();
@@ -115,57 +113,38 @@ class _SalesScreenState extends State<SalesScreen> {
                 final tare = total - net < 0 ? 0.0 : total - net;
                 final small = (sale['small_sack_count'] as num).toDouble();
                 final large = (sale['large_sack_count'] as num).toDouble();
-                final sackCounts = '';
                 final comp = items
                     .map((it) => '${it['category_name']} - ${it['type_name']}')
                     .join(' + ');
                 final fx = LicenseService.I.isFx.value;
                 final usd = fx ? saleUsd(sale) : null;
                 final rate = (sale['usd_rate'] as num?)?.toDouble();
+                // v96: ردیف فشرده مثل فهرست خریدها (بارکد و جزئیات کامل در صفحهٔ همان فروش)
+                final String buyer = (sale['buyer'] ?? '').toString().trim();
+                final bool docCcy = (sale['ccy'] ?? '').toString().isNotEmpty && sale['ccy'] != 'IRT';
+                final List<String> extra = <String>[
+                  if (small + large > 0) 'گونی ${faNum(small)} کوچک / ${faNum(large)} بزرگ',
+                  if (tare > 0) 'وزن گونی‌ها ${faNum(tare)} کیلو',
+                  if (sale['labor_cost'] != null) 'کارگر ${Fmt.money(sale['labor_cost'] as num)}',
+                  if (sale['transport_cost'] != null) 'حمل ${Fmt.money(sale['transport_cost'] as num)}',
+                  if (fx && usd != null) 'به دلار ${faUsd(usd.revenue)}',
+                  if (fx && rate != null && usd == null) 'دلار روز ${faNum(rate, dec: 0)}',
+                ];
                 return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell( // v91 p3: جزئیات = همان فرم فروش به حالت قفل
-                    onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SaleForm(editSaleId: id, locked: true, doc: sale))),
-                    child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(children: [
-                          Expanded(
-                            child: Text(
-                              '${jalaliDate(sale['date'] as String)}'
-                              '${sale['buyer'] != null ? '  •  ${sale['buyer']}' : ''}',
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                          ),
-                          const Icon(Icons.chevron_left), // v91 p3: کارها در پایین فرم جزئیات
-                        ]),
-                        Text(comp),
-                        infoRow('کد پسته', _codeOf(sale)),
-                        for (final c in printableCodesIn(_codeOf(sale))) BarcodeBox(c, height: 44),
-                        const SizedBox(height: 8),
-                        infoRow('وزن کل (ناخالص - با گونی)', '${faNum(total)} کیلو'),
-                        infoRow('وزن گونی‌ها', '${faNum(tare)} کیلو'),
-                        if (small + large > 0) ...[
-                          infoRow('گونی کوچک', faNum(small)),
-                          infoRow('گونی بزرگ', faNum(large)),
-                        ],
-                        if (sale['labor_cost'] != null) infoRow('هزینه کارگر', '${Fmt.money(sale['labor_cost'] as num)}'),
-                        if (sale['transport_cost'] != null) infoRow('هزینه حمل‌ونقل / باسکول', '${Fmt.money(sale['transport_cost'] as num)}'),
-                        infoRow('وزن پسته (خالص)', '${faNum(net)} کیلو'),
-                        infoRow('فی فروش', '${Fmt.money(price)}'),
-                        infoRow('مبلغ فروش', '${Fmt.money(revenue)}'),
-                        if ((sale['ccy'] ?? '').toString().isNotEmpty && sale['ccy'] != 'IRT') // v91 p5: مبلغ به ارز خود سند
-                          infoRow('مبلغ به ارز سند', '${faCcy('${sale['ccy']}', (sale['total_ccy'] as num?) ?? 0, dec: 2)}  •  نرخ ${faNum((sale['fx_rate'] as num?) ?? 0, dec: 0)}'),
-                        if (fx) ...[
-                          if (rate != null) infoRow('قیمت دلار روز فروش', '${faNum(rate, dec: 0)} ریال'),
-                          if (rate != null) infoRow('فی فروش به دلار', faUsd(price / rate, dec: 4)),
-                          if (usd != null) infoRow('مبلغ فروش به دلار', faUsd(usd.revenue)),
-                        ],
-                      ],
-                    ),
-                  ),
+                  child: ListTile(
+                    onTap: () => Navigator.push(context, MaterialPageRoute<void>(builder: (_) => SaleForm(editSaleId: id, locked: true, doc: sale))), // v91 p3: جزئیات = همان فرم فروش به حالت قفل
+                    leading: const CircleAvatar(child: Icon(Icons.sell_outlined)),
+                    title: Text.rich(TextSpan(children: <InlineSpan>[
+                      TextSpan(text: 'خریدار: ${buyer.isEmpty ? '—' : buyer}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                      if (comp.isNotEmpty) TextSpan(text: '  •  $comp'),
+                    ])),
+                    subtitle: Text(
+                        'کد ${_codeOf(sale)}  •  ${jalaliDate(sale['date'] as String)}  •  ${faNum(net)} کیلو (خالص)\n'
+                        'فی ${Fmt.money(price)}  •  مبلغ ${Fmt.money(revenue)}'
+                        '${docCcy ? '  [${faCcy('${sale['ccy']}', (sale['total_ccy'] as num?) ?? 0, dec: 2)} • نرخ ${faNum((sale['fx_rate'] as num?) ?? 0, dec: 0)}]' : ''}'
+                        '${extra.isEmpty ? '' : '\n${extra.join('  •  ')}'}'),
+                    isThreeLine: true,
+                    trailing: const Icon(Icons.chevron_left), // کارها در پایین فرم جزئیات
                   ),
                 );
               },
