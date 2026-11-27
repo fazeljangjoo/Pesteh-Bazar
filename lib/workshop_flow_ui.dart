@@ -1442,6 +1442,9 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
               Expanded(child: Text('هزینهٔ شکست هر کیلو مغز: ${Fmt.money(crackCost, label: false)}')),
               if (_open && StaffPerms.I.fieldEditable('ws.costs')) TextButton.icon(onPressed: _busy ? null : _editCosts, icon: const Icon(Icons.edit, size: 18), label: const Text('ثبت هزینه')),
             ]),
+            // v95 فاز ج: سهم پرتی مغز = وزن پرتی × (ارزش ورودی ÷ وزن ورودی) — همین حالا داخل بهای مغز است (فقط نمایش، دوباره اضافه نمی‌شود)
+            if (buy != null && (r.lossKg ?? 0) > 0 && kernel > 0)
+              _kvRow('سهم پرتی مغز (در همین بها)', '${Fmt.money(r.lossKg! * buy, label: false)}  •  هر کیلو مغز ${Fmt.money(r.lossKg! * buy / kernel, label: false)}'),
             _kvRow('بهای تمام‌شدهٔ هر کیلو مغز', unit == null ? '—' : Fmt.money(unit, label: false), strong: true),
             Text(legacy
                 ? 'این عملیات پیش از v91 بسته شده و بهایش با فرمول قبلی ذخیره شده است (بهای کل ورودی ÷ مغز + هزینهٔ شکست).'
@@ -1494,6 +1497,8 @@ class _WorkshopOpScreenState extends State<WorkshopOpScreen> {
               if (_open && StaffPerms.I.fieldEditable('ws.costs')) TextButton.icon(onPressed: _busy ? null : _editCosts, icon: const Icon(Icons.edit, size: 18), label: const Text('ثبت هزینه')),
             ]),
             _kvRow('بهای کل (ورودی + اجرت + سایر)', Fmt.money(w + z, label: false)),
+            if (buy != null && t.inputKg - _outKg > 0.0005 && _outKg > 0) // v95 فاز ج: سهم ضایعات/افت (فقط نمایش؛ در بهای خروجی هست)
+              _kvRow('سهم ضایعات و افت (در همین بها)', '${Fmt.money((t.inputKg - _outKg) * buy, label: false)}  •  ${_kg(t.inputKg - _outKg)} کیلو × ${Fmt.money(buy, label: false)}'),
             if (sp.priced > 0) _kvRow('ارزش محصولات فرعی (با قیمت فروش)', Fmt.money(sp.priced, label: false)),
             _kvRow(ab ? 'بهای تمام‌شدهٔ هر کیلو' : 'بهای تمام‌شدهٔ هر کیلو خروجی اصلی', unit == null ? '—' : Fmt.money(unit, label: false), strong: true),
             if (!ab)

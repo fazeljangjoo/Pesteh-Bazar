@@ -227,6 +227,22 @@ class _OutRow {
   final TextEditingController large = TextEditingController();
   final TextEditingController ounce = TextEditingController();
   final TextEditingController price = TextEditingController(); // alloc_price (only for by_value)
+  // v95: مشخصات لات خروجی مثل فرم خرید
+  final TextEditingController gram = TextEditingController();
+  final TextEditingController tuchin = TextEditingController();
+  final TextEditingController dombest = TextEditingController();
+  final TextEditingController crooked = TextEditingController();
+  final TextEditingController khandan = TextEditingController();
+  final TextEditingController lotName = TextEditingController();
+
+  /// v95: کلیدهای مشخصات (فقط پرشده‌ها)
+  Map<String, dynamic> specs() => <String, dynamic>{
+        for (final (String k, TextEditingController c) in <(String, TextEditingController)>[
+          ('gram', gram), ('pct_tuchin', tuchin), ('pct_dombest', dombest), ('pct_crooked', crooked), ('pct_khandan', khandan),
+        ])
+          if (parseNum(c.text) != null) k: parseNum(c.text),
+        if (lotName.text.trim().isNotEmpty) 'lot_name': lotName.text.trim(),
+      };
   int? lotId; // v91 p3: لات خروجیِ موجود (ویرایش)
   void dispose() {
     name.dispose();
@@ -235,6 +251,9 @@ class _OutRow {
     large.dispose();
     ounce.dispose();
     price.dispose();
+    for (final TextEditingController c in <TextEditingController>[gram, tuchin, dombest, crooked, khandan, lotName]) {
+      c.dispose();
+    }
   }
 }
 
@@ -249,6 +268,8 @@ class _Calc {
   double abKg = 0;
   double abCost = 0;
   double distributable = 0;
+  double costPerKg = 0; // v95: هزینهٔ جداسازی هر کیلو ورودی
+  double extra = 0; // v95: costPerKg × وزن ورودی
   List<double> outCost = <double>[];
 }
 
@@ -269,6 +290,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
   final TextEditingController _waste = TextEditingController();
   final TextEditingController _labor = TextEditingController();
   final TextEditingController _transport = TextEditingController();
+  final TextEditingController _cpk = TextEditingController(); // v95: هزینهٔ جداسازی هر کیلو ورودی
   final TextEditingController _note = TextEditingController();
   String _alloc = 'by_weight';
   DateTime _date = DateTime.now();
@@ -296,6 +318,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
     _waste.dispose();
     _labor.dispose();
     _transport.dispose();
+    _cpk.dispose();
     _note.dispose();
     super.dispose();
   }
@@ -367,9 +390,12 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
       sumW += wt;
     }
     c.diff = double.parse((c.inKg - c.outKg - c.waste).toStringAsFixed(3));
-    c.abKg = c.inKg > 0 ? (c.waste - c.inKg * _abPct / 100.0).clamp(0.0, double.infinity).toDouble() : 0;
-    c.abCost = c.inKg > 0 ? _r2(c.abKg * (c.inCost / c.inKg)) : 0;
-    c.distributable = _r2(_r2(c.inCost) + c.labor + c.transport - c.abCost);
+    // v95: همهٔ ضایعات روی خروجی‌ها پخش می‌شود (بدون «ضایعات غیرعادی»)؛ + هزینهٔ جداسازی هر کیلو ورودی — همان pb_rc_sep_alloc سرور
+    c.abKg = 0;
+    c.abCost = 0;
+    c.costPerKg = parseNum(_cpk.text) ?? 0;
+    c.extra = _r2(c.costPerKg * c.inKg);
+    c.distributable = _r2(_r2(c.inCost) + c.labor + c.transport + c.extra);
     c.outCost = <double>[];
     double acc = 0;
     int bigIdx = 0;
@@ -443,6 +469,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
           'small_sacks': parseNum(o.small.text) ?? 0,
           'large_sacks': parseNum(o.large.text) ?? 0,
           if (ounce != null) 'ounce': ounce,
+          ...o.specs(), // v95
           if (_alloc == 'by_value' && price != null) 'alloc_price': price,
         });
       }
@@ -453,6 +480,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
         'waste_kg': c.waste,
         'labor_cost': c.labor,
         'transport_cost': c.transport,
+        'cost_per_kg': c.costPerKg, // v95
         'inputs': inputs,
         'outputs': outputs,
         if (_note.text.trim().isNotEmpty) 'note': _note.text.trim(),
@@ -531,11 +559,19 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
         r.small.text = _d(o['small_sacks']) == 0 ? '' : plain(_d(o['small_sacks']));
         r.large.text = _d(o['large_sacks']) == 0 ? '' : plain(_d(o['large_sacks']));
         r.price.text = o['alloc_price'] == null ? '' : plain(_d(o['alloc_price']));
+        // v95: مشخصات لات خروجی (سرور قدیمی ⇒ کلیدها غایب، خالی می‌ماند)
+        for (final (String k, TextEditingController c) in <(String, TextEditingController)>[
+          ('ounce', r.ounce), ('gram', r.gram), ('pct_tuchin', r.tuchin), ('pct_dombest', r.dombest), ('pct_crooked', r.crooked), ('pct_khandan', r.khandan),
+        ]) {
+          if (o[k] is num) c.text = plain(o[k] as num);
+        }
+        if (o['lot_name'] != null) r.lotName.text = '${o['lot_name']}';
         _outs.add(r);
       }
       if (_outs.isEmpty) _outs.add(_OutRow());
       _waste.text = _d(s['waste_kg']) == 0 ? '' : plain(_d(s['waste_kg']));
       _labor.text = _d(s['labor_cost']) == 0 ? '' : plain(_d(s['labor_cost']));
+      _cpk.text = _d(s['cost_per_kg']) == 0 ? '' : plain(_d(s['cost_per_kg'])); // v95
       _transport.text = _d(s['transport_cost']) == 0 ? '' : plain(_d(s['transport_cost']));
       _note.text = '${s['note'] ?? ''}';
       _alloc = s['cost_alloc'] == 'by_value' ? 'by_value' : 'by_weight';
@@ -555,6 +591,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
         'waste_kg': c.waste,
         'labor_cost': c.labor,
         'transport_cost': c.transport,
+        'cost_per_kg': c.costPerKg, // v95
         'note': _note.text.trim(),
         'inputs': <Map<String, dynamic>>[
           for (final Map<String, dynamic> e in _selected)
@@ -574,6 +611,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
               'small_sacks': parseNum(o.small.text) ?? 0,
               'large_sacks': parseNum(o.large.text) ?? 0,
               if (parseNum(o.ounce.text) != null) 'ounce': parseNum(o.ounce.text),
+              ...o.specs(), // v95
               if (_alloc == 'by_value' && parseNum(o.price.text) != null) 'alloc_price': parseNum(o.price.text),
             },
         ],
@@ -668,16 +706,61 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
           ]),
           Row(children: <Widget>[
             Expanded(child: _num(o.ounce, 'انس (اختیاری)')),
+            const SizedBox(width: 6),
+            Expanded(child: _num(o.gram, 'گرم (اختیاری)')), // v95
             if (_alloc == 'by_value') ...<Widget>[
               const SizedBox(width: 6),
               Expanded(child: _num(o.price, 'فی مبنا (برای تسهیم)', money: true)),
             ],
           ]),
+          Row(children: <Widget>[ // v95: درصدهای فرم خرید روی لات خروجی
+            Expanded(child: _num(o.tuchin, 'توچین ٪')),
+            const SizedBox(width: 6),
+            Expanded(child: _num(o.dombest, 'دهن‌بست ٪')),
+            const SizedBox(width: 6),
+            Expanded(child: _num(o.crooked, 'کج ٪')),
+            const SizedBox(width: 6),
+            Expanded(child: _num(o.khandan, 'خندان ٪')),
+          ]),
+          Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: TextField(controller: o.lotName, decoration: const InputDecoration(labelText: 'نام لات (اختیاری)', border: OutlineInputBorder(), isDense: true)),
+          ),
           if (i < c.outCost.length && (parseNum(o.kg.text) ?? 0) > 0)
             Text(
               'هزینهٔ تقریبی: ${Fmt.money(c.outCost[i])}  •  فی هر کیلو: ${Fmt.money(c.outCost[i] / (parseNum(o.kg.text) ?? 1))}',
               style: const TextStyle(color: Colors.black54, fontSize: 12),
             ),
+        ]),
+      ),
+    );
+  }
+
+  /// v95: میانگین وزنی ورودی‌ها (مثل کوت‌ریزی): انس، گرم، درصدها و بهای هر کیلو. لاتِ بی‌مقدار در میانگین همان مشخصه شرکت نمی‌کند.
+  Widget _avgCard(_Calc c) {
+    String avg(String key) {
+      double w = 0, v = 0;
+      for (final Map<String, dynamic> e in _selected) {
+        final double x = parseNum(_rows[_d(e['id']).toInt()]?.weight.text) ?? 0;
+        final Object? val = e[key];
+        if (x <= 0 || val is! num || (key == 'ounce' && val <= 0)) continue;
+        w += x;
+        v += val * x;
+      }
+      return w > 0 ? faNum(v / w, dec: 2) : '—';
+    }
+
+    return Card(
+      color: Theme.of(context).colorScheme.secondaryContainer.withValues(alpha: 0.5),
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+          Text(_selected.length > 1 ? 'میانگین حدودی ورودی‌ها (به نسبت وزن)' : 'مشخصات ورودی', style: const TextStyle(fontWeight: FontWeight.bold)),
+          infoRow('وزن ورودی', '${faNum(c.inKg, dec: 3)} کیلو'),
+          infoRow('بهای پستهٔ ورودی (هر کیلو)', c.inKg > 0 ? Fmt.money(c.inCost / c.inKg) : '—'),
+          infoRow('انس', avg('ounce')),
+          infoRow('گرم', avg('gram')),
+          infoRow('توچین / دهن‌بست / کج / خندان ٪', '${avg('pct_tuchin')} / ${avg('pct_dombest')} / ${avg('pct_crooked')} / ${avg('pct_khandan')}'),
         ]),
       ),
     );
@@ -700,6 +783,14 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
           infoRow('ارزش ورودی‌ها (تقریبی)', Fmt.money(c.inCost)),
           infoRow('هزینه‌های سرشکن‌شده (دستمزد + حمل)', Fmt.money(c.labor + c.transport)),
           if (c.abCost > 0) infoRow('ضایعات غیرعادی (هزینهٔ دوره، سرشکن نمی‌شود)', Fmt.money(c.abCost)),
+          if (c.extra > 0) infoRow('هزینهٔ جداسازی (${Fmt.money(c.costPerKg)} × ${faNum(c.inKg)} کیلو)', Fmt.money(c.extra)),
+          if (c.inKg > 0 && c.outKg > 0 && _alloc == 'by_weight') ...<Widget>[ // v95: تفکیک بهای هر کیلو خروجی
+            const Divider(),
+            infoRow('بهای پستهٔ ورودی (میانگین هر کیلو)', Fmt.money(c.inCost / c.inKg)),
+            infoRow('سهم ضایعات (هر کیلو)', Fmt.money(c.waste * (c.inCost / c.inKg) / c.outKg)),
+            infoRow('سهم هزینه‌ها (هر کیلو)', Fmt.money((c.labor + c.transport + c.extra) / c.outKg)),
+            infoRow('بهای تمام‌شدهٔ هر کیلو خروجی', Fmt.money(c.distributable / c.outKg), valueColor: Theme.of(context).colorScheme.primary),
+          ],
           infoRow('قابل تسهیم روی خروجی‌ها', Fmt.money(c.distributable)),
           const SizedBox(height: 4),
           Text(
@@ -741,6 +832,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
               ),
               if (shown.isEmpty) const Padding(padding: EdgeInsets.all(12), child: Text('بار موجودی برای انتخاب نیست (بارهایی که هنوز همگام نشده‌اند در این فرم دیده نمی‌شوند).')),
               for (final Map<String, dynamic> e in shown) _inputCard(e),
+      if (_selected.isNotEmpty) _avgCard(c), // v95: میانگین‌های حدودی ورودی‌ها و بهای میانگین
               sectionTitle(context, '۲) خروجی‌ها'),
               for (int i = 0; i < _outs.length; i++) _outputCard(i, c),
               OutlinedButton.icon(
@@ -755,6 +847,7 @@ class _SeparationFormState extends State<SeparationForm> with EditGuard<Separati
                 const SizedBox(width: 6),
                 Expanded(child: _num(_transport, 'حمل')),
               ]),
+              _num(_cpk, 'هزینهٔ جداسازی هر کیلو ورودی'), // v95
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
                 child: DropdownButtonFormField<String>(

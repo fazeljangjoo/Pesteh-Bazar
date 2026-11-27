@@ -1338,6 +1338,9 @@ class _ProcessingDetailScreenState extends State<ProcessingDetailScreen> {
               Text('ارزش ورودی (W): ${_money(_d['value_in'])}'),
               Text('هزینه تولید (Z): ${_money(_d['cost_total'])}'),
               Text('ارزش محصولات فرعی (AF): ${_money(_d['recovery_value'])}'),
+              // v95 فاز ج: سهم افت/پرتی = وزن افت × قیمت هر کیلو ورودی (فقط نمایش؛ در AG هست)
+              if (_d['buy_per_kg'] != null && ReturnsHelp.d(_d['loss_kg']) > 0)
+                Text('سهم افت و پرتی (در همین بها): ${_money(ReturnsHelp.d(_d['loss_kg']) * ReturnsHelp.d(_d['buy_per_kg']))}'),
               Text('بهای تمام‌شدهٔ سالم (AG): ${_money(_d['cost_sound'])}', style: const TextStyle(fontWeight: FontWeight.bold)),
               Text(_d['cost_per_kg_sound'] == null ? 'بهای هر کیلو سالم: —' : 'بهای هر کیلو سالم (AH): ${_money(_d['cost_per_kg_sound'])}'),
               if ('${_d['cost_warning'] ?? ''}'.isNotEmpty) const Text('هشدار: بهای سالم منفی است (ارزش فرعی بیش از هزینه).', style: TextStyle(color: Colors.orange)),
