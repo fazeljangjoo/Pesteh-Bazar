@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'audit_text.dart';
 import 'excel_io.dart';
 import 'utils.dart';
 import 'warehouse_ui.dart';
@@ -7,7 +8,9 @@ import 'widgets.dart' show snack, pickDate;
 
 /// T02.3 — گزارش ممیزی (audit log). فقط برای مالک یا کارکنی که audit.view دارد.
 /// آنلاین از طریق StockApi (app.php → audit.list). فیلتر: کاربر، نوع رکورد، بازهٔ تاریخ، جستجوی متن.
+/// v96: هر ردیف فقط فارسیِ ساده است («تاریخ ساعت — نام (نقش): چه کرد»)؛ متن‌سازی در audit_text.dart.
 
+/// رکوردهای فهرست فیلتر.
 const Map<String, String> _kEntityFa = <String, String>{
   'purchase': 'خرید',
   'sale': 'فروش',
@@ -33,11 +36,6 @@ const Map<String, String> _kVerbFa = <String, String>{
   'update': 'ویرایش',
   'delete': 'حذف',
 };
-
-String _entityFa(String e) {
-  if (e.startsWith('entity.')) return e.substring(7);
-  return _kEntityFa[e] ?? e;
-}
 
 class AuditLogScreen extends StatefulWidget {
   const AuditLogScreen({super.key});
@@ -139,7 +137,19 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
     final String code = _code.text.trim();
     final String text = _q.text.trim().toLowerCase();
     if (code.isEmpty || text.isEmpty) return true; // فقط یکی داده شده؛ سرور فیلتر کرده
-    return '${it['summary'] ?? ''} ${it['entity_id'] ?? ''} ${it['staff_name'] ?? ''}'.toLowerCase().contains(text);
+    return '${it['summary'] ?? ''} ${it['entity_id'] ?? ''} ${it['staff_name'] ?? ''} ${auditWhat(it)}'.toLowerCase().contains(text);
+  }
+
+  /// v96: نقش کارمند از فهرست کاربران (وقتی سرور قدیمی staff_role نمی‌دهد).
+  String _roleOf(int staffId) {
+    for (final s in _staff) {
+      if ((int.tryParse('${s['id']}') ?? -1) != staffId) continue;
+      final Object? names = s['role_names'];
+      if (names is List && names.isNotEmpty) return names.map((Object? e) => '$e').where((String e) => e.isNotEmpty).join('، ');
+      final Object? r = s['role_name'];
+      return r is String ? r : '';
+    }
+    return '';
   }
 
   /// بدون مجوز users.manage فهرست کاربران نیست؛ نام پرسنل را از خود ردیف‌های ممیزی می‌سازیم تا فیلتر پرسنل کار کند.
@@ -185,21 +195,20 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
         if (mounted) snack(context, 'موردی برای خروجی نیست');
         return;
       }
+      // v96: بدون شناسه، IP و کلیدهای فنی؛ فقط فارسیِ خوانا.
       final List<List<String>> rows = <List<String>>[
         for (final it in all)
           <String>[
-            '${it['id'] ?? ''}',
-            _when((it['created_at'] ?? '').toString()),
-            (it['staff_name'] ?? '').toString().isEmpty ? 'مالک' : it['staff_name'].toString(),
-            _kVerbFa[(it['action'] ?? '').toString()] ?? (it['action'] ?? '').toString(),
-            _entityFa((it['entity'] ?? '').toString()),
-            '${it['entity_id'] ?? ''}',
-            '${it['summary'] ?? ''}',
-            '${it['ip'] ?? ''}',
+            auditDate(it['created_at']),
+            auditTime(it['created_at']),
+            auditActorName(it),
+            auditActorRole(it, roleOf: _roleOf),
+            auditWhat(it),
+            auditLine(it, roleOf: _roleOf),
           ],
       ];
       final f = await ExcelIo.exportTable(
-        columns: const <String>['ردیف', 'زمان', 'کاربر', 'عملیات', 'رکورد', 'شناسه', 'شرح', 'IP'],
+        columns: const <String>['تاریخ', 'ساعت', 'انجام‌دهنده', 'نقش', 'چه کرد', 'شرح کامل'],
         rows: rows,
         sheetName: 'ممیزی',
         filePrefix: 'audit',
@@ -379,7 +388,7 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
           TextField(
             controller: _q,
             decoration: InputDecoration(
-              labelText: 'جستجو (شرح، شناسه، نام کاربر)',
+              labelText: 'جستجو (شرح یا نام کاربر)',
               isDense: true,
               suffixIcon: IconButton(icon: const Icon(Icons.search), onPressed: () => _load(reset: true)),
             ),
@@ -406,28 +415,35 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
 
   List<Map<String, dynamic>> get _visible => _items.where(_textOk).toList();
 
-  String _when(String ts) {
-    if (ts.length < 16) return ts;
-    return '${jalaliDate(ts.substring(0, 10))}  ${ts.substring(11, 16)}';
-  }
-
+  /// v96: جزئیات خوانا — چه کسی، با چه نقشی، کی، چه کرد و تغییر فیلدهای شناخته‌شده (بدون شناسه/IP/JSON).
   void _details(Map<String, dynamic> it) {
-    final String before = (it['before'] ?? '').toString();
-    final String after = (it['after'] ?? '').toString();
+    final String role = auditActorRole(it, roleOf: _roleOf);
+    final List<AuditChange> changes = auditChanges(it);
     showDialog<void>(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
-        title: Text('${it['summary'] ?? ''}'),
+        title: Text(auditWhat(it)),
         content: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text('کاربر: ${(it['staff_name'] ?? '').toString().isEmpty ? 'مالک' : it['staff_name']}'),
-              Text('زمان: ${_when((it['created_at'] ?? '').toString())}'),
-              Text('شناسه: ${it['entity_id'] ?? ''}'),
-              Text('IP: ${it['ip'] ?? ''}'),
-              if (before.isNotEmpty) ...<Widget>[const SizedBox(height: 8), const Text('قبل:'), SelectableText(before)],
-              if (after.isNotEmpty) ...<Widget>[const SizedBox(height: 8), const Text('بعد:'), SelectableText(after)],
+              Text('انجام‌دهنده: ${auditActorName(it)}'),
+              if (role.isNotEmpty && role != 'مالک') Text('نقش: $role'),
+              Text('تاریخ: ${auditDate(it['created_at'])}'),
+              if (auditTime(it['created_at']).isNotEmpty) Text('ساعت: ${auditTime(it['created_at'])}'),
+              if (changes.isNotEmpty) ...<Widget>[
+                const SizedBox(height: 10),
+                const Text('تغییرات:', style: TextStyle(fontWeight: FontWeight.bold)),
+                for (final AuditChange c in changes)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(c.before.isEmpty
+                        ? '${c.label}: ${c.after}'
+                        : c.after.isEmpty
+                            ? '${c.label}: ${c.before} (قبلی)'
+                            : '${c.label}: از ${c.before} به ${c.after}'),
+                  ),
+              ],
             ],
           ),
         ),
@@ -464,12 +480,10 @@ class _AuditLogScreenState extends State<AuditLogScreen> {
                         return const SizedBox.shrink();
                       }
                       final Map<String, dynamic> it = _visible[i];
-                      final String who = (it['staff_name'] ?? '').toString().isEmpty ? 'مالک' : it['staff_name'].toString();
-                      final String verb = _kVerbFa[(it['action'] ?? '').toString()] ?? (it['action'] ?? '').toString();
                       return ListTile(
                         dense: true,
-                        title: Text('${it['summary'] ?? ''}'),
-                        subtitle: Text('$who · $verb ${_entityFa((it['entity'] ?? '').toString())} · ${_when((it['created_at'] ?? '').toString())}'),
+                        title: Text('${auditWho(it, roleOf: _roleOf)}: ${auditWhat(it)}'),
+                        subtitle: Text(auditWhen(it['created_at'])),
                         onTap: () => _details(it),
                       );
                     },
