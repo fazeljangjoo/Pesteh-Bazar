@@ -3585,17 +3585,35 @@ class AppDb {
       (await db).query('loan_entries', orderBy: 'date DESC, id DESC');
 
   /// تعریف طرف‌حساب جدید (بدون نیاز به خرید یا فروش)
-  Future<int> addParty(String name) async {
+  /// [types] v96: مثلاً ['exchanger'] ⇒ «صراف». طرف‌حسابِ موجود با [types] همان نوع را می‌گیرد (خطای تکراری نمی‌دهد).
+  Future<int> addParty(String name, {List<String> types = const <String>[]}) async {
     final n = _partyNorm(name);
     if (n.isEmpty) throw Exception('نام طرف‌حساب را وارد کنید');
     if (n.length > 100) throw Exception('نام طرف‌حساب حداکثر ۱۰۰ حرف باشد');
     final existing = (await partyNames()).map(_partyNorm).toSet();
-    if (existing.contains(n)) throw Exception('طرف‌حسابی با این نام از قبل وجود دارد');
+    if (existing.contains(n)) {
+      if (types.isEmpty) throw Exception('طرف‌حسابی با این نام از قبل وجود دارد');
+      late int eid;
+      await _write((d) => d.transaction((t) async {
+            final List<Map<String, Object?>> r = await t.query('parties', where: 'name = ?', whereArgs: <Object?>[n], limit: 1);
+            eid = r.isEmpty ? 0 : (r.first['id'] as num).toInt();
+            Set<String> cur = <String>{};
+            try {
+              final Object? j = r.isEmpty ? null : jsonDecode('${r.first['types'] ?? '[]'}');
+              if (j is List) cur = <String>{for (final Object? x in j) '$x'};
+            } catch (_) {}
+            cur.addAll(types);
+            if (r.isNotEmpty) await t.update('parties', <String, Object?>{'types': jsonEncode(cur.toList())}, where: 'id = ?', whereArgs: <Object?>[eid]);
+            await _enqueue(t, 'parties.create', <String, dynamic>{'name': n, 'types': types});
+          }));
+      version.value++;
+      return eid;
+    }
     late int id;
     await _write((d) => d.transaction((t) async {
           id = await _tempId(t, 'parties');
-          await t.insert('parties', {'id': id, 'name': n});
-          await _enqueue(t, 'parties.create', {'name': n}, refKind: 'party', refId: id);
+          await t.insert('parties', {'id': id, 'name': n, if (types.isNotEmpty) 'types': jsonEncode(types)});
+          await _enqueue(t, 'parties.create', {'name': n, if (types.isNotEmpty) 'types': types}, refKind: 'party', refId: id);
           await _confirm(t, 'SELECT 1 FROM parties WHERE id = ? AND name = ?', [id, n]);
           await _confirm(t, "SELECT 1 FROM sync_ops WHERE ref_kind='party' AND ref_id=?", [id]);
         }));

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 // v91 p5 — صراف: فهرست صرافان (مانده به تفکیک ارز، نرخ میانگین دفتری، سود/زیان تحقق‌یافته)، ریز حرکت‌ها، و فرم ثبت حرکت.
 // داده: موجودیت `xch_moves` (EntityStore ⇒ ذخیرهٔ محلی + صف همگام‌سازی). محاسبه: xch_calc.dart (همان الگوریتم سرور).
 import 'package:flutter/material.dart';
@@ -7,6 +9,9 @@ import 'entity_store.dart';
 import 'fmt.dart' show Fmt;
 import 'fx_local.dart';
 import 'ledger.dart';
+import 'loans_ui.dart' show showNewPartyDialog; // v96: «افزودن صراف»
+import 'pdf_output.dart' show PdfOutput; // v96: چاپ صورت‌حساب صراف
+import 'pdf_service.dart' show PdfService;
 import 'treasury_link.dart';
 import 'utils.dart';
 import 'widgets.dart';
@@ -89,6 +94,12 @@ class ExchangersBody extends StatelessWidget {
                     for (final MapEntry<String, double> e in totRecv.entries) infoRow('طلب از صرافان (${e.key})', xchAmount(e.key, e.value), valueColor: Colors.green.shade800),
                     for (final MapEntry<String, double> e in totPay.entries) infoRow('بدهی به صرافان (${e.key})', xchAmount(e.key, e.value), valueColor: Colors.red.shade800),
                     infoRow('سود/زیان تحقق‌یافتهٔ تفاوت نرخ', '${realized < 0 ? 'زیان ' : 'سود '}${xchRial(realized.abs())}', valueColor: _sideColor(realized)),
+                    // v96: افزودن صراف + چاپ ماندهٔ همهٔ صرافان
+                    Wrap(alignment: WrapAlignment.end, spacing: 8, children: <Widget>[
+                      FilledButton.tonalIcon(onPressed: () => showNewPartyDialog(context, exchanger: true), icon: const Icon(Icons.person_add_alt_1, size: 18), label: const Text('افزودن صراف')),
+                      if (ex.isNotEmpty)
+                        TextButton.icon(onPressed: () => printExchangersSummary(context), icon: const Icon(Icons.print_outlined, size: 18), label: const Text('چاپ ماندهٔ صرافان')),
+                    ]),
                   ]),
                 ),
               ),
@@ -165,7 +176,9 @@ class ExchangerDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('صراف: $exchanger')),
+      appBar: AppBar(title: Text('صراف: $exchanger'), actions: <Widget>[
+        IconButton(tooltip: 'چاپ صورت‌حساب صراف', icon: const Icon(Icons.print_outlined), onPressed: () => printExchangerStatement(context, exchanger)), // v96
+      ]),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => showXchMoveSheet(context, exchanger: exchanger),
         icon: const Icon(Icons.add),
@@ -286,6 +299,91 @@ class ExchangerDetailScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// v96: شرح یک حرکت صراف (همان متن صفحهٔ صراف) برای چاپ
+String xchMoveText(XchMove m) {
+  if (m.isLeg) {
+    return m.kind == 'leg_in'
+        ? '«${m.party}» ${xchAmount(m.ccy, m.amountCcy)} به صراف داد (شناسنامهٔ ${m.refNo ?? ''})'
+        : 'صراف ${xchAmount(m.ccy, m.amountCcy)} به «${m.party}» داد (شناسنامهٔ ${m.refNo ?? ''})';
+  }
+  return switch (m.kind) {
+    'cust_paid' => '«${m.party}» ${xchAmount(m.ccy, m.amountCcy)} به صراف داد (فروش #${m.docId})',
+    'paid_seller' => 'صراف ${xchAmount(m.ccy, m.amountCcy)} به «${m.party}» داد (خرید #${m.docId})',
+    'xch_paid_us' => 'صراف به ما داد: ${xchAmount(m.payCcy, m.payAmount)}${m.payCcy == m.ccy ? '' : ' بابت ${xchAmount(m.ccy, m.amountCcy)}'}',
+    _ => 'ما به صراف دادیم: ${xchAmount(m.payCcy, m.payAmount)}${m.payCcy == m.ccy ? '' : ' بابت ${xchAmount(m.ccy, m.amountCcy)}'}',
+  };
+}
+
+String _xchBal(int q4, String ccy) => q4 == 0 ? 'تسویه' : '${xchAmount(ccy, q4.abs() / kXchScale)} ${q4 > 0 ? '(طلب ما)' : '(بدهی ما)'}';
+
+/// v96: چاپ صورت‌حساب یک صراف (PDF): مانده و نرخ میانگین هر ارز + همهٔ حرکت‌ها با ماندهٔ پس از هر حرکت و سود/زیان تفاوت نرخ.
+Future<void> printExchangerStatement(BuildContext context, String exchanger) async {
+  final _XchData d = await _load();
+  final List<XchMove> all = d.moves;
+  final XchRun run = xchRun(all);
+  PartyAccount? acc;
+  for (final PartyAccount a in d.parties) {
+    if (a.key == exchanger) acc = a;
+  }
+  final List<List<String>> kv = <List<String>>[
+    for (final XchPosition p in run.positions.values)
+      if (p.exchanger == exchanger)
+        <String>['مانده ${p.ccy}', '${_xchBal(p.q4, p.ccy)}${p.avgRate == null ? '' : '  •  نرخ میانگین ${faNum(p.avgRate!, dec: 0)}'}  •  ارزش دفتری ${xchRial(p.book.abs())}'],
+    if (acc != null) <String>['سود/زیان تحقق‌یافتهٔ تفاوت نرخ', '${acc.xchRealized < 0 ? 'زیان ' : 'سود '}${xchRial(acc.xchRealized.abs())}'],
+  ];
+  final List<List<String>> rows = <List<String>>[];
+  for (int i = 0; i < all.length; i++) {
+    final XchMove m = all[i];
+    if (m.exchanger != exchanger) continue;
+    final XchResult r = run.results[i];
+    rows.add(<String>[
+      jalaliDate(m.date),
+      xchMoveText(m) + ((m.note ?? '').isEmpty ? '' : ' — ${m.note}'),
+      xchAmount(m.ccy, r.dq4 / kXchScale, sign: true),
+      _xchBal(r.q4After, m.ccy),
+      xchRial(r.dr.abs()),
+      r.realized == 0 ? '—' : '${r.realized > 0 ? 'سود' : 'زیان'} ${xchRial(r.realized.abs())}',
+    ]);
+  }
+  if (rows.isEmpty) {
+    if (context.mounted) snack(context, 'برای این صراف حرکتی ثبت نشده است');
+    return;
+  }
+  final File f = await PdfService.buildTableReport(
+    title: 'صورت‌حساب صراف — $exchanger',
+    subtitle: 'تا ${jalaliDate(DateTime.now().toIso8601String())}',
+    kv: kv,
+    headers: const <String>['تاریخ', 'شرح', 'تغییر (+ طلب ما)', 'مانده پس از حرکت', 'ارزش ریالی', 'سود/زیان'],
+    rows: rows,
+    filePrefix: 'exchanger',
+    pageNumbers: true,
+  );
+  if (context.mounted) await PdfOutput.show(context, f);
+}
+
+/// v96: چاپ ماندهٔ همهٔ صرافان (هر صراف × هر ارز)
+Future<void> printExchangersSummary(BuildContext context) async {
+  final _XchData d = await _load();
+  final List<List<String>> rows = <List<String>>[
+    for (final PartyAccount a in d.exchangers)
+      for (final XchPosition p in a.xchPositions)
+        <String>[a.name, p.ccy, _xchBal(p.q4, p.ccy), p.avgRate == null ? '—' : faNum(p.avgRate!, dec: 0), xchRial(p.book.abs()), '${p.realized < 0 ? 'زیان ' : (p.realized > 0 ? 'سود ' : '')}${p.realized == 0 ? '—' : xchRial(p.realized.abs())}'],
+  ];
+  if (rows.isEmpty) {
+    if (context.mounted) snack(context, 'صرافی با مانده ثبت نشده است');
+    return;
+  }
+  final File f = await PdfService.buildTableReport(
+    title: 'ماندهٔ صرافان',
+    subtitle: 'تا ${jalaliDate(DateTime.now().toIso8601String())}',
+    headers: const <String>['صراف', 'ارز', 'مانده', 'نرخ میانگین', 'ارزش دفتری', 'سود/زیان'],
+    rows: rows,
+    filePrefix: 'exchangers',
+    pageNumbers: true,
+  );
+  if (context.mounted) await PdfOutput.show(context, f);
 }
 
 /// v94: پیش‌پر کردن فرم تسویه با صراف برای یک لات باز (مثلاً «صراف به فروشنده داد» ⇒ «ما به صراف دادیم» همان مبلغ).

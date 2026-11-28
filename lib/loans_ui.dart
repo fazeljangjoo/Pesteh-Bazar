@@ -583,12 +583,14 @@ Future<void> exportLoanPdf(BuildContext context, {PartyAccount? party, List<Part
 // ============================================================================
 // تعریف طرف‌حساب جدید
 // ============================================================================
-Future<void> showNewPartyDialog(BuildContext context) {
-  return showDialog<void>(context: context, builder: (_) => const _NewPartyDialog());
+/// [exchanger] v96: «صراف جدید» (طرف‌حساب با نوع «صراف»؛ در تب صرافان دیده می‌شود)
+Future<void> showNewPartyDialog(BuildContext context, {bool exchanger = false}) {
+  return showDialog<void>(context: context, builder: (_) => _NewPartyDialog(exchanger: exchanger));
 }
 
 class _NewPartyDialog extends StatefulWidget {
-  const _NewPartyDialog();
+  const _NewPartyDialog({this.exchanger = false});
+  final bool exchanger;
   @override
   State<_NewPartyDialog> createState() => _NewPartyDialogState();
 }
@@ -604,14 +606,15 @@ class _NewPartyDialogState extends State<_NewPartyDialog> with EditGuard<_NewPar
   }
 
   Future<void> _save() async {
+    final bool x = widget.exchanger;
     if (_name.text.trim().isEmpty) {
-      snack(context, 'نام طرف‌حساب را وارد کنید');
+      snack(context, x ? 'نام صراف را وارد کنید' : 'نام طرف‌حساب را وارد کنید');
       return;
     }
     setState(() => _busy = true);
     final name = _name.text.trim();
-    final ok = await saveConfirmed(context, () => AppDb.I.addParty(name),
-        successMsg: 'طرف‌حساب «$name» با موفقیت تعریف شد');
+    final ok = await saveConfirmed(context, () => AppDb.I.addParty(name, types: x ? const <String>['exchanger'] : const <String>[]),
+        successMsg: x ? 'صراف «$name» تعریف شد' : 'طرف‌حساب «$name» با موفقیت تعریف شد');
     if (!mounted) return;
     setState(() => _busy = false);
     if (ok) Navigator.pop(context);
@@ -620,12 +623,19 @@ class _NewPartyDialogState extends State<_NewPartyDialog> with EditGuard<_NewPar
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('طرف‌حساب جدید'),
-      content: TextField(
-        controller: _name,
-        autofocus: true,
-        decoration: const InputDecoration(labelText: 'نام طرف‌حساب', border: OutlineInputBorder()),
-      ),
+      title: Text(widget.exchanger ? 'صراف جدید' : 'طرف‌حساب جدید'),
+      content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.stretch, children: <Widget>[
+        TextField(
+          controller: _name,
+          autofocus: true,
+          decoration: InputDecoration(labelText: widget.exchanger ? 'نام صراف' : 'نام طرف‌حساب', border: const OutlineInputBorder()),
+        ),
+        if (widget.exchanger)
+          const Padding(
+            padding: EdgeInsets.only(top: 8),
+            child: Text('اگر طرف‌حسابی با همین نام هست، همان «صراف» می‌شود.', style: TextStyle(fontSize: 12, color: Colors.black54)),
+          ),
+      ]),
       actions: [
         TextButton(onPressed: _busy ? null : () => Navigator.pop(context), child: const Text('انصراف')),
         FilledButton(onPressed: _busy ? null : _save, child: const Text('تعریف')),
