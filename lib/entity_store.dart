@@ -615,6 +615,44 @@ const Map<String, EntitySpec> kEntityRegistry = <String, EntitySpec>{
     permEdit: 'marketing.manage',
     permDelete: 'marketing.manage',
   ),
+  // v96 — پیش‌فاکتور صادراتی (آینهٔ marketing.php): قالب شرکت + پیش‌فاکتور هر فروش. data = JSON کامل (proforma_model.dart).
+  'mk_pf_templates': EntitySpec(
+    'mk_pf_templates',
+    'قالب پیش‌فاکتور',
+    <EntityField>[
+      EntityField('title', 'نام قالب', 'string', required: true, max: 100),
+      EntityField('data', 'تنظیمات قالب', 'json', required: true, max: 400000),
+    ],
+    search: <String>['title'],
+    orderCol: 'title',
+    orderDesc: false,
+    listFields: <String>['title'],
+    permCreate: 'marketing.manage',
+    permEdit: 'marketing.manage',
+    permDelete: 'marketing.manage',
+  ),
+  'mk_proformas': EntitySpec(
+    'mk_proformas',
+    'پیش‌فاکتور صادراتی',
+    <EntityField>[
+      EntityField('lead_uid', 'مشتری', 'ref', ref: 'mk_leads'),
+      EntityField('template_uid', 'قالب', 'string', max: 36),
+      EntityField('number', 'شماره', 'string', required: true, max: 40),
+      EntityField('date', 'تاریخ', 'date', required: true),
+      EntityField('buyer', 'خریدار', 'string', max: 150),
+      EntityField('total', 'جمع', 'decimal', scale: 2, vmin: 0, vmax: 1e13),
+      EntityField('ccy', 'ارز', 'string', max: 3),
+      EntityField('staff_id', 'بازاریاب', 'int', vmin: 0),
+      EntityField('staff_name', 'نام بازاریاب', 'string', max: 120),
+      EntityField('data', 'محتوا', 'json', required: true, max: 400000),
+    ],
+    search: <String>['number', 'buyer'],
+    orderCol: 'date',
+    listFields: <String>['number', 'buyer', 'date'],
+    permCreate: 'marketing.entry',
+    permEdit: 'marketing.entry',
+    permDelete: 'marketing.entry',
+  ),
 };
 
 /// v90: کلیدهای تنظیمات بازاریابی (آینهٔ pb_mk_default_settings)

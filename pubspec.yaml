@@ -22,6 +22,8 @@ dependencies:
   url_launcher: ^6.3.1
   barcode_widget: ^2.0.4
   excel: ^4.0.6                # S13: Excel export/import (pure Dart)
+  archive: '>=3.6.1 <5.0.0'    # v96: خوانندهٔ پشتیبان xlsx (همان نسخه‌ای که excel می‌کشد)
+  xml: '>=6.5.0 <8.0.0'        # v96: خوانندهٔ پشتیبان xlsx (همان نسخه‌ای که excel می‌کشد)
   share_plus: ^10.1.4          # S13: share xlsx on Android
   file_selector: ^1.0.3        # S13: save dialog on Windows
   # --- نسخهٔ ویندوز ---

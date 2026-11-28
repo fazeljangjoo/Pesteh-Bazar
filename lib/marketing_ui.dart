@@ -9,6 +9,7 @@ import 'import_screen.dart';
 import 'marketing_calc.dart';
 import 'marketing_dashboard_ui.dart';
 import 'marketing_store.dart';
+import 'mk_proforma_ui.dart' show MkProformaView;
 import 'perms.dart';
 import 'user_badge.dart' show UserRoleLine, staffLogout;
 import 'utils.dart';
@@ -54,6 +55,7 @@ class MarketingHomeScreen extends StatelessWidget {
       if (s.canTeamReports) ('داشبورد', Icons.insights_outlined, const MarketingDashboard()),
       if (s.canEntry && StaffPerms.I.isStaff) ('امروز من', Icons.today_outlined, const MkMyDayView()),
       if (s.canEntry || s.isManager) ('مشتری‌ها', Icons.groups_2_outlined, const MkLeadsView()),
+      if (s.canEntry || s.isManager) ('پیش‌فاکتور', Icons.request_quote_outlined, const MkProformaView()), // v96
       if (s.isManager) ('مدیریت', Icons.tune, const MkAdminView()),
     ];
     final List<Widget> actions = shell
@@ -228,7 +230,7 @@ class MkImportScreen extends StatelessWidget {
             '۲. کشور: نام فارسی یا انگلیسی هر کشوری (مثل آرژانتین یا Argentina) یا کد دوحرفی (مثل AR). '
             'منبع آشنایی: هر متنی، مثل «Gulfood 2026» یا «نمایشگاه استانبول ۲۰۲۵»؛ دسته‌اش خودکار تعیین و متن اصلی در «جزئیات منبع» نگه داشته می‌شود. '
             'مرحله فقط لید جدید، ارتباط گرفته، مذاکره یا پیش‌فاکتور. پیگیری بعدی: مثل ۱۴۰۵/۰۹/۱۰. چند شماره تلفن را در یک خانه با «/» جدا کنید.\n'
-            '۳. «مسئول» را خالی بگذارید تا مشتری به نام خودتان ثبت شود؛ سپردن به بازاریاب دیگر فقط با مدیر است (نام دقیقاً مثل فهرست کارمندان).\n'
+            '۳. «مسئول» خالی یا نامی که در فهرست کارمندان نیست ⇒ مشتری به نام خودتان ثبت می‌شود؛ سپردن به بازاریاب دیگر فقط با مدیر است (نام مثل فهرست کارمندان).\n'
             '۴. اگر یک مشتری در فایل دو بار آمده باشد، دو ردیف با هم ادغام می‌شوند. مشتری‌ای که از قبل در برنامه هست رد می‌شود، '
             'مگر گزینهٔ «رکوردهای تکراری به‌روزرسانی شوند» را روشن کنید؛ مرحله با اکسل عوض نمی‌شود.\n'
             '۵. ردیف‌های سالم ثبت می‌شوند؛ ردیف‌های خطادار را با «دانلود ردیف خطادار» بگیرید، اصلاح و دوباره وارد کنید.\n'

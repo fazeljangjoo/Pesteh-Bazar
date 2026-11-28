@@ -50,7 +50,14 @@ class _ImportScreenState extends State<ImportScreen> {
       setState(() => _result = r);
       if (!dry && r['committed'] == true) {
         _batchId = _newBatchId(); // next import (even same file) is a new batch; same-batch retries stay idempotent until then
-        snack(context, 'ایمپورت ثبت شد');
+        // v96: «ثبت شد» فقط وقتی واقعاً ردیفی نوشته شده؛ وگرنه کاربر به گزارش پایین فرستاده می‌شود
+        final int created = (r['created'] as num?)?.toInt() ?? 0, updated = (r['updated'] as num?)?.toInt() ?? 0;
+        final int skipped = (r['skipped'] as num?)?.toInt() ?? 0, failed = (r['failed'] as num?)?.toInt() ?? 0;
+        snack(
+            context,
+            created + updated == 0
+                ? 'هیچ ردیفی ثبت نشد ($skipped ردشده، $failed خطا) — دلیل هر ردیف در گزارش پایین صفحه است'
+                : 'ثبت شد: $created جدید، $updated ویرایش${skipped + failed > 0 ? '، $skipped ردشده، $failed خطا (گزارش پایین)' : ''}');
         SyncService.I.syncNow(pull: true); // v90: rows written on the server reach this device's lists now
       }
     } catch (e) {

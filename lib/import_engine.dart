@@ -7,6 +7,7 @@ import 'package:excel/excel.dart';
 import 'excel_io.dart';
 import 'marketing_calc.dart' show kMkOpenStages, kMkSourceLabels, kMkStageLabels, mkCountryKey, mkCountryNorm, mkSourceKey;
 import 'utils.dart';
+import 'xlsx_reader.dart';
 
 // S13.T13.2a — client side of the import engine: kind schemas, template, xlsx/csv parsing,
 // Persian header auto-match, per-row validation (preview). Server commit = T13.2b (import.commit).
@@ -213,12 +214,21 @@ class ImportEngine {
     final String low = fileName.toLowerCase();
     List<List<String>> all;
     if (low.endsWith('.xlsx')) {
-      final Excel ex = Excel.decodeBytes(bytes);
-      if (ex.tables.isEmpty) throw Exception('فایل اکسل خالی است');
-      final Sheet sh = ex.tables[ex.tables.keys.first]!;
-      all = <List<String>>[];
-      for (final List<Data?> r in sh.rows) {
-        all.add(<String>[for (final Data? c in r) c?.value == null ? '' : c!.value.toString().trim()]);
+      try {
+        final Excel ex = Excel.decodeBytes(bytes);
+        if (ex.tables.isEmpty) throw Exception('فایل اکسل خالی است');
+        final Sheet sh = ex.tables[ex.tables.keys.first]!;
+        all = <List<String>>[];
+        for (final List<Data?> r in sh.rows) {
+          all.add(<String>[for (final Data? c in r) c?.value == null ? '' : c!.value.toString().trim()]);
+        }
+      } catch (_) {
+        // v96: پکیج excel روی خانه‌های خالیِ تکراری (مثلاً ستون «مسئول» خالی) با Null check می‌شکند ⇒ خوانندهٔ خودمان
+        try {
+          all = XlsxReader.firstSheet(bytes);
+        } catch (_) {
+          throw Exception('فایل اکسل خوانده نشد؛ آن را دوباره با Excel ذخیره کنید (xlsx)');
+        }
       }
     } else if (low.endsWith('.csv')) {
       all = _csv(utf8.decode(bytes, allowMalformed: true));
